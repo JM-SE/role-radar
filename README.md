@@ -32,6 +32,8 @@ make lint        # ruff check
 make typecheck   # mypy strict
 make fmt         # ruff format + ruff check --fix
 make check       # lint + typecheck + test
+make seed-boards # carga boards Greenhouse del fixture
+make collect     # ejecuta una colección manual
 ```
 
 ## Health check
@@ -42,7 +44,7 @@ curl -s localhost:8000/health
 # -> {"status": "ok", "version": "0.1.0", "environment": "dev"}
 ```
 
-## API (Fase 1)
+## API (Fase 1–2)
 
 | Método | Path | Descripción |
 |---|---|---|
@@ -53,8 +55,8 @@ curl -s localhost:8000/health
 | `GET` | `/jobs?status=&company=&limit=&offset=` | Lista ofertas canónicas |
 | `GET` | `/jobs/{id}` | Detalle de oferta + referencias de fuente |
 
-Sin `POST /jobs` ni `POST /runs` en F1: la escritura de ofertas es del worker
-(fases 5+) y el seed es una excepción de Fase 1 (ADR-0002).
+Sin `POST /jobs` ni `POST /runs`: la escritura de ofertas de Fase 2 ocurre solo
+en la CLI `collect` (ADR-0003). No se usa Tavily para colectar ofertas.
 
 ## Estructura
 
@@ -66,6 +68,12 @@ src/role_radar/     # paquete principal (src layout)
 ├── domain/         # enums de dominio (máquinas de estado, D12–D14)
 ├── db/             # engine, session, modelos ORM, seed de fixtures
 ├── repositories/   # capa de persistencia (I/O, sin reglas de negocio)
+├── collectors/     # collectors async (Greenhouse en Fase 2)
+├── normalization/   # transformaciones puras
+├── dedup/           # señales D6
+├── services/        # orquestación de colección
+├── discovery/       # propuestas de boards, offline por defecto
+└── cli/             # role-radar collect/seed-boards/discover-boards
 └── api/            # routers HTTP (health, profiles, jobs) + schemas
 alembic/            # migraciones de esquema
 fixtures/           # seed JSON (perfil + oferta canónica)

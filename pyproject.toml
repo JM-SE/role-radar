@@ -15,6 +15,9 @@ dependencies = [
     "alembic>=1.18.5",
 ]
 
+[project.scripts]
+role-radar = "role_radar.cli.main:main"
+
 [dependency-groups]
 dev = [
     "pytest",

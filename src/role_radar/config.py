@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./data/role-radar.db"
     broker_url: str | None = None
     telegram_bot_token: SecretStr | None = None
+    http_timeout_seconds: float = 30.0
+    http_user_agent: str = "role-radar/0.1 (+homelab)"
+    tavily_api_key: SecretStr | None = None
 
     model_config = SettingsConfigDict(env_prefix="ROLE_RADAR_")
 

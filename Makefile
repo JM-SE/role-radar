@@ -1,4 +1,4 @@
-.PHONY: sync run migrate test lint typecheck fmt check
+.PHONY: sync run migrate test lint typecheck fmt check seed-boards collect
 
 ## Instala y resuelve dependencias
 sync:
@@ -31,3 +31,11 @@ fmt:
 
 ## Verificación completa: lint + typecheck + test
 check: lint typecheck test
+
+## Semilla de boards Greenhouse curados
+seed-boards:
+	uv run role-radar seed-boards
+
+## Ejecuta una colección manual en proceso
+collect:
+	uv run role-radar collect

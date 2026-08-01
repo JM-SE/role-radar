@@ -5,6 +5,9 @@ Sin API pública de runs en F1 (D15): usado por seed y tests.
 """
 
 
+from datetime import datetime
+from typing import Any
+
 from sqlalchemy.orm import Session
 
 from role_radar.db.models import JobSearchRun, RunJob
@@ -49,3 +52,28 @@ class RunRepository:
         self._session.add(run_job)
         self._session.flush()
         return run_job
+
+    def update_run_status(
+        self,
+        run_id: str,
+        status: JobSearchRunStatus,
+        *,
+        error_message: str | None = None,
+        stats_json: dict[str, Any] | None = None,
+        started_at: datetime | None = None,
+        completed_at: datetime | None = None,
+    ) -> JobSearchRun | None:
+        run = self._session.get(JobSearchRun, run_id)
+        if run is None:
+            return None
+        run.status = status
+        if error_message is not None:
+            run.error_message = error_message
+        if stats_json is not None:
+            run.stats_json = stats_json
+        if started_at is not None:
+            run.started_at = started_at
+        if completed_at is not None:
+            run.completed_at = completed_at
+        self._session.flush()
+        return run

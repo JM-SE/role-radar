@@ -89,6 +89,7 @@ class Job(Base):
     location: Mapped[str | None] = mapped_column(String(255), nullable=True)
     normalized_location: Mapped[str | None] = mapped_column(String(255), nullable=True)
     description: Mapped[str | None] = mapped_column(nullable=True)
+    description_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     application_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     status: Mapped[JobStatus] = mapped_column(
         Enum(JobStatus, native_enum=False, length=16, values_callable=_enum_values),
