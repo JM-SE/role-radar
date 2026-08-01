@@ -1,0 +1,25 @@
+# Entornos y dependencias
+.venv/
+__pycache__/
+*.py[cod]
+
+# Configuración local
+.env
+
+# Datos locales
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Caches de herramientas
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# Builds
+dist/
+*.egg-info/
+
+# Índice de Codegraph (generado)
+.codegraph/
