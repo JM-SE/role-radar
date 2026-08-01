@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     app_name: str = "role-radar"
     environment: Literal["dev", "prod"] = "dev"
     log_level: str = "INFO"
-    database_url: str | None = None
+    database_url: str = "sqlite:///./data/role-radar.db"
     broker_url: str | None = None
     telegram_bot_token: SecretStr | None = None
 

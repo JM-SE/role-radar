@@ -1,4 +1,4 @@
-.PHONY: sync run test lint typecheck fmt check
+.PHONY: sync run migrate test lint typecheck fmt check
 
 ## Instala y resuelve dependencias
 sync:
@@ -7,6 +7,10 @@ sync:
 ## Servidor de desarrollo (recarga automática)
 run:
 	uv run uvicorn role_radar.main:app --reload
+
+## Migraciones (Alembic)
+migrate:
+	uv run alembic upgrade head
 
 ## Tests
 test:

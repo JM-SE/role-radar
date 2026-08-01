@@ -1,0 +1,17 @@
+{
+  "source": {
+    "type": "greenhouse",
+    "name": "Acme Greenhouse",
+    "enabled": true
+  },
+  "job": {
+    "title": "Backend Engineer",
+    "company": "Acme",
+    "location": "Madrid, Spain",
+    "description": "Build and operate the core API platform at Acme.",
+    "application_url": "https://boards.greenhouse.io/acme/jobs/123",
+    "status": "new",
+    "external_id": "123",
+    "source_url": "https://boards.greenhouse.io/acme/jobs/123"
+  }
+}

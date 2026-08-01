@@ -1,0 +1,12 @@
+{
+  "name": "Perfil Semilla",
+  "profile_json": {
+    "roles_target": ["Backend Engineer", "Platform Engineer"],
+    "skills": ["Python", "Go", "SQL", "FastAPI", "Docker"],
+    "regions": ["Madrid", "Remote ES", "Remote EU"],
+    "remote_ok": true,
+    "exclusions": ["on-site only", "shift work"],
+    "experience_years": 8,
+    "languages": ["es", "en"]
+  }
+}

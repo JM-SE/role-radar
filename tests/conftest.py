@@ -1,13 +1,21 @@
-"""Fixtures compartidas: settings de test, app y cliente HTTP async."""
+"""Fixtures compartidas: settings, app, cliente HTTP async y DB de test.
 
-from collections.abc import AsyncIterator
+DB de test: SQLite in-memory con StaticPool + ``create_all`` sobre el metadata
+(patrón §9/§11 de la spec F1 — velocidad; Alembic es el camino de producción).
+"""
+
+from collections.abc import AsyncIterator, Iterator
 
 import httpx
 import pytest
 from fastapi import FastAPI
+from sqlalchemy import Engine, create_engine
+from sqlalchemy.orm import Session
+from sqlalchemy.pool import StaticPool
 
 from role_radar.api import deps
 from role_radar.config import Settings
+from role_radar.db.base import Base
 from role_radar.main import create_app
 
 
@@ -18,10 +26,40 @@ def settings() -> Settings:
 
 
 @pytest.fixture
-def app(settings: Settings) -> FastAPI:
-    """App real de Fase 0 con la dependencia de settings sobreescrita."""
+def db_engine() -> Iterator[Engine]:
+    """Engine SQLite in-memory con el esquema completo (create_all)."""
+    engine = create_engine(
+        "sqlite://",
+        poolclass=StaticPool,
+        connect_args={"check_same_thread": False},
+    )
+    Base.metadata.create_all(engine)
+    yield engine
+    engine.dispose()
+
+
+@pytest.fixture
+def db_session(db_engine: Engine) -> Iterator[Session]:
+    """Sesión de test sobre la DB in-memory (una por test)."""
+    with Session(db_engine) as session:
+        yield session
+
+
+@pytest.fixture
+def app(settings: Settings, db_session: Session) -> FastAPI:
+    """App real con overrides: settings de test y sesión de DB de test.
+
+    get_session se sobreescribe para apuntar a la DB in-memory; el commit
+    ocurre al cerrar cada request (mismo contrato que en producción).
+    """
     application = create_app()
     application.dependency_overrides[deps.get_settings] = lambda: settings
+
+    def _override_get_session() -> Iterator[Session]:
+        yield db_session
+        db_session.commit()
+
+    application.dependency_overrides[deps.get_session] = _override_get_session
     return application
 
 

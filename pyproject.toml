@@ -11,6 +11,8 @@ dependencies = [
     "pydantic-settings",
     "structlog",
     "httpx",
+    "sqlalchemy>=2.0.51",
+    "alembic>=1.18.5",
 ]
 
 [dependency-groups]

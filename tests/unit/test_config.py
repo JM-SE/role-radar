@@ -24,7 +24,7 @@ def test_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.app_name == "role-radar"
     assert settings.environment == "dev"
     assert settings.log_level == "INFO"
-    assert settings.database_url is None
+    assert settings.database_url == "sqlite:///./data/role-radar.db"
     assert settings.broker_url is None
     assert settings.telegram_bot_token is None
 
