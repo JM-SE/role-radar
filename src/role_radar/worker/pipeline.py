@@ -84,20 +84,20 @@ class Pipeline:
                 resume_deep = existing.status is JobSearchRunStatus.DEEP_EVALUATING
                 resume_notify = existing.status is JobSearchRunStatus.NOTIFYING
             if resume_notify:
-                batch = await self._notifications.process(
+                await self._notifications.process(
                     run_id, recipient_key=self._notification_recipient
                 )
-                if self._retry_wait(batch):
+                if self._notification_retry_wait(run_id):
                     return self._release_notification_run(run_id)
                 return self._complete(run_id)
             if resume_deep and self._deep is not None:
                 await self._deep.process(run_id)
                 if self._is_daily_digest(run_id):
                     self._transition(run_id, JobSearchRunStatus.NOTIFYING)
-                    batch = await self._notifications.process(
+                    await self._notifications.process(
                         run_id, recipient_key=self._notification_recipient
                     )
-                    if self._retry_wait(batch):
+                    if self._notification_retry_wait(run_id):
                         return self._release_notification_run(run_id)
                 return self._complete(run_id)
             snapshots = self._collection.prepare(run_id)
@@ -135,10 +135,10 @@ class Pipeline:
                 await self._deep.process(run_id)
             if self._is_daily_digest(run_id):
                 self._transition(run_id, JobSearchRunStatus.NOTIFYING)
-                batch = await self._notifications.process(
+                await self._notifications.process(
                     run_id, recipient_key=self._notification_recipient
                 )
-                if self._retry_wait(batch):
+                if self._notification_retry_wait(run_id):
                     return self._release_notification_run(run_id)
             return self._complete(run_id)
         except Exception as exc:
@@ -276,12 +276,18 @@ class Pipeline:
                 and getattr(run.notification_mode, "value", run.notification_mode) == "daily_digest"
             )
 
-    @staticmethod
-    def _retry_wait(batch: NotificationBatch | None) -> bool:
-        return batch is not None and getattr(batch.status, "value", batch.status) in {
-            NotificationBatchStatus.RETRY_WAIT.value,
-            NotificationBatchStatus.SENDING.value,
-        }
+    def _notification_retry_wait(self, run_id: str) -> bool:
+        with self._session_factory() as session:
+            status = session.scalar(
+                select(NotificationBatch.status)
+                .where(NotificationBatch.run_id == run_id)
+                .order_by(NotificationBatch.updated_at.desc())
+                .limit(1)
+            )
+            return status in {
+                NotificationBatchStatus.RETRY_WAIT,
+                NotificationBatchStatus.SENDING,
+            }
 
     def _release_notification_run(self, run_id: str) -> JobSearchRun:
         with self._session_factory() as session:
