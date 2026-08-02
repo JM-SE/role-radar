@@ -18,6 +18,7 @@ from role_radar.domain.enums import (
 )
 from role_radar.repositories.runs import RunRepository
 from role_radar.services.pipeline_collection import PipelineCollectionService
+from role_radar.services.pipeline_deep_evaluation import PipelineDeepEvaluationService
 from role_radar.services.pipeline_extraction import PipelineExtractionService
 from role_radar.services.pipeline_scoring import PipelineScoringService
 from role_radar.worker.checkpoints import recompute_stats
@@ -29,6 +30,7 @@ class Pipeline:
         session_factory: Callable[[], Session],
         *,
         provider: LLMProvider,
+        deep_provider: LLMProvider | None = None,
         settings: Settings | None = None,
         collector_factory: Any = None,
     ) -> None:
@@ -41,6 +43,13 @@ class Pipeline:
         )
         self._extraction = PipelineExtractionService(session_factory, provider=provider)
         self._scoring = PipelineScoringService(session_factory)
+        self._deep = (
+            PipelineDeepEvaluationService(
+                session_factory, provider=deep_provider, settings=self._settings
+            )
+            if deep_provider is not None
+            else None
+        )
 
     async def run(self, run_id: str) -> JobSearchRun:
         try:
@@ -54,6 +63,10 @@ class Pipeline:
                     JobSearchRunStatus.CANCELLED,
                 }:
                     return existing
+                resume_deep = existing.status is JobSearchRunStatus.DEEP_EVALUATING
+            if resume_deep and self._deep is not None:
+                await self._deep.process(run_id)
+                return self._complete(run_id)
             snapshots = self._collection.prepare(run_id)
             for snapshot in snapshots:
                 result = await self._collection.execute(snapshot)
@@ -62,8 +75,10 @@ class Pipeline:
             with self._session_factory() as session:
                 run_after_collection = session.get(JobSearchRun, run_id)
                 outcomes = run_after_collection.source_results_json if run_after_collection else {}
-            if not snapshots or not outcomes or all(
-                result.get("status") != "ok" for result in outcomes.values()
+            if (
+                not snapshots
+                or not outcomes
+                or all(result.get("status") != "ok" for result in outcomes.values())
             ):
                 return self._fail(run_id, "all_sources_failed")
 
@@ -81,6 +96,10 @@ class Pipeline:
                     self._mark_extraction_failure(run_id, job_id, _safe_code(str(exc)))
             self._transition(run_id, JobSearchRunStatus.SCORING)
             self._scoring.score(run_id, job_ids)
+            if self._deep is not None:
+                self._deep.prepare_queue(run_id, job_ids)
+                self._transition(run_id, JobSearchRunStatus.DEEP_EVALUATING)
+                await self._deep.process(run_id)
             return self._complete(run_id)
         except Exception as exc:
             return self._fail(run_id, _safe_code(str(exc)) or "pipeline_failed")

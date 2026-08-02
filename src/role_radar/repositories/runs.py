@@ -19,6 +19,8 @@ _RECOVERABLE = {
     JobSearchRunStatus.NORMALIZING,
     JobSearchRunStatus.EXTRACTING,
     JobSearchRunStatus.SCORING,
+    JobSearchRunStatus.DEEP_EVALUATING,
+    JobSearchRunStatus.NOTIFYING,
 }
 
 
@@ -81,9 +83,7 @@ class RunRepository:
         status: JobSearchRunStatus | None = None,
         profile_id: str | None = None,
     ) -> list[JobSearchRun]:
-        stmt = select(JobSearchRun).order_by(
-            JobSearchRun.created_at.desc(), JobSearchRun.id.asc()
-        )
+        stmt = select(JobSearchRun).order_by(JobSearchRun.created_at.desc(), JobSearchRun.id.asc())
         if status is not None:
             stmt = stmt.where(JobSearchRun.status == status)
         if profile_id is not None:

@@ -3,7 +3,7 @@
 import asyncio
 import signal
 
-from role_radar.broker.factory import create_llm_provider
+from role_radar.broker.factory import create_deep_llm_provider, create_llm_provider
 from role_radar.config import Settings
 from role_radar.db.engine import get_engine
 from role_radar.db.session import get_session_factory
@@ -16,9 +16,10 @@ def run_worker(settings: Settings | None = None) -> None:
     engine = get_engine(current.database_url)
     factory = get_session_factory(engine)
     provider = create_llm_provider(current)
+    deep_provider = create_deep_llm_provider(current)
     runner = WorkerRunner(
         factory,
-        Pipeline(factory, provider=provider, settings=current),
+        Pipeline(factory, provider=provider, deep_provider=deep_provider, settings=current),
         settings=current,
     )
     stop = asyncio.Event()
@@ -34,4 +35,7 @@ def run_worker(settings: Settings | None = None) -> None:
         close = getattr(provider, "aclose", None)
         if close is not None:
             asyncio.run(close())
+        close_deep = getattr(deep_provider, "aclose", None)
+        if close_deep is not None:
+            asyncio.run(close_deep())
         engine.dispose()

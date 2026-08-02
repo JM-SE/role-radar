@@ -32,7 +32,14 @@ class StructuredGenerationRequest(BaseModel):
     @field_validator("trace")
     @classmethod
     def trace_values_are_bounded(cls, value: dict[str, str]) -> dict[str, str]:
-        allowed = {"job_id", "extraction_id", "prompt_version", "schema_version"}
+        allowed = {
+            "job_id",
+            "extraction_id",
+            "deep_evaluation_id",
+            "score_id",
+            "prompt_version",
+            "schema_version",
+        }
         if any(key not in allowed for key in value):
             raise ValueError("trace contains unsupported metadata")
         if any(len(item) > 256 for item in value.values()):

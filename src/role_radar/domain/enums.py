@@ -83,3 +83,27 @@ class SourceType(StrEnum):
     LINKEDIN_PUBLIC = "linkedin_public"
     MANUAL = "manual"
     OTHER = "other"
+
+
+class DeepEvaluationStatus(StrEnum):
+    """Lifecycle of one immutable deep-evaluation operation (F6)."""
+
+    PENDING = "pending"
+    PROCESSING = "processing"
+    VALID = "valid"
+    NEEDS_REVIEW = "needs_review"
+    FAILED = "failed"
+
+
+class DeepDecision(StrEnum):
+    STRONG_MATCH = "strong_match"
+    POSSIBLE_MATCH = "possible_match"
+    WEAK_MATCH = "weak_match"
+    REJECT = "reject"
+    NEEDS_REVIEW = "needs_review"
+
+
+class RecommendedAction(StrEnum):
+    APPLY = "apply"
+    REVIEW = "review"
+    IGNORE = "ignore"

@@ -19,7 +19,14 @@ from role_radar.broker.protocols import (
 from role_radar.extraction.schema import assert_broker_compatible
 
 _GENERATION_KEYS = {"max_tokens", "temperature", "top_p", "top_k", "min_p", "seed", "stop"}
-_TRACE_KEYS = {"job_id", "extraction_id", "prompt_version", "schema_version"}
+_TRACE_KEYS = {
+    "job_id",
+    "extraction_id",
+    "deep_evaluation_id",
+    "score_id",
+    "prompt_version",
+    "schema_version",
+}
 _ERROR_CLASSES = {
     "client_invalid",
     "policy_rejected",
@@ -45,6 +52,19 @@ def derive_idempotency_key(
     values = (job_id, input_hash, prompt_version, schema_version, str(corrective_attempt))
     encoded = "\x1f".join(f"{len(value)}:{value}" for value in values).encode("utf-8")
     return f"rr-extract-{hashlib.sha256(encoded).hexdigest()}"
+
+
+def derive_deep_idempotency_key(
+    *,
+    operation_id: str,
+    input_hash: str,
+    prompt_version: str,
+    schema_version: str,
+    corrective_attempt: Literal[0, 1],
+) -> str:
+    values = (operation_id, input_hash, prompt_version, schema_version, str(corrective_attempt))
+    encoded = "\x1f".join(f"{len(value)}:{value}" for value in values).encode("utf-8")
+    return f"rr-deep-{hashlib.sha256(encoded).hexdigest()}"
 
 
 class LLMBrokerClient(LLMProvider):
@@ -98,13 +118,22 @@ class LLMBrokerClient(LLMProvider):
     ) -> StructuredGenerationResult:
         self._validate_request(request)
         body = self._body(request)
-        key = derive_idempotency_key(
-            job_id=request.operation_id,
-            input_hash=request.input_hash,
-            prompt_version=request.prompt_version,
-            schema_version=request.schema_version,
-            corrective_attempt=request.corrective_attempt,
-        )
+        if self._capability == "deep-job-evaluation":
+            key = derive_deep_idempotency_key(
+                operation_id=request.operation_id,
+                input_hash=request.input_hash,
+                prompt_version=request.prompt_version,
+                schema_version=request.schema_version,
+                corrective_attempt=request.corrective_attempt,
+            )
+        else:
+            key = derive_idempotency_key(
+                job_id=request.operation_id,
+                input_hash=request.input_hash,
+                prompt_version=request.prompt_version,
+                schema_version=request.schema_version,
+                corrective_attempt=request.corrective_attempt,
+            )
         headers = {
             "Authorization": f"Bearer {self._token}",
             "Idempotency-Key": key,

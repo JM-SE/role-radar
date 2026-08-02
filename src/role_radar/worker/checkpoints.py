@@ -17,6 +17,11 @@ STAT_KEYS = (
     "extraction_failed",
     "scored",
     "score_failed",
+    "deep_selected",
+    "deep_evaluated",
+    "deep_failed",
+    "deep_needs_review",
+    "deep_skipped",
     "failed",
 )
 
@@ -50,4 +55,18 @@ def recompute_stats(
                 stats["scored"] += 1
             elif row.status is RunJobStatus.FAILED:
                 stats["score_failed"] += 1
+        if row.stage is RunJobStage.DEEP_EVALUATED:
+            if row.status in {RunJobStatus.PENDING, RunJobStatus.IN_PROGRESS}:
+                stats["deep_selected"] += 1
+            elif row.status is RunJobStatus.SUCCEEDED:
+                stats["deep_selected"] += 1
+                stats["deep_evaluated"] += 1
+            elif row.status is RunJobStatus.FAILED:
+                stats["deep_selected"] += 1
+                if row.error_code == "needs_review":
+                    stats["deep_needs_review"] += 1
+                else:
+                    stats["deep_failed"] += 1
+            elif row.status is RunJobStatus.SKIPPED:
+                stats["deep_skipped"] += 1
     return stats

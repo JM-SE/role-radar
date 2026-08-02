@@ -30,3 +30,14 @@ Para volver a ejecución offline, usar `ROLE_RADAR_LLM_PROVIDER=fake`. Los
 ejemplos `default`/`instruct` de documentación del broker son ejemplos, no un
 contrato obligatorio de RoleRadar. No se envía `application`: la integración
 usa workload y capability según D22.
+## Fase 6: evaluación profunda
+
+La evaluación profunda usa el mismo endpoint durable del broker con
+`workload=role-radar` y `capability=deep-job-evaluation`. Está deshabilitada
+para tráfico real por defecto (`ROLE_RADAR_DEEP_EVALUATION_PROVIDER=fake`).
+RoleRadar no envía modelo, backend, provider, priority ni otros parámetros
+físicos; esos valores pertenecen a la configuración operativa del broker.
+
+El smoke real es opt-in y requiere URL/token y una capability provisionada por
+el operador. Los tests y el gate de F6 usan FakeLLMProvider o MockTransport y
+no necesitan red.

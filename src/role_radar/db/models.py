@@ -25,6 +25,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from role_radar.db.base import Base
 from role_radar.domain.enums import (
+    DeepEvaluationStatus,
     ExtractionStatus,
     JobSearchRunStatus,
     JobStatus,
@@ -67,6 +68,7 @@ class CandidateProfile(Base):
     )
 
     scores: Mapped[list[JobScore]] = relationship(back_populates="profile")
+    deep_evaluations: Mapped[list[JobDeepEvaluation]] = relationship(back_populates="profile")
 
 
 class Source(Base):
@@ -122,6 +124,8 @@ class Job(Base):
         back_populates="job", cascade="all, delete-orphan"
     )
     scores: Mapped[list[JobScore]] = relationship(back_populates="job")
+    deep_evaluations: Mapped[list[JobDeepEvaluation]] = relationship(back_populates="job")
+    deep_queue_items: Mapped[list[DeepEvaluationQueueItem]] = relationship(back_populates="job")
 
 
 class JobExtraction(Base):
@@ -207,6 +211,117 @@ class JobScore(Base):
     job: Mapped[Job] = relationship(back_populates="scores")
     profile: Mapped[CandidateProfile] = relationship(back_populates="scores")
     extraction: Mapped[JobExtraction | None] = relationship(back_populates="scores")
+    deep_evaluations: Mapped[list[JobDeepEvaluation]] = relationship(back_populates="job_score")
+
+
+class DeepEvaluationQueueItem(Base):
+    """Immutable, durable selection made for one run."""
+
+    __tablename__ = "deep_evaluation_queue"
+    __table_args__ = (
+        UniqueConstraint("run_id", "job_id", name="uq_deep_queue_run_job"),
+        UniqueConstraint("run_id", "rank", name="uq_deep_queue_run_rank"),
+        UniqueConstraint("run_id", "job_score_id", name="uq_deep_queue_run_score"),
+        CheckConstraint("rank >= 1 AND rank <= 10", name="ck_deep_queue_rank"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("job_search_runs.id", ondelete="RESTRICT"), index=True
+    )
+    job_id: Mapped[str] = mapped_column(ForeignKey("jobs.id", ondelete="RESTRICT"), index=True)
+    job_score_id: Mapped[str] = mapped_column(
+        ForeignKey("job_scores.id", ondelete="RESTRICT"), index=True
+    )
+    rank: Mapped[int] = mapped_column()
+    selection_reason: Mapped[str] = mapped_column(String(32))
+    selector_policy_version: Mapped[str] = mapped_column(String(64))
+    selector_policy_hash: Mapped[str] = mapped_column(String(64))
+    ambiguity_resolution_version: Mapped[str] = mapped_column(String(64))
+    selection_input_hash: Mapped[str] = mapped_column(String(64), index=True)
+    resolvable_ambiguity_codes_json: Mapped[list[str]] = mapped_column(JSON)
+    evaluation_id: Mapped[str | None] = mapped_column(
+        ForeignKey("job_deep_evaluations.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    run: Mapped[JobSearchRun] = relationship(back_populates="deep_queue_items")
+    job: Mapped[Job] = relationship(back_populates="deep_queue_items")
+    score: Mapped[JobScore] = relationship()
+    evaluation: Mapped[JobDeepEvaluation | None] = relationship(foreign_keys=[evaluation_id])
+
+
+class JobDeepEvaluation(Base):
+    """Historical operation whose terminal result is never overwritten."""
+
+    __tablename__ = "job_deep_evaluations"
+    __table_args__ = (
+        UniqueConstraint("operation_key", name="uq_job_deep_evaluations_operation_key"),
+        CheckConstraint("attempt_count >= 0 AND attempt_count <= 2", name="ck_deep_attempt_count"),
+        CheckConstraint("active_corrective_attempt IN (0, 1)", name="ck_deep_corrective_attempt"),
+        CheckConstraint(
+            "fit_score IS NULL OR (fit_score >= 0 AND fit_score <= 100)", name="ck_deep_fit_score"
+        ),
+        CheckConstraint(
+            "final_score IS NULL OR (final_score >= 0 AND final_score <= 100)",
+            name="ck_deep_final_score",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    job_id: Mapped[str] = mapped_column(ForeignKey("jobs.id", ondelete="RESTRICT"), index=True)
+    profile_id: Mapped[str] = mapped_column(
+        ForeignKey("candidate_profiles.id", ondelete="RESTRICT"), index=True
+    )
+    extraction_id: Mapped[str] = mapped_column(
+        ForeignKey("job_extractions.id", ondelete="RESTRICT"), index=True
+    )
+    job_score_id: Mapped[str] = mapped_column(
+        ForeignKey("job_scores.id", ondelete="RESTRICT"), index=True
+    )
+    operation_key: Mapped[str] = mapped_column(String(512), unique=True)
+    input_hash: Mapped[str] = mapped_column(String(64), index=True)
+    prompt_version: Mapped[str] = mapped_column(String(64))
+    schema_version: Mapped[str] = mapped_column(String(64))
+    selector_policy_version: Mapped[str] = mapped_column(String(64))
+    selector_policy_hash: Mapped[str] = mapped_column(String(64))
+    model_capability: Mapped[str] = mapped_column(String(64))
+    model_identifier: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    broker_task_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    status: Mapped[DeepEvaluationStatus] = mapped_column(
+        Enum(DeepEvaluationStatus, native_enum=False, length=16, values_callable=_enum_values),
+        default=DeepEvaluationStatus.PENDING,
+    )
+    attempt_count: Mapped[int] = mapped_column(default=0)
+    active_corrective_attempt: Mapped[int] = mapped_column(default=0)
+    request_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    processing_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    recovered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    fit_score: Mapped[int | None] = mapped_column(nullable=True)
+    decision: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    strengths_json: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
+    gaps_json: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
+    model_concerns_json: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
+    uncertainties_json: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
+    recommended_action: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    confidence: Mapped[float | None] = mapped_column(nullable=True)
+    adjustment: Mapped[int | None] = mapped_column(nullable=True)
+    final_score: Mapped[int | None] = mapped_column(nullable=True)
+    finish_reason: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    usage_json: Mapped[dict[str, int] | None] = mapped_column(JSON, nullable=True)
+    error_class: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
+    )
+
+    job: Mapped[Job] = relationship(back_populates="deep_evaluations")
+    profile: Mapped[CandidateProfile] = relationship(back_populates="deep_evaluations")
+    extraction: Mapped[JobExtraction] = relationship()
+    job_score: Mapped[JobScore] = relationship(back_populates="deep_evaluations")
 
 
 class JobSourceReference(Base):
@@ -282,6 +397,7 @@ class JobSearchRun(Base):
     )
 
     run_jobs: Mapped[list[RunJob]] = relationship(back_populates="run")
+    deep_queue_items: Mapped[list[DeepEvaluationQueueItem]] = relationship(back_populates="run")
     profile: Mapped[CandidateProfile | None] = relationship(foreign_keys=[profile_id])
     retry_of: Mapped[JobSearchRun | None] = relationship(
         remote_side=[id], foreign_keys=[retry_of_run_id], uselist=False

@@ -1,5 +1,7 @@
 """Schemas de ofertas (GET /jobs, GET /jobs/{id})."""
 
+from __future__ import annotations
+
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
@@ -31,6 +33,31 @@ class JobScoreSummary(BaseModel):
     signals: list[dict[str, object]]
     blockers: list[dict[str, object]]
     ambiguities: list[dict[str, object]]
+    created_at: datetime
+    effective_score: int
+    final_score: int | None = None
+    decision: str | None = None
+    recommended_action: str | None = None
+    confidence: float | None = None
+    deep_evaluation: JobDeepEvaluationSummary | None = None
+
+
+class JobDeepEvaluationSummary(BaseModel):
+    id: str
+    status: str
+    prompt_version: str
+    schema_version: str
+    selector_policy_version: str
+    fit_score: int | None
+    decision: str | None
+    strengths: list[dict[str, object]]
+    gaps: list[dict[str, object]]
+    model_concerns: list[dict[str, object]]
+    uncertainties: list[dict[str, object]]
+    recommended_action: str | None
+    confidence: float | None
+    adjustment: int | None
+    final_score: int | None
     created_at: datetime
 
 

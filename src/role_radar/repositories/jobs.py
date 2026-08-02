@@ -5,15 +5,16 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, case, func, select
 from sqlalchemy.orm import Session, selectinload
 
-from role_radar.db.models import Job, JobScore, JobSourceReference
+from role_radar.db.models import Job, JobDeepEvaluation, JobScore, JobSourceReference
 from role_radar.domain.enums import JobStatus
 
 JobList = list[Job]
 JobScoreList = list[tuple[Job, JobScore]]
 OptionalJobScoreList = list[tuple[Job, JobScore | None]]
+DeepJobScoreList = list[tuple[Job, JobScore, JobDeepEvaluation | None]]
 
 
 class JobRepository:
@@ -166,6 +167,91 @@ class JobRepository:
             .limit(1)
         )
         return self._session.scalar(stmt)
+
+    def latest_score_with_deep(
+        self, *, job_id: str, profile_id: str
+    ) -> tuple[JobScore | None, JobDeepEvaluation | None]:
+        score = self.latest_score(job_id=job_id, profile_id=profile_id)
+        if score is None:
+            return None, None
+        deep = self._session.scalar(
+            select(JobDeepEvaluation)
+            .where(JobDeepEvaluation.job_score_id == score.id)
+            .order_by(JobDeepEvaluation.created_at.desc(), JobDeepEvaluation.id.asc())
+            .limit(1)
+        )
+        return score, deep
+
+    def list_with_effective_scores(
+        self,
+        *,
+        profile_id: str,
+        status: JobStatus | None = None,
+        company: str | None = None,
+        minimum_score: int | None = None,
+        eligible: bool | None = True,
+        requires_review: bool = False,
+        decision: str | None = None,
+        minimum_effective_score: int | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> DeepJobScoreList:
+        latest_id = (
+            select(JobScore.id)
+            .where(JobScore.job_id == Job.id, JobScore.profile_id == profile_id)
+            .order_by(JobScore.created_at.desc(), JobScore.id.asc())
+            .limit(1)
+            .correlate(Job)
+            .scalar_subquery()
+        )
+        deep_id = (
+            select(JobDeepEvaluation.id)
+            .where(
+                JobDeepEvaluation.job_score_id == JobScore.id, JobDeepEvaluation.status == "valid"
+            )
+            .order_by(JobDeepEvaluation.created_at.desc(), JobDeepEvaluation.id.asc())
+            .limit(1)
+            .correlate(JobScore)
+            .scalar_subquery()
+        )
+        effective = case(
+            (JobDeepEvaluation.final_score.is_not(None), JobDeepEvaluation.final_score),
+            else_=JobScore.preliminary_score,
+        )
+        stmt = (
+            select(Job, JobScore, JobDeepEvaluation)
+            .join(JobScore, JobScore.id == latest_id)
+            .outerjoin(JobDeepEvaluation, JobDeepEvaluation.id == deep_id)
+            .options(selectinload(Job.source_references))
+        )
+        if status is not None:
+            stmt = stmt.where(Job.status == status)
+        if company is not None:
+            stmt = stmt.where(Job.company == company)
+        if minimum_score is not None:
+            stmt = stmt.where(JobScore.preliminary_score >= minimum_score)
+        if eligible is not None:
+            stmt = stmt.where(JobScore.eligible.is_(eligible))
+        if requires_review:
+            stmt = stmt.where(func.json_array_length(JobScore.ambiguity_json) > 0)
+        if decision is not None:
+            stmt = stmt.where(
+                JobDeepEvaluation.decision == decision, JobDeepEvaluation.status == "valid"
+            )
+        if minimum_effective_score is not None:
+            stmt = stmt.where(effective >= minimum_effective_score)
+        if decision is not None or minimum_effective_score is not None:
+            stmt = stmt.order_by(
+                effective.desc(),
+                JobScore.preliminary_score.desc(),
+                Job.first_seen_at.desc(),
+                Job.id.asc(),
+            )
+        else:
+            stmt = stmt.order_by(
+                JobScore.preliminary_score.desc(), Job.first_seen_at.desc(), Job.id.asc()
+            )
+        return list(self._session.execute(stmt.limit(limit).offset(offset)).tuples().all())
 
     def update_last_seen(self, job_id: str, *, last_seen_at: datetime | None = None) -> Job | None:
         job = self._session.get(Job, job_id)
