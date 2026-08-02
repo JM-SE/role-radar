@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily role-radar enqueue timer
+
+[Timer]
+OnCalendar=*-*-* 08:00:00 UTC
+Persistent=true
+Unit=role-radar-scheduler.service
+
+[Install]
+WantedBy=timers.target

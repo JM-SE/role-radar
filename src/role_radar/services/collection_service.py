@@ -3,12 +3,14 @@
 from datetime import UTC, datetime
 from typing import Any
 
+from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
 from role_radar.collectors.greenhouse import GreenhouseCollector
-from role_radar.collectors.protocols import CollectionContext, JobCollector
+from role_radar.collectors.protocols import CollectionContext, SourceSnapshot
 from role_radar.config import Settings
 from role_radar.db.models import JobSearchRun, Source
+from role_radar.db.session import get_session_factory
 from role_radar.dedup.service import DedupService
 from role_radar.domain.enums import JobSearchRunStatus, RunJobStage, RunJobStatus, SourceType
 from role_radar.logging import get_logger
@@ -16,6 +18,7 @@ from role_radar.normalization.jobs import normalize_raw_job
 from role_radar.repositories.jobs import JobRepository
 from role_radar.repositories.runs import RunRepository
 from role_radar.repositories.sources import SourceRepository
+from role_radar.services.pipeline_collection import CollectionResult, PipelineCollectionService
 
 
 class CollectionService:
@@ -28,7 +31,7 @@ class CollectionService:
         sources: SourceRepository | None = None,
         jobs: JobRepository | None = None,
         runs: RunRepository | None = None,
-        collector: JobCollector | None = None,
+        collector: Any = None,
     ) -> None:
         self._session = session
         self._sources = sources or SourceRepository(session)
@@ -42,6 +45,38 @@ class CollectionService:
             )
         self._collector = collector
         self._logger = get_logger()
+
+    def prepare(self, run_id: str) -> tuple[SourceSnapshot, ...]:
+        """Nueva frontera F5: materializa snapshots sin hacer I/O externo."""
+        service = PipelineCollectionService(
+            self._session_factory(),
+            collector_factory=lambda _snapshot: self._collector,
+        )
+        return service.prepare(run_id)
+
+    async def execute(self, snapshot: SourceSnapshot) -> CollectionResult:
+        """Execute solo recibe un snapshot DTO; no usa Session/ORM."""
+        service = PipelineCollectionService(
+            self._session_factory(),
+            collector_factory=lambda _snapshot: self._collector,
+        )
+        return await service.execute(snapshot)
+
+    def finalize(self, run_id: str, result: CollectionResult) -> None:
+        """Finaliza en una sesión nueva y corta."""
+        self._persistent_service().finalize(run_id, result)
+
+    def _session_factory(self) -> Any:
+        bind = self._session.get_bind()
+        if not isinstance(bind, Engine):
+            raise TypeError("persistent collection requires an Engine bind")
+        return get_session_factory(bind)
+
+    def _persistent_service(self) -> PipelineCollectionService:
+        return PipelineCollectionService(
+            self._session_factory(),
+            collector_factory=lambda _snapshot: self._collector,
+        )
 
     async def run_collect(self, *, reason: str = "cli_collect") -> JobSearchRun:
         run = self._runs.create_run(reason=reason, status=JobSearchRunStatus.PENDING)

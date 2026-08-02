@@ -68,7 +68,9 @@ class ExtractionRepository:
         if extraction is None:
             return None
         extraction.attempt_count += 1
+        extraction.active_corrective_attempt = 1 if extraction.attempt_count > 1 else 0
         extraction.validation_status = ExtractionStatus.PROCESSING
+        extraction.processing_started_at = datetime.now(UTC)
         extraction.updated_at = datetime.now(UTC)
         self._session.flush()
         return extraction
@@ -93,6 +95,8 @@ class ExtractionRepository:
         extraction.usage_json = usage_json
         extraction.error_class = None
         extraction.error_code = None
+        extraction.active_corrective_attempt = 0
+        extraction.processing_started_at = None
         extraction.updated_at = datetime.now(UTC)
         self._session.flush()
         return extraction
@@ -118,6 +122,7 @@ class ExtractionRepository:
         extraction.model_identifier = model_identifier
         extraction.finish_reason = finish_reason
         extraction.usage_json = usage_json
+        extraction.processing_started_at = None
         extraction.updated_at = datetime.now(UTC)
         self._session.flush()
         return extraction

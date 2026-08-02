@@ -1,4 +1,4 @@
-.PHONY: sync run migrate test lint typecheck fmt check seed-boards collect
+.PHONY: sync run migrate test lint typecheck fmt check seed-boards collect worker run-create
 
 ## Instala y resuelve dependencias
 sync:
@@ -39,3 +39,11 @@ seed-boards:
 ## Ejecuta una colección manual en proceso
 collect:
 	uv run role-radar collect
+
+## Encola una intención manual; no ejecuta el pipeline
+run-create:
+	uv run role-radar run create --reason manual
+
+## Worker persistente único
+worker:
+	uv run role-radar worker

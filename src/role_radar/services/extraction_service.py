@@ -4,6 +4,7 @@ import json
 from typing import Any, Literal
 
 from pydantic import ValidationError
+from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
 from role_radar.broker.protocols import (
@@ -13,6 +14,7 @@ from role_radar.broker.protocols import (
     StructuredGenerationResult,
 )
 from role_radar.db.models import Job, JobExtraction
+from role_radar.db.session import get_session_factory
 from role_radar.domain.enums import ExtractionStatus, RunJobStage, RunJobStatus
 from role_radar.extraction.prompts import (
     PROMPT_VERSION,
@@ -26,6 +28,12 @@ from role_radar.normalization.text import description_hash, normalize_whitespace
 from role_radar.repositories.extractions import ExtractionRepository
 from role_radar.repositories.jobs import JobRepository
 from role_radar.repositories.runs import RunRepository
+from role_radar.services.pipeline_extraction import (
+    ExtractionExecution,
+    FinalizedExtraction,
+    PipelineExtractionService,
+    PreparedExtraction,
+)
 
 CAPABILITY = "structured-extraction"
 
@@ -42,10 +50,32 @@ class ExtractionService:
         extractions: ExtractionRepository | None = None,
         runs: RunRepository | None = None,
     ) -> None:
+        self._session = session
         self._provider = provider
         self._jobs = jobs or JobRepository(session)
         self._extractions = extractions or ExtractionRepository(session)
         self._runs = runs or RunRepository(session)
+
+    def prepare(self, job_id: str, *, corrective: bool = False) -> PreparedExtraction | None:
+        """F5 prepare: checkpoint antes del await, con sesión sync cerrada."""
+        return self._persistent().prepare(job_id, corrective=corrective)
+
+    async def execute(self, prepared: PreparedExtraction) -> ExtractionExecution:
+        """F5 execute: la coroutine recibe solamente DTOs frozen."""
+        return await self._persistent().execute(prepared)
+
+    def finalize(self, execution: ExtractionExecution) -> FinalizedExtraction:
+        """F5 finalize: relee y persiste en otra sesión sync breve."""
+        return self._persistent().finalize(execution)
+
+    def _persistent(self) -> PipelineExtractionService:
+        bind = self._session.get_bind()
+        if not isinstance(bind, Engine):
+            raise TypeError("persistent extraction requires an Engine bind")
+        return PipelineExtractionService(
+            get_session_factory(bind),
+            provider=self._provider,
+        )
 
     async def extract_job(self, *, job_id: str, run_id: str | None = None) -> JobExtraction:
         job = self._jobs.get(job_id)

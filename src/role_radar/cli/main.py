@@ -5,6 +5,7 @@ import asyncio
 import json
 import sys
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -19,9 +20,12 @@ from role_radar.db.session import get_session_factory
 from role_radar.discovery.null_provider import NullSearchProvider
 from role_radar.discovery.protocols import SearchProvider, SearchQuery
 from role_radar.repositories.sources import SourceRepository
+from role_radar.scheduler import latest_slot
 from role_radar.services.collection_service import CollectionService
 from role_radar.services.extraction_service import ExtractionService
 from role_radar.services.matching_service import MatchingService
+from role_radar.services.run_service import RunConflict, RunNotFound, RunService
+from role_radar.worker.main import run_worker
 
 DISCOVERY_QUERY = "greenhouse job board software engineer"
 _GREENHOUSE_HOSTS = {"boards.greenhouse.io", "job-boards.greenhouse.io"}
@@ -258,13 +262,88 @@ def _parser() -> argparse.ArgumentParser:
     score_pending = subparsers.add_parser("score-pending", help="calcula scores pendientes")
     score_pending.add_argument("--limit", type=int, default=10)
     score_pending.add_argument("--profile-id")
+    run = subparsers.add_parser("run", help="crea y consulta intents persistentes")
+    run_commands = run.add_subparsers(dest="run_command", required=True)
+    run_create = run_commands.add_parser("create")
+    run_create.add_argument("--reason", default="manual")
+    run_create.add_argument("--profile-id")
+    run_create.add_argument("--idempotency-key")
+    run_create.add_argument("--schedule-id")
+    run_list = run_commands.add_parser("list")
+    run_list.add_argument("--limit", type=int, default=50)
+    run_list.add_argument("--offset", type=int, default=0)
+    run_list.add_argument("--status")
+    run_list.add_argument("--profile-id")
+    run_show = run_commands.add_parser("show")
+    run_show.add_argument("--run-id", required=True)
+    run_retry = run_commands.add_parser("retry")
+    run_retry.add_argument("--run-id", required=True)
+    run_retry.add_argument("--idempotency-key")
+    subparsers.add_parser("worker", help="procesa runs pending/recoverables")
     return parser
+
+
+def _run_control(settings: Settings, args: argparse.Namespace) -> int:
+    engine, session = _open_session(settings)
+    try:
+        service = RunService(session)
+        if args.run_command == "create":
+            reason = args.reason
+            key = args.idempotency_key
+            if reason == "scheduled":
+                slot = latest_slot(
+                    datetime.now(UTC),
+                    schedule_id=args.schedule_id or settings.schedule_id,
+                    hour_utc=settings.schedule_hour_utc,
+                    minute_utc=settings.schedule_minute_utc,
+                )
+                key = key or slot
+            run = service.create(
+                reason=reason,
+                profile_id=args.profile_id,
+                idempotency_key=key,
+            )
+        elif args.run_command == "list":
+            from role_radar.domain.enums import JobSearchRunStatus
+
+            status = JobSearchRunStatus(args.status) if args.status else None
+            runs = service.list(
+                limit=args.limit, offset=args.offset, status=status, profile_id=args.profile_id
+            )
+            print(json.dumps([{"id": item.id, "status": item.status.value} for item in runs]))
+            return 0
+        elif args.run_command == "show":
+            run = service.get(args.run_id)
+        else:
+            run = service.retry(args.run_id, idempotency_key=args.idempotency_key)
+        session.commit()
+        print(json.dumps({"id": run.id, "status": run.status.value}))
+        return 0
+    except (RunConflict, RunNotFound, ValueError) as exc:
+        session.rollback()
+        print(f"role-radar: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        session.close()
+        engine.dispose()
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     settings = Settings()
     try:
+        if args.command == "run":
+            return _run_control(settings, args)
+        if args.command == "worker":
+            run_worker(settings)
+            return 0
+        direct_commands = {"collect", "extract", "extract-pending", "score", "score-pending"}
+        if args.command in direct_commands and not settings.allow_direct_pipeline_writes:
+            print(
+                "direct pipeline writes are disabled; use `run create` followed by `worker`",
+                file=sys.stderr,
+            )
+            return 1
         if args.command == "seed-boards":
             return _seed_boards(settings, _fixtures_dir())
         if args.command == "collect":

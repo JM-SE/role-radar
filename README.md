@@ -34,8 +34,10 @@ make fmt         # ruff format + ruff check --fix
 make check       # lint + typecheck + test
 make seed-boards # carga boards Greenhouse del fixture
 make collect     # ejecuta una colección manual
-uv run role-radar extract --job-id UUID
-uv run role-radar extract-pending --limit 10
+uv run role-radar run create --reason scheduled
+uv run role-radar run list
+uv run role-radar run show --run-id UUID
+uv run role-radar worker
 ```
 
 ## Health check
@@ -57,8 +59,11 @@ curl -s localhost:8000/health
 | `GET` | `/jobs?status=&company=&limit=&offset=` | Lista ofertas canónicas |
 | `GET` | `/jobs/{id}` | Detalle de oferta + referencias de fuente |
 
-Sin `POST /jobs` ni `POST /runs`: la escritura de ofertas de Fase 2 ocurre solo
-en la CLI `collect` (ADR-0003). No se usa Tavily para colectar ofertas.
+`POST /runs` solo crea una intención y devuelve `202`; el worker es el único
+writer del pipeline. Los comandos directos `collect`, `extract` y `score` se
+conservan para dev/test, pero están bloqueados salvo
+`ROLE_RADAR_ALLOW_DIRECT_PIPELINE_WRITES=true` (nunca válido en prod).
+No se usa Tavily para colectar ofertas.
 
 ## Estructura
 

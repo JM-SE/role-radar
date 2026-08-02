@@ -11,7 +11,16 @@ from enum import StrEnum
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import JSON, CheckConstraint, DateTime, Enum, ForeignKey, String, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    CheckConstraint,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Index,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from role_radar.db.base import Base
@@ -127,6 +136,10 @@ class JobExtraction(Base):
             "prompt_version",
             name="uq_job_extractions_operation",
         ),
+        CheckConstraint(
+            "active_corrective_attempt IN (0, 1)",
+            name="ck_job_extractions_active_corrective_attempt",
+        ),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
@@ -143,6 +156,11 @@ class JobExtraction(Base):
         default=ExtractionStatus.PENDING,
     )
     attempt_count: Mapped[int] = mapped_column(default=0)
+    active_corrective_attempt: Mapped[int] = mapped_column(default=0)
+    request_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    processing_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     error_class: Mapped[str | None] = mapped_column(String(64), nullable=True)
     error_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
     finish_reason: Mapped[str | None] = mapped_column(String(32), nullable=True)
@@ -212,9 +230,30 @@ class JobSearchRun(Base):
     """Ejecución del pipeline (D12: 10 estados exactos)."""
 
     __tablename__ = "job_search_runs"
+    __table_args__ = (
+        Index("ix_job_search_runs_pending_created", "status", "created_at"),
+        Index(
+            "ix_job_search_runs_recovery",
+            "status",
+            "lease_expires_at",
+            "created_at",
+        ),
+        Index("ix_job_search_runs_profile", "profile_id"),
+        Index("ix_job_search_runs_retry_parent", "retry_of_run_id"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     reason: Mapped[str] = mapped_column(String(255))
+    profile_id: Mapped[str | None] = mapped_column(
+        ForeignKey("candidate_profiles.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    retry_of_run_id: Mapped[str | None] = mapped_column(
+        ForeignKey("job_search_runs.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    trigger_key_hash: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, unique=True, index=True
+    )
+    request_hash: Mapped[str] = mapped_column(String(64), default="", nullable=False)
     status: Mapped[JobSearchRunStatus] = mapped_column(
         Enum(
             JobSearchRunStatus,
@@ -227,10 +266,26 @@ class JobSearchRun(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     error_message: Mapped[str | None] = mapped_column(nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
     stats_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    source_snapshot_json: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
+    source_results_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    claimed_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    recovery_count: Mapped[int] = mapped_column(default=0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
+    )
 
     run_jobs: Mapped[list[RunJob]] = relationship(back_populates="run")
+    profile: Mapped[CandidateProfile | None] = relationship(foreign_keys=[profile_id])
+    retry_of: Mapped[JobSearchRun | None] = relationship(
+        remote_side=[id], foreign_keys=[retry_of_run_id], uselist=False
+    )
 
 
 class RunJob(Base):
@@ -250,6 +305,12 @@ class RunJob(Base):
         default=RunJobStatus.PENDING,
     )
     error_message: Mapped[str | None] = mapped_column(nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    attempt_count: Mapped[int] = mapped_column(default=0, nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    outcome_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow

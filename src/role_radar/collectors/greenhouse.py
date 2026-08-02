@@ -4,11 +4,21 @@ from datetime import UTC, datetime
 from typing import Any
 
 import httpx
+from pydantic import BaseModel, ConfigDict, Field
 
-from role_radar.collectors.protocols import CollectionContext
+from role_radar.collectors.protocols import CollectionContext, SourceSnapshot
 from role_radar.domain.dto import RawJob
 
 GREENHOUSE_BOARDS_API_BASE = "https://boards-api.greenhouse.io/v1/boards"
+
+
+class GreenhouseSourceConfig(BaseModel):
+    """Configuración propia del adapter Greenhouse (no del protocolo común)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    board_token: str = Field(min_length=1, max_length=255)
+    company: str | None = Field(default=None, max_length=255)
 
 
 class GreenhouseCollector:
@@ -20,11 +30,13 @@ class GreenhouseCollector:
         client: httpx.AsyncClient | None = None,
         timeout: float = 30.0,
         user_agent: str = "role-radar/0.1 (+homelab)",
+        config: GreenhouseSourceConfig | None = None,
     ) -> None:
         self._client = client or httpx.AsyncClient(timeout=timeout)
         self._owns_client = client is None
         self._timeout = timeout
         self._user_agent = user_agent
+        self._config = config
 
     async def __aenter__(self) -> "GreenhouseCollector":
         return self
@@ -36,9 +48,18 @@ class GreenhouseCollector:
         if self._owns_client:
             await self._client.aclose()
 
-    async def collect(self, context: CollectionContext) -> list[RawJob]:
+    async def collect(self, context: SourceSnapshot | CollectionContext) -> list[RawJob]:
+        if isinstance(context, SourceSnapshot):
+            config = self._config or GreenhouseSourceConfig.model_validate(context.configuration)
+            board_token = config.board_token
+            company = config.company or context.name
+            source_name = context.name
+        else:
+            board_token = context.board_token
+            company = context.company or context.source_name
+            source_name = context.source_name
         headers = {"User-Agent": self._user_agent, "Accept": "application/json"}
-        list_url = f"{GREENHOUSE_BOARDS_API_BASE}/{context.board_token}/jobs"
+        list_url = f"{GREENHOUSE_BOARDS_API_BASE}/{board_token}/jobs"
         response = await self._client.get(list_url, headers=headers, timeout=self._timeout)
         response.raise_for_status()
         payload = response.json()
@@ -83,7 +104,7 @@ class GreenhouseCollector:
                     source_url=absolute_url,
                     application_url=job_payload.get("application_url", absolute_url),
                     title=str(job_payload.get("title", "")),
-                    company=context.company or context.source_name,
+                    company=company or source_name,
                     location=location,
                     description=job_payload.get("content"),
                     structured_data=structured_data,
