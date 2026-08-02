@@ -8,6 +8,7 @@ import pytest
 from sqlalchemy.orm import Session
 
 from role_radar.db.seed import load_fixtures
+from role_radar.services.matching_service import MatchingService
 
 FIXTURES_DIR = Path(__file__).resolve().parents[2] / "fixtures"
 
@@ -64,6 +65,24 @@ async def test_list_jobs_with_filters(client: httpx.AsyncClient, seeded: dict[st
 async def test_get_job_not_found(client: httpx.AsyncClient) -> None:
     response = await client.get("/jobs/no-existe")
     assert response.status_code == 404
+
+
+async def test_ranking_includes_explainable_latest_score(
+    client: httpx.AsyncClient, seeded: dict[str, str], db_session: Session
+) -> None:
+    score = MatchingService(db_session).score_job(
+        job_id=seeded["job_id"], profile_id=seeded["profile_id"]
+    )
+    db_session.commit()
+    response = await client.get(
+        "/jobs",
+        params={"profile_id": seeded["profile_id"], "minimum_score": score.preliminary_score},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 1
+    assert body[0]["latest_score"]["id"] == score.id
+    assert body[0]["latest_score"]["signals"]
 
 
 async def test_no_post_jobs_endpoint(client: httpx.AsyncClient) -> None:

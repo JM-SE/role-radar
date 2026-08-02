@@ -11,7 +11,7 @@ from enum import StrEnum
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import JSON, DateTime, Enum, ForeignKey, String, UniqueConstraint
+from sqlalchemy import JSON, CheckConstraint, DateTime, Enum, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from role_radar.db.base import Base
@@ -42,16 +42,22 @@ class CandidateProfile(Base):
     """Perfil profesional del candidato (D3: semilla manual JSON reducido)."""
 
     __tablename__ = "candidate_profiles"
+    __table_args__ = (
+        UniqueConstraint("name", "version", name="uq_candidate_profiles_name_version"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     name: Mapped[str] = mapped_column(String(255))
     version: Mapped[int] = mapped_column(default=1)
+    schema_version: Mapped[int] = mapped_column(default=0)
     profile_json: Mapped[dict[str, Any]] = mapped_column(JSON)
     is_active: Mapped[bool] = mapped_column(default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
     )
+
+    scores: Mapped[list[JobScore]] = relationship(back_populates="profile")
 
 
 class Source(Base):
@@ -66,17 +72,11 @@ class Source(Base):
     name: Mapped[str] = mapped_column(String(255), unique=True)
     configuration: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     enabled: Mapped[bool] = mapped_column(default=True)
-    last_success_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    last_error_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
-    source_references: Mapped[list[JobSourceReference]] = relationship(
-        back_populates="source"
-    )
+    source_references: Mapped[list[JobSourceReference]] = relationship(back_populates="source")
 
 
 class Job(Base):
@@ -96,18 +96,10 @@ class Job(Base):
         Enum(JobStatus, native_enum=False, length=16, values_callable=_enum_values),
         default=JobStatus.NEW,
     )
-    first_seen_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=_utcnow
-    )
-    last_seen_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=_utcnow
-    )
-    published_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    expires_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
@@ -120,6 +112,7 @@ class Job(Base):
     extractions: Mapped[list[JobExtraction]] = relationship(
         back_populates="job", cascade="all, delete-orphan"
     )
+    scores: Mapped[list[JobScore]] = relationship(back_populates="job")
 
 
 class JobExtraction(Base):
@@ -128,7 +121,10 @@ class JobExtraction(Base):
     __tablename__ = "job_extractions"
     __table_args__ = (
         UniqueConstraint(
-            "job_id", "input_hash", "schema_version", "prompt_version",
+            "job_id",
+            "input_hash",
+            "schema_version",
+            "prompt_version",
             name="uq_job_extractions_operation",
         ),
     )
@@ -157,6 +153,42 @@ class JobExtraction(Base):
     )
 
     job: Mapped[Job] = relationship(back_populates="extractions")
+    scores: Mapped[list[JobScore]] = relationship(back_populates="extraction")
+
+
+class JobScore(Base):
+    """Immutable result of one deterministic matching operation."""
+
+    __tablename__ = "job_scores"
+    __table_args__ = (
+        UniqueConstraint("operation_key", name="uq_job_scores_operation_key"),
+        CheckConstraint(
+            "preliminary_score >= 0 AND preliminary_score <= 100", name="ck_job_scores_score_range"
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    job_id: Mapped[str] = mapped_column(ForeignKey("jobs.id", ondelete="RESTRICT"), index=True)
+    profile_id: Mapped[str] = mapped_column(
+        ForeignKey("candidate_profiles.id", ondelete="RESTRICT"), index=True
+    )
+    extraction_id: Mapped[str | None] = mapped_column(
+        ForeignKey("job_extractions.id", ondelete="RESTRICT"), index=True, nullable=True
+    )
+    operation_key: Mapped[str] = mapped_column(String(512), unique=True)
+    scoring_version: Mapped[str] = mapped_column(String(64))
+    policy_version: Mapped[str] = mapped_column(String(64))
+    input_hash: Mapped[str] = mapped_column(String(64), index=True)
+    preliminary_score: Mapped[int] = mapped_column()
+    eligible: Mapped[bool] = mapped_column()
+    signal_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON)
+    hard_blocker_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON)
+    ambiguity_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    job: Mapped[Job] = relationship(back_populates="scores")
+    profile: Mapped[CandidateProfile] = relationship(back_populates="scores")
+    extraction: Mapped[JobExtraction | None] = relationship(back_populates="scores")
 
 
 class JobSourceReference(Base):
@@ -170,9 +202,7 @@ class JobSourceReference(Base):
     external_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     source_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     raw_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
-    collected_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=_utcnow
-    )
+    collected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
     job: Mapped[Job] = relationship(back_populates="source_references")
     source: Mapped[Source] = relationship(back_populates="source_references")
@@ -194,12 +224,8 @@ class JobSearchRun(Base):
         ),
         default=JobSearchRunStatus.PENDING,
     )
-    started_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    completed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     error_message: Mapped[str | None] = mapped_column(nullable=True)
     stats_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)

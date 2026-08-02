@@ -1,12 +1,23 @@
 {
   "name": "Perfil Semilla",
   "profile_json": {
-    "roles_target": ["Backend Engineer", "Platform Engineer"],
-    "skills": ["Python", "Go", "SQL", "FastAPI", "Docker"],
-    "regions": ["Madrid", "Remote ES", "Remote EU"],
-    "remote_ok": true,
-    "exclusions": ["on-site only", "shift work"],
-    "experience_years": 8,
-    "languages": ["es", "en"]
+    "title": "backend engineer",
+    "years_of_experience": 8,
+    "target_roles": ["backend", "platform"],
+    "target_titles": ["backend engineer", "platform engineer"],
+    "core_skills": ["python", "go", "sql"],
+    "secondary_skills": ["fastapi", "docker"],
+    "regions": ["madrid", "spain", "europe"],
+    "remote_only": true,
+    "employment_preferences": ["full_time", "contractor"],
+    "languages": {"spanish": "professional", "english": "professional"},
+    "excluded_roles": [],
+    "excluded_technologies": [],
+    "hard_constraints": {
+      "available_work_authorizations": [],
+      "unavailable_work_authorizations": [],
+      "allowed_employment_types": []
+    },
+    "soft_preferences": {"preferred_industries": []}
   }
 }

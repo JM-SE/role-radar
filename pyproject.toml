@@ -24,6 +24,7 @@ dev = [
     "pytest-asyncio",
     "ruff",
     "mypy",
+    "hypothesis",
 ]
 
 [build-system]

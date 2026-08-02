@@ -8,10 +8,12 @@ from typing import Any
 from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session, selectinload
 
-from role_radar.db.models import Job, JobSourceReference
+from role_radar.db.models import Job, JobScore, JobSourceReference
 from role_radar.domain.enums import JobStatus
 
 JobList = list[Job]
+JobScoreList = list[tuple[Job, JobScore]]
+OptionalJobScoreList = list[tuple[Job, JobScore | None]]
 
 
 class JobRepository:
@@ -55,11 +57,7 @@ class JobRepository:
         return job
 
     def get(self, job_id: str) -> Job | None:
-        stmt = (
-            select(Job)
-            .where(Job.id == job_id)
-            .options(selectinload(Job.source_references))
-        )
+        stmt = select(Job).where(Job.id == job_id).options(selectinload(Job.source_references))
         return self._session.scalars(stmt).first()
 
     def list(
@@ -88,9 +86,88 @@ class JobRepository:
         )
         return list(self._session.scalars(stmt))
 
-    def update_last_seen(
-        self, job_id: str, *, last_seen_at: datetime | None = None
-    ) -> Job | None:
+    def list_with_latest_scores(
+        self,
+        *,
+        profile_id: str,
+        status: JobStatus | None = None,
+        company: str | None = None,
+        minimum_score: int | None = None,
+        eligible: bool | None = True,
+        requires_review: bool = False,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> JobScoreList:
+        """One SQL query for rankable jobs and their latest score."""
+        latest_id = (
+            select(JobScore.id)
+            .where(JobScore.job_id == Job.id, JobScore.profile_id == profile_id)
+            .order_by(JobScore.created_at.desc(), JobScore.id.asc())
+            .limit(1)
+            .correlate(Job)
+            .scalar_subquery()
+        )
+        stmt = (
+            select(Job, JobScore)
+            .join(JobScore, JobScore.id == latest_id)
+            .options(selectinload(Job.source_references))
+            .order_by(JobScore.preliminary_score.desc(), Job.first_seen_at.desc(), Job.id.asc())
+            .limit(limit)
+            .offset(offset)
+        )
+        if status is not None:
+            stmt = stmt.where(Job.status == status)
+        if company is not None:
+            stmt = stmt.where(Job.company == company)
+        if minimum_score is not None:
+            stmt = stmt.where(JobScore.preliminary_score >= minimum_score)
+        if eligible is not None:
+            stmt = stmt.where(JobScore.eligible.is_(eligible))
+        if requires_review:
+            stmt = stmt.where(func.json_array_length(JobScore.ambiguity_json) > 0)
+        return list(self._session.execute(stmt).tuples().all())
+
+    def list_with_optional_scores(
+        self,
+        *,
+        profile_id: str,
+        status: JobStatus | None = None,
+        company: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> OptionalJobScoreList:
+        latest_id = (
+            select(JobScore.id)
+            .where(JobScore.job_id == Job.id, JobScore.profile_id == profile_id)
+            .order_by(JobScore.created_at.desc(), JobScore.id.asc())
+            .limit(1)
+            .correlate(Job)
+            .scalar_subquery()
+        )
+        stmt = (
+            select(Job, JobScore)
+            .outerjoin(JobScore, JobScore.id == latest_id)
+            .options(selectinload(Job.source_references))
+            .order_by(Job.last_seen_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        if status is not None:
+            stmt = stmt.where(Job.status == status)
+        if company is not None:
+            stmt = stmt.where(Job.company == company)
+        return list(self._session.execute(stmt).tuples().all())
+
+    def latest_score(self, *, job_id: str, profile_id: str) -> JobScore | None:
+        stmt = (
+            select(JobScore)
+            .where(JobScore.job_id == job_id, JobScore.profile_id == profile_id)
+            .order_by(JobScore.created_at.desc(), JobScore.id.asc())
+            .limit(1)
+        )
+        return self._session.scalar(stmt)
+
+    def update_last_seen(self, job_id: str, *, last_seen_at: datetime | None = None) -> Job | None:
         job = self._session.get(Job, job_id)
         if job is None:
             return None
@@ -126,17 +203,12 @@ class JobRepository:
         location_condition = (
             and_(Job.normalized_location.is_(None), Job.location.is_(None))
             if location is None
-            else (
-                func.lower(Job.normalized_location) == location.casefold()
-            )
+            else (func.lower(Job.normalized_location) == location.casefold())
         )
         if location is not None:
-            location_condition = (
-                location_condition
-                | and_(
-                    Job.normalized_location.is_(None),
-                    func.lower(Job.location) == location.casefold(),
-                )
+            location_condition = location_condition | and_(
+                Job.normalized_location.is_(None),
+                func.lower(Job.location) == location.casefold(),
             )
         stmt = select(Job).where(
             and_(

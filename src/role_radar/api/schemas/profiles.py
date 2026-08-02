@@ -5,13 +5,20 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
+from role_radar.domain.profile import CandidateProfileV1
+
 
 class ProfileCreate(BaseModel):
-    """Payload de POST /profiles (D15: name, profile_json, version?)."""
+    """Strict v1 payload; version and schema are server-owned."""
 
     name: str
-    profile_json: dict[str, Any]
-    version: int = 1
+    profile_json: CandidateProfileV1
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+
+class ProfileUpdate(BaseModel):
+    profile_json: CandidateProfileV1
+    model_config = ConfigDict(strict=True, extra="forbid")
 
 
 class ProfileResponse(BaseModel):
@@ -20,6 +27,7 @@ class ProfileResponse(BaseModel):
     id: str
     name: str
     version: int
+    schema_version: int
     profile_json: dict[str, Any]
     is_active: bool
     created_at: datetime

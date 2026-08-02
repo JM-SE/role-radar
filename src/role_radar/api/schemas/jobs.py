@@ -19,6 +19,21 @@ class JobSourceReferenceResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class JobScoreSummary(BaseModel):
+    id: str
+    profile_id: str
+    extraction_id: str | None
+    scoring_version: str
+    policy_version: str
+    score: int
+    preliminary_score: int
+    eligible: bool
+    signals: list[dict[str, object]]
+    blockers: list[dict[str, object]]
+    ambiguities: list[dict[str, object]]
+    created_at: datetime
+
+
 class JobResponse(BaseModel):
     """Oferta canónica (lista)."""
 
@@ -36,6 +51,7 @@ class JobResponse(BaseModel):
     expires_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    latest_score: JobScoreSummary | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

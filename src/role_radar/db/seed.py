@@ -26,7 +26,7 @@ def load_fixtures(session: Session, fixtures_dir: str | Path) -> dict[str, str]:
     fixtures = Path(fixtures_dir)
 
     profile_data = json.loads((fixtures / "profile_seed.json").read_text())
-    profile = ProfileRepository(session).create(
+    profile = ProfileRepository(session).create_v1(
         name=profile_data["name"],
         profile_json=profile_data["profile_json"],
     )

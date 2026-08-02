@@ -21,6 +21,7 @@ from role_radar.discovery.protocols import SearchProvider, SearchQuery
 from role_radar.repositories.sources import SourceRepository
 from role_radar.services.collection_service import CollectionService
 from role_radar.services.extraction_service import ExtractionService
+from role_radar.services.matching_service import MatchingService
 
 DISCOVERY_QUERY = "greenhouse job board software engineer"
 _GREENHOUSE_HOSTS = {"boards.greenhouse.io", "job-boards.greenhouse.io"}
@@ -109,9 +110,9 @@ async def _run_extract_pending(settings: Settings, limit: int) -> list[dict[str,
     engine, session = _open_session(settings)
     provider = create_llm_provider(settings)
     try:
-        extractions = await ExtractionService(
-            session, provider=provider
-        ).extract_pending(limit=limit)
+        extractions = await ExtractionService(session, provider=provider).extract_pending(
+            limit=limit
+        )
         session.commit()
         return [
             {
@@ -172,6 +173,72 @@ async def _run_discover(
         engine.dispose()
 
 
+def _run_score(settings: Settings, job_id: str, profile_id: str | None) -> dict[str, object]:
+    engine, session = _open_session(settings)
+    try:
+        score = MatchingService(session).score_job(job_id=job_id, profile_id=profile_id)
+        session.commit()
+        return {
+            "score_id": score.id,
+            "job_id": score.job_id,
+            "profile_id": score.profile_id,
+            "extraction_id": score.extraction_id,
+            "scoring_version": score.scoring_version,
+            "policy_version": score.policy_version,
+            "score": score.preliminary_score,
+            "eligible": score.eligible,
+            "blocker_codes": [item["code"] for item in score.hard_blocker_json],
+            "ambiguity_codes": [item["code"] for item in score.ambiguity_json],
+        }
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+        engine.dispose()
+
+
+def _run_score_pending(
+    settings: Settings, limit: int, profile_id: str | None
+) -> list[dict[str, object]]:
+    engine, session = _open_session(settings)
+    try:
+        service = MatchingService(session)
+        profile = service.resolve_profile(profile_id)
+        from sqlalchemy import select
+
+        from role_radar.db.models import Job
+
+        jobs = list(
+            session.scalars(select(Job).order_by(Job.first_seen_at.desc(), Job.id).limit(limit))
+        )
+        output: list[dict[str, object]] = []
+        for job in jobs:
+            score = service.score_job(job_id=job.id, profile_id=profile.id)
+            session.commit()
+            output.append(
+                {
+                    "score_id": score.id,
+                    "job_id": score.job_id,
+                    "profile_id": score.profile_id,
+                    "extraction_id": score.extraction_id,
+                    "scoring_version": score.scoring_version,
+                    "policy_version": score.policy_version,
+                    "score": score.preliminary_score,
+                    "eligible": score.eligible,
+                    "blocker_codes": [item["code"] for item in score.hard_blocker_json],
+                    "ambiguity_codes": [item["code"] for item in score.ambiguity_json],
+                }
+            )
+        return output
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+        engine.dispose()
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="role-radar")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -185,6 +252,12 @@ def _parser() -> argparse.ArgumentParser:
     extract.add_argument("--job-id", required=True)
     pending = subparsers.add_parser("extract-pending", help="extrae Jobs pendientes")
     pending.add_argument("--limit", type=int, default=10)
+    score = subparsers.add_parser("score", help="calcula el score determinista de un Job")
+    score.add_argument("--job-id", required=True)
+    score.add_argument("--profile-id")
+    score_pending = subparsers.add_parser("score-pending", help="calcula scores pendientes")
+    score_pending.add_argument("--limit", type=int, default=10)
+    score_pending.add_argument("--profile-id")
     return parser
 
 
@@ -207,6 +280,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
         if args.command == "extract-pending":
             print(json.dumps(asyncio.run(_run_extract_pending(settings, args.limit))))
+            return 0
+        if args.command == "score":
+            print(json.dumps(_run_score(settings, args.job_id, args.profile_id)))
+            return 0
+        if args.command == "score-pending":
+            print(json.dumps(_run_score_pending(settings, args.limit, args.profile_id)))
             return 0
     except Exception as exc:
         print(f"role-radar: {exc}", file=sys.stderr)
