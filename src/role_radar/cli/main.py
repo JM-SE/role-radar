@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
+from role_radar.broker.factory import create_llm_provider
 from role_radar.collectors.greenhouse import GreenhouseCollector
 from role_radar.config import Settings
 from role_radar.db.engine import get_engine
@@ -19,6 +20,7 @@ from role_radar.discovery.null_provider import NullSearchProvider
 from role_radar.discovery.protocols import SearchProvider, SearchQuery
 from role_radar.repositories.sources import SourceRepository
 from role_radar.services.collection_service import CollectionService
+from role_radar.services.extraction_service import ExtractionService
 
 DISCOVERY_QUERY = "greenhouse job board software engineer"
 _GREENHOUSE_HOSTS = {"boards.greenhouse.io", "job-boards.greenhouse.io"}
@@ -80,6 +82,57 @@ async def _run_collect(settings: Settings, reason: str) -> tuple[str, str, dict[
         engine.dispose()
 
 
+async def _run_extract(settings: Settings, job_id: str) -> dict[str, object]:
+    engine, session = _open_session(settings)
+    provider = create_llm_provider(settings)
+    try:
+        extraction = await ExtractionService(session, provider=provider).extract_job(job_id=job_id)
+        session.commit()
+        return {
+            "extraction_id": extraction.id,
+            "job_id": extraction.job_id,
+            "status": extraction.validation_status.value,
+            "attempt_count": extraction.attempt_count,
+        }
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        close = getattr(provider, "aclose", None)
+        if close is not None:
+            await close()
+        session.close()
+        engine.dispose()
+
+
+async def _run_extract_pending(settings: Settings, limit: int) -> list[dict[str, object]]:
+    engine, session = _open_session(settings)
+    provider = create_llm_provider(settings)
+    try:
+        extractions = await ExtractionService(
+            session, provider=provider
+        ).extract_pending(limit=limit)
+        session.commit()
+        return [
+            {
+                "extraction_id": extraction.id,
+                "job_id": extraction.job_id,
+                "status": extraction.validation_status.value,
+                "attempt_count": extraction.attempt_count,
+            }
+            for extraction in extractions
+        ]
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        close = getattr(provider, "aclose", None)
+        if close is not None:
+            await close()
+        session.close()
+        engine.dispose()
+
+
 def _extract_board_token(url: str) -> str | None:
     parsed = urlsplit(url)
     if parsed.hostname not in _GREENHOUSE_HOSTS:
@@ -128,6 +181,10 @@ def _parser() -> argparse.ArgumentParser:
     discover = subparsers.add_parser("discover-boards", help="propone boards sin activarlos")
     discover.add_argument("--query", default=DISCOVERY_QUERY)
     discover.add_argument("--max-results", type=int, default=10)
+    extract = subparsers.add_parser("extract", help="extrae un Job de forma estructurada")
+    extract.add_argument("--job-id", required=True)
+    pending = subparsers.add_parser("extract-pending", help="extrae Jobs pendientes")
+    pending.add_argument("--limit", type=int, default=10)
     return parser
 
 
@@ -145,6 +202,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             return asyncio.run(
                 _run_discover(settings, NullSearchProvider(), args.query, args.max_results)
             )
+        if args.command == "extract":
+            print(json.dumps(asyncio.run(_run_extract(settings, args.job_id))))
+            return 0
+        if args.command == "extract-pending":
+            print(json.dumps(asyncio.run(_run_extract_pending(settings, args.limit))))
+            return 0
     except Exception as exc:
         print(f"role-radar: {exc}", file=sys.stderr)
         return 1

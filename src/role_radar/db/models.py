@@ -16,6 +16,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from role_radar.db.base import Base
 from role_radar.domain.enums import (
+    ExtractionStatus,
     JobSearchRunStatus,
     JobStatus,
     RunJobStage,
@@ -116,6 +117,46 @@ class Job(Base):
         back_populates="job", cascade="all, delete-orphan"
     )
     run_jobs: Mapped[list[RunJob]] = relationship(back_populates="job")
+    extractions: Mapped[list[JobExtraction]] = relationship(
+        back_populates="job", cascade="all, delete-orphan"
+    )
+
+
+class JobExtraction(Base):
+    """Resultado durable de una extracción, sin prompts ni output inválido."""
+
+    __tablename__ = "job_extractions"
+    __table_args__ = (
+        UniqueConstraint(
+            "job_id", "input_hash", "schema_version", "prompt_version",
+            name="uq_job_extractions_operation",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    job_id: Mapped[str] = mapped_column(ForeignKey("jobs.id"), index=True)
+    schema_version: Mapped[str] = mapped_column(String(64))
+    prompt_version: Mapped[str] = mapped_column(String(64))
+    model_capability: Mapped[str] = mapped_column(String(64))
+    model_identifier: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    broker_task_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    input_hash: Mapped[str] = mapped_column(String(64))
+    extraction_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    validation_status: Mapped[ExtractionStatus] = mapped_column(
+        Enum(ExtractionStatus, native_enum=False, length=16, values_callable=_enum_values),
+        default=ExtractionStatus.PENDING,
+    )
+    attempt_count: Mapped[int] = mapped_column(default=0)
+    error_class: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    finish_reason: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    usage_json: Mapped[dict[str, int] | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
+    )
+
+    job: Mapped[Job] = relationship(back_populates="extractions")
 
 
 class JobSourceReference(Base):

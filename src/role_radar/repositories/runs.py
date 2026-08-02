@@ -8,6 +8,7 @@ Sin API pública de runs en F1 (D15): usado por seed y tests.
 from datetime import datetime
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from role_radar.db.models import JobSearchRun, RunJob
@@ -77,3 +78,32 @@ class RunRepository:
             run.completed_at = completed_at
         self._session.flush()
         return run
+
+    def get_run_job(self, *, run_id: str, job_id: str, stage: RunJobStage) -> RunJob | None:
+        stmt = select(RunJob).where(
+            RunJob.run_id == run_id, RunJob.job_id == job_id, RunJob.stage == stage
+        )
+        return self._session.scalars(stmt).first()
+
+    def update_run_job(
+        self,
+        *,
+        run_id: str,
+        job_id: str,
+        stage: RunJobStage,
+        status: RunJobStatus,
+        error_message: str | None = None,
+    ) -> RunJob:
+        run_job = self.get_run_job(run_id=run_id, job_id=job_id, stage=stage)
+        if run_job is None:
+            return self.add_run_job(
+                run_id=run_id,
+                job_id=job_id,
+                stage=stage,
+                status=status,
+                error_message=error_message,
+            )
+        run_job.status = status
+        run_job.error_message = error_message
+        self._session.flush()
+        return run_job

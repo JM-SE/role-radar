@@ -1,5 +1,7 @@
 """Persistencia de ofertas (Job) y referencias a fuentes."""
 
+from __future__ import annotations
+
 from datetime import UTC, datetime
 from typing import Any
 
@@ -8,6 +10,8 @@ from sqlalchemy.orm import Session, selectinload
 
 from role_radar.db.models import Job, JobSourceReference
 from role_radar.domain.enums import JobStatus
+
+JobList = list[Job]
 
 
 class JobRepository:
@@ -71,6 +75,17 @@ class JobRepository:
             stmt = stmt.where(Job.status == status)
         if company is not None:
             stmt = stmt.where(Job.company == company)
+        return list(self._session.scalars(stmt))
+
+    def list_with_description(self, *, limit: int = 50, offset: int = 0) -> JobList:
+        """Lista ofertas que pueden entrar en extracción, sin reglas de estado."""
+        stmt = (
+            select(Job)
+            .where(Job.description.is_not(None), Job.description != "")
+            .order_by(Job.last_seen_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
         return list(self._session.scalars(stmt))
 
     def update_last_seen(

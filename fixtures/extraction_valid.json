@@ -1,0 +1,12 @@
+{
+  "seniority": {"state": "unknown", "value": null, "evidence": null},
+  "remote_policy": {"state": "unknown", "value": null, "evidence": null},
+  "regions": [],
+  "employment_type": {"state": "unknown", "value": null, "evidence": null},
+  "required_skills": [{"value": "API platform", "evidence": "core API platform"}],
+  "preferred_skills": [],
+  "languages": [],
+  "years_experience": {"state": "unknown", "value": null, "evidence": null},
+  "salary": {"state": "unknown", "min": null, "max": null, "currency": null, "period": null, "evidence": null},
+  "work_authorization": {"state": "unknown", "value": null, "evidence": null}
+}

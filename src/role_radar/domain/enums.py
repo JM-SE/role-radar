@@ -61,6 +61,16 @@ class RunJobStatus(StrEnum):
     SKIPPED = "skipped"
 
 
+class ExtractionStatus(StrEnum):
+    """Estado durable de una extracción estructurada (Fase 3)."""
+
+    PENDING = "pending"
+    PROCESSING = "processing"
+    VALID = "valid"
+    NEEDS_REVIEW = "needs_review"
+    FAILED = "failed"
+
+
 class SourceType(StrEnum):
     """Tipo de fuente de ofertas (handoff §9; extensible)."""
 

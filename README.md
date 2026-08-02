@@ -34,6 +34,8 @@ make fmt         # ruff format + ruff check --fix
 make check       # lint + typecheck + test
 make seed-boards # carga boards Greenhouse del fixture
 make collect     # ejecuta una colección manual
+uv run role-radar extract --job-id UUID
+uv run role-radar extract-pending --limit 10
 ```
 
 ## Health check
@@ -83,5 +85,6 @@ docs/adr/           # Registro de Decisiones de Arquitectura
 
 ## Nota para fases futuras
 
-- El campo `application` que role-radar enviará al LLM Broker (desde Fase 3)
-  será **`"role-radar"`** (decisión D1). No implementado aún.
+- El campo histórico `application` que aparecía en ejemplos previos del broker está
+  **SUPERSEDED** por D22: RoleRadar envía `workload="role-radar"` y
+  `capability="structured-extraction"`; `application` no existe en el contrato real.
