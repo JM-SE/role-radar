@@ -3,10 +3,16 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
+from sqlalchemy import select
 
 from role_radar.api.deps import get_run_service
-from role_radar.api.schemas.runs import RunCreateRequest, RunJobResponse, RunResponse
-from role_radar.db.models import JobSearchRun
+from role_radar.api.schemas.runs import (
+    NotificationSummary,
+    RunCreateRequest,
+    RunJobResponse,
+    RunResponse,
+)
+from role_radar.db.models import JobSearchRun, NotificationBatch, NotificationItem
 from role_radar.domain.enums import JobSearchRunStatus
 from role_radar.services.run_service import RunConflict, RunNotFound, RunService
 
@@ -52,9 +58,7 @@ def list_runs(
 
 
 @router.get("/{run_id}", response_model=RunResponse)
-def get_run(
-    run_id: str, service: Annotated[RunService, Depends(get_run_service)]
-) -> RunResponse:
+def get_run(run_id: str, service: Annotated[RunService, Depends(get_run_service)]) -> RunResponse:
     try:
         return _response(service.get(run_id))
     except RunNotFound as exc:
@@ -97,6 +101,9 @@ def _response(run: JobSearchRun) -> RunResponse:
         lease_expires_at=run.lease_expires_at,
         heartbeat_at=run.heartbeat_at,
         recovery_count=run.recovery_count,
+        notification_mode=getattr(run.notification_mode, "value", run.notification_mode),
+        schedule_slot=run.schedule_slot,
+        notification_summary=_notification_summary(run),
         run_jobs=[
             RunJobResponse(
                 id=item.id,
@@ -111,4 +118,49 @@ def _response(run: JobSearchRun) -> RunResponse:
             )
             for item in jobs
         ],
+    )
+
+
+def _notification_summary(run: JobSearchRun) -> NotificationSummary | None:
+    # The relationship is intentionally not exposed; this compact query is only
+    # used by the control-plane mapper and contains no body or recipient data.
+    session = object.__getattribute__(run, "_sa_instance_state").session
+    mode = getattr(run.notification_mode, "value", run.notification_mode)
+    if mode == "none" or session is None:
+        return None
+    batch = session.scalar(
+        select(NotificationBatch)
+        .where(NotificationBatch.run_id == run.id)
+        .order_by(NotificationBatch.created_at.desc())
+        .limit(1)
+    )
+    if batch is None:
+        return NotificationSummary(
+            mode=mode,
+            slot=run.schedule_slot,
+            status=None,
+            item_count=0,
+            attempts=0,
+            sent_at=None,
+            counts={},
+            error_code=None,
+        )
+    statuses = list(
+        session.scalars(
+            select(NotificationItem.status).where(NotificationItem.batch_id == batch.id)
+        )
+    )
+    counts: dict[str, int] = {}
+    for status_value in statuses:
+        key = getattr(status_value, "value", status_value)
+        counts[key] = counts.get(key, 0) + 1
+    return NotificationSummary(
+        mode=mode,
+        slot=run.schedule_slot,
+        status=getattr(batch.status, "value", batch.status),
+        item_count=batch.item_count,
+        attempts=batch.attempt_count,
+        sent_at=batch.sent_at,
+        counts=counts,
+        error_code=batch.error_code,
     )

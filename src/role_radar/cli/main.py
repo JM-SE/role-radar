@@ -290,18 +290,26 @@ def _run_control(settings: Settings, args: argparse.Namespace) -> int:
         if args.run_command == "create":
             reason = args.reason
             key = args.idempotency_key
+            profile_id = args.profile_id
             if reason == "scheduled":
+                profile_id = service.resolve_profile_id(profile_id)
                 slot = latest_slot(
                     datetime.now(UTC),
                     schedule_id=args.schedule_id or settings.schedule_id,
-                    hour_utc=settings.schedule_hour_utc,
-                    minute_utc=settings.schedule_minute_utc,
+                    hour_local=settings.schedule_hour_local,
+                    minute_local=settings.schedule_minute_local,
+                    timezone_name=settings.schedule_timezone,
                 )
-                key = key or slot
+                key = (
+                    key
+                    or f"scheduler:{args.schedule_id or settings.schedule_id}:{slot}:{profile_id}"
+                )
             run = service.create(
                 reason=reason,
-                profile_id=args.profile_id,
+                profile_id=profile_id,
                 idempotency_key=key,
+                notification_mode="daily_digest" if reason == "scheduled" else "none",
+                schedule_slot=slot if reason == "scheduled" else None,
             )
         elif args.run_command == "list":
             from role_radar.domain.enums import JobSearchRunStatus

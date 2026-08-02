@@ -29,6 +29,9 @@ from role_radar.domain.enums import (
     ExtractionStatus,
     JobSearchRunStatus,
     JobStatus,
+    NotificationBatchStatus,
+    NotificationItemStatus,
+    NotificationMode,
     RunJobStage,
     RunJobStatus,
     SourceType,
@@ -359,6 +362,12 @@ class JobSearchRun(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     reason: Mapped[str] = mapped_column(String(255))
+    notification_mode: Mapped[NotificationMode] = mapped_column(
+        Enum(NotificationMode, native_enum=False, length=16, values_callable=_enum_values),
+        default=NotificationMode.NONE,
+        nullable=False,
+    )
+    schedule_slot: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     profile_id: Mapped[str | None] = mapped_column(
         ForeignKey("candidate_profiles.id", ondelete="RESTRICT"), nullable=True, index=True
     )
@@ -434,3 +443,97 @@ class RunJob(Base):
 
     run: Mapped[JobSearchRun] = relationship(back_populates="run_jobs")
     job: Mapped[Job] = relationship(back_populates="run_jobs")
+
+
+class NotificationBatch(Base):
+    """Durable single-message Telegram outbox record."""
+
+    __tablename__ = "notification_batches"
+    __table_args__ = (
+        UniqueConstraint("operation_key", name="uq_notification_batches_operation_key"),
+        CheckConstraint(
+            "item_count >= 1 AND item_count <= 5", name="ck_notification_batch_item_count"
+        ),
+        Index("ix_notification_batches_due", "status", "next_attempt_at"),
+        Index("ix_notification_batches_run", "run_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("job_search_runs.id", ondelete="RESTRICT"), index=True
+    )
+    schedule_slot: Mapped[str] = mapped_column(String(64))
+    channel: Mapped[str] = mapped_column(String(24), default="telegram")
+    recipient_key_hash: Mapped[str] = mapped_column(String(64))
+    operation_key: Mapped[str] = mapped_column(String(512), unique=True)
+    fingerprint: Mapped[str] = mapped_column(String(64))
+    formatter_version: Mapped[str] = mapped_column(String(64))
+    status: Mapped[NotificationBatchStatus] = mapped_column(
+        Enum(NotificationBatchStatus, native_enum=False, length=16, values_callable=_enum_values),
+        default=NotificationBatchStatus.PENDING,
+    )
+    body: Mapped[str | None] = mapped_column(nullable=True)
+    body_hash: Mapped[str] = mapped_column(String(64), default="")
+    body_length: Mapped[int] = mapped_column(default=0)
+    item_count: Mapped[int] = mapped_column(default=1)
+    attempt_count: Mapped[int] = mapped_column(default=0)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    sending_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    telegram_message_id: Mapped[int | None] = mapped_column(nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    response_status: Mapped[int | None] = mapped_column(nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
+    )
+
+    run: Mapped[JobSearchRun] = relationship()
+    items: Mapped[list[NotificationItem]] = relationship(
+        back_populates="batch", cascade="all, delete-orphan"
+    )
+
+
+class NotificationItem(Base):
+    """Global per-recipient/job reservation and terminal outcome."""
+
+    __tablename__ = "notification_items"
+    __table_args__ = (
+        UniqueConstraint("batch_id", "rank", name="uq_notification_items_batch_rank"),
+        UniqueConstraint("batch_id", "job_id", name="uq_notification_items_batch_job"),
+        UniqueConstraint(
+            "channel", "recipient_key_hash", "job_id", name="uq_notification_items_global_job"
+        ),
+        CheckConstraint("rank >= 1 AND rank <= 5", name="ck_notification_item_rank"),
+        Index("ix_notification_items_run", "run_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    batch_id: Mapped[str] = mapped_column(
+        ForeignKey("notification_batches.id", ondelete="RESTRICT"), index=True
+    )
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("job_search_runs.id", ondelete="RESTRICT"), index=True
+    )
+    channel: Mapped[str] = mapped_column(String(24), default="telegram")
+    recipient_key_hash: Mapped[str] = mapped_column(String(64))
+    job_id: Mapped[str] = mapped_column(ForeignKey("jobs.id", ondelete="RESTRICT"), index=True)
+    job_score_id: Mapped[str] = mapped_column(ForeignKey("job_scores.id", ondelete="RESTRICT"))
+    deep_evaluation_id: Mapped[str] = mapped_column(
+        ForeignKey("job_deep_evaluations.id", ondelete="RESTRICT")
+    )
+    rank: Mapped[int] = mapped_column()
+    status: Mapped[NotificationItemStatus] = mapped_column(
+        Enum(NotificationItemStatus, native_enum=False, length=16, values_callable=_enum_values),
+        default=NotificationItemStatus.RESERVED,
+    )
+    outcome_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
+    )
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    batch: Mapped[NotificationBatch] = relationship(back_populates="items")

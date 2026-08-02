@@ -107,3 +107,25 @@ class RecommendedAction(StrEnum):
     APPLY = "apply"
     REVIEW = "review"
     IGNORE = "ignore"
+
+
+class NotificationMode(StrEnum):
+    NONE = "none"
+    DAILY_DIGEST = "daily_digest"
+
+
+class NotificationBatchStatus(StrEnum):
+    PENDING = "pending"
+    PREPARED = "prepared"
+    SENDING = "sending"
+    RETRY_WAIT = "retry_wait"
+    SENT = "sent"
+    FAILED = "failed"
+    UNKNOWN = "unknown"
+
+
+class NotificationItemStatus(StrEnum):
+    RESERVED = "reserved"
+    SENT = "sent"
+    FAILED = "failed"
+    UNKNOWN = "unknown"

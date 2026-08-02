@@ -44,6 +44,8 @@ class RunRepository:
         trigger_key_hash: str | None = None,
         request_hash: str = "",
         source_snapshot_json: list[dict[str, Any]] | None = None,
+        notification_mode: str = "none",
+        schedule_slot: str | None = None,
     ) -> JobSearchRun:
         run = JobSearchRun(
             reason=reason,
@@ -53,6 +55,8 @@ class RunRepository:
             trigger_key_hash=trigger_key_hash,
             request_hash=request_hash,
             source_snapshot_json=source_snapshot_json,
+            notification_mode=notification_mode,
+            schedule_slot=schedule_slot,
             recovery_count=0,
         )
         self._session.add(run)

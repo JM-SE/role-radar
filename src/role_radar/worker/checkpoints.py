@@ -23,6 +23,13 @@ STAT_KEYS = (
     "deep_needs_review",
     "deep_skipped",
     "failed",
+    "digests_sent",
+    "digests_failed",
+    "digests_unknown",
+    "notified_jobs",
+    "notification_failed",
+    "notification_unknown",
+    "notification_skipped",
 )
 
 

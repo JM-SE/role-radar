@@ -37,7 +37,13 @@ class Settings(BaseSettings):
     deep_evaluation_temperature: float = Field(default=0.3, ge=0, le=2)
     deep_evaluation_top_p: float = Field(default=0.95, gt=0, le=1)
     deep_evaluation_top_k: int = Field(default=20, ge=1, le=100)
+    telegram_provider: Literal["disabled", "fake", "http"] = "disabled"
     telegram_bot_token: SecretStr | None = None
+    telegram_chat_id: SecretStr | None = None
+    telegram_max_attempts: int = Field(default=3, ge=1, le=10)
+    telegram_retry_after_max_seconds: int = Field(default=300, ge=1, le=86400)
+    telegram_message_max_units: int = Field(default=4096, ge=1, le=4096)
+    schedule_timezone: Literal["America/Argentina/Buenos_Aires"] = "America/Argentina/Buenos_Aires"
     http_timeout_seconds: float = Field(default=30.0, gt=0, le=86400)
     http_user_agent: str = "role-radar/0.1 (+homelab)"
     tavily_api_key: SecretStr | None = None
@@ -51,8 +57,8 @@ class Settings(BaseSettings):
     worker_retry_max_seconds: float = Field(default=300.0, gt=0, le=86400)
     allow_direct_pipeline_writes: bool = False
     schedule_id: str = "daily"
-    schedule_hour_utc: int = Field(default=8, ge=0, le=23)
-    schedule_minute_utc: int = Field(default=0, ge=0, le=59)
+    schedule_hour_local: int = Field(default=8, ge=0, le=23)
+    schedule_minute_local: int = Field(default=0, ge=0, le=59)
 
     @model_validator(mode="after")
     def validate_worker_safety(self) -> "Settings":
@@ -69,6 +75,12 @@ class Settings(BaseSettings):
             raise ValueError("worker lease must cover external timeout plus margin")
         if self.worker_retry_base_seconds > self.worker_retry_max_seconds:
             raise ValueError("retry base must not exceed retry maximum")
+        if self.environment == "prod" and self.telegram_provider == "fake":
+            raise ValueError("fake Telegram provider is forbidden in prod")
+        if self.telegram_provider == "http" and (
+            self.telegram_bot_token is None or self.telegram_chat_id is None
+        ):
+            raise ValueError("http Telegram provider requires token and chat id")
         return self
 
     model_config = SettingsConfigDict(env_prefix="ROLE_RADAR_")

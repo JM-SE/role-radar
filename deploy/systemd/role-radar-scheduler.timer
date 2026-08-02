@@ -2,7 +2,7 @@
 Description=Daily role-radar enqueue timer
 
 [Timer]
-OnCalendar=*-*-* 08:00:00 UTC
+OnCalendar=*-*-* 08:00:00 America/Argentina/Buenos_Aires
 Persistent=true
 Unit=role-radar-scheduler.service
 

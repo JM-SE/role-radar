@@ -8,13 +8,22 @@ from typing import Any
 from sqlalchemy import and_, case, func, select
 from sqlalchemy.orm import Session, selectinload
 
-from role_radar.db.models import Job, JobDeepEvaluation, JobScore, JobSourceReference
-from role_radar.domain.enums import JobStatus
+from role_radar.db.models import (
+    DeepEvaluationQueueItem,
+    Job,
+    JobDeepEvaluation,
+    JobScore,
+    JobSourceReference,
+    RunJob,
+)
+from role_radar.domain.enums import JobStatus, RunJobStage, RunJobStatus
+from role_radar.notifications.contracts import DigestCandidate
 
 JobList = list[Job]
 JobScoreList = list[tuple[Job, JobScore]]
 OptionalJobScoreList = list[tuple[Job, JobScore | None]]
 DeepJobScoreList = list[tuple[Job, JobScore, JobDeepEvaluation | None]]
+DigestCandidateList = list[DigestCandidate]
 
 
 class JobRepository:
@@ -181,6 +190,60 @@ class JobRepository:
             .limit(1)
         )
         return score, deep
+
+    def list_digest_candidates(
+        self, *, run_id: str, channel: str, recipient_key_hash: str
+    ) -> DigestCandidateList:
+        """Materialize only exact F6 queue/evaluation rows for this run."""
+        from role_radar.db.models import NotificationItem
+
+        stmt = (
+            select(Job, JobScore, JobDeepEvaluation)
+            .join(RunJob, RunJob.job_id == Job.id)
+            .join(DeepEvaluationQueueItem, DeepEvaluationQueueItem.job_id == Job.id)
+            .join(JobScore, JobScore.id == DeepEvaluationQueueItem.job_score_id)
+            .join(JobDeepEvaluation, JobDeepEvaluation.id == DeepEvaluationQueueItem.evaluation_id)
+            .where(
+                RunJob.run_id == run_id,
+                RunJob.stage == RunJobStage.SCORED,
+                RunJob.status == RunJobStatus.SUCCEEDED,
+                DeepEvaluationQueueItem.run_id == run_id,
+                JobDeepEvaluation.job_score_id == DeepEvaluationQueueItem.job_score_id,
+                JobDeepEvaluation.status == "valid",
+                ~select(NotificationItem.id)
+                .where(
+                    NotificationItem.channel == channel,
+                    NotificationItem.recipient_key_hash == recipient_key_hash,
+                    NotificationItem.job_id == Job.id,
+                )
+                .exists(),
+            )
+            .order_by(Job.first_seen_at.desc(), Job.id.asc())
+        )
+        rows = self._session.execute(stmt).tuples().all()
+        return [
+            DigestCandidate(
+                job_id=job.id,
+                job_score_id=score.id,
+                deep_evaluation_id=deep.id,
+                title=job.title,
+                company=job.company,
+                location=job.location,
+                application_url=job.application_url or "",
+                final_score=deep.final_score or -1,
+                preliminary_score=score.preliminary_score,
+                first_seen_at=job.first_seen_at,
+                strengths=tuple(_json_texts(deep.strengths_json)),
+                gaps=tuple(_json_texts(deep.gaps_json)),
+                model_concerns=tuple(_json_texts(deep.model_concerns_json)),
+                uncertainties=tuple(_json_texts(deep.uncertainties_json)),
+            )
+            for job, score, deep in rows
+            if score.eligible
+            and not score.hard_blocker_json
+            and job.status in (JobStatus.NEW, JobStatus.ACTIVE)
+            and deep.recommended_action == "apply"
+        ]
 
     def list_with_effective_scores(
         self,
@@ -363,3 +426,12 @@ class JobRepository:
         self._session.add(reference)
         self._session.flush()
         return reference
+
+
+def _json_texts(value: list[dict[str, Any]] | None) -> list[str]:
+    output: list[str] = []
+    for item in value or []:
+        text = item.get("text") or item.get("description") or item.get("code")
+        if text is not None:
+            output.append(str(text))
+    return output

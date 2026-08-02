@@ -43,4 +43,18 @@ class RunResponse(BaseModel):
     lease_expires_at: datetime | None
     heartbeat_at: datetime | None
     recovery_count: int
+    notification_mode: str
+    schedule_slot: str | None
+    notification_summary: "NotificationSummary | None" = None
     run_jobs: list[RunJobResponse]
+
+
+class NotificationSummary(BaseModel):
+    mode: str
+    slot: str | None
+    status: str | None
+    item_count: int
+    attempts: int
+    sent_at: datetime | None
+    counts: dict[str, int]
+    error_code: str | None

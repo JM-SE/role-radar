@@ -9,17 +9,27 @@ from sqlalchemy.orm import Session
 
 from role_radar.broker.protocols import LLMProvider
 from role_radar.config import Settings
-from role_radar.db.models import JobExtraction, JobSearchRun, RunJob
+from role_radar.db.models import (
+    JobExtraction,
+    JobSearchRun,
+    NotificationBatch,
+    NotificationItem,
+    RunJob,
+)
 from role_radar.domain.enums import (
     ExtractionStatus,
     JobSearchRunStatus,
+    NotificationBatchStatus,
     RunJobStage,
     RunJobStatus,
 )
+from role_radar.notifications.contracts import TelegramGateway
+from role_radar.notifications.fake import DisabledTelegramGateway
 from role_radar.repositories.runs import RunRepository
 from role_radar.services.pipeline_collection import PipelineCollectionService
 from role_radar.services.pipeline_deep_evaluation import PipelineDeepEvaluationService
 from role_radar.services.pipeline_extraction import PipelineExtractionService
+from role_radar.services.pipeline_notifications import PipelineNotificationService
 from role_radar.services.pipeline_scoring import PipelineScoringService
 from role_radar.worker.checkpoints import recompute_stats
 
@@ -33,6 +43,8 @@ class Pipeline:
         deep_provider: LLMProvider | None = None,
         settings: Settings | None = None,
         collector_factory: Any = None,
+        notification_gateway: TelegramGateway | None = None,
+        notification_recipient: str | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._settings = settings or Settings()
@@ -50,6 +62,12 @@ class Pipeline:
             if deep_provider is not None
             else None
         )
+        self._notifications = PipelineNotificationService(
+            session_factory,
+            settings=self._settings,
+            gateway=notification_gateway or DisabledTelegramGateway(),
+        )
+        self._notification_recipient = notification_recipient or "disabled"
 
     async def run(self, run_id: str) -> JobSearchRun:
         try:
@@ -64,8 +82,23 @@ class Pipeline:
                 }:
                     return existing
                 resume_deep = existing.status is JobSearchRunStatus.DEEP_EVALUATING
+                resume_notify = existing.status is JobSearchRunStatus.NOTIFYING
+            if resume_notify:
+                batch = await self._notifications.process(
+                    run_id, recipient_key=self._notification_recipient
+                )
+                if self._retry_wait(batch):
+                    return self._release_notification_run(run_id)
+                return self._complete(run_id)
             if resume_deep and self._deep is not None:
                 await self._deep.process(run_id)
+                if self._is_daily_digest(run_id):
+                    self._transition(run_id, JobSearchRunStatus.NOTIFYING)
+                    batch = await self._notifications.process(
+                        run_id, recipient_key=self._notification_recipient
+                    )
+                    if self._retry_wait(batch):
+                        return self._release_notification_run(run_id)
                 return self._complete(run_id)
             snapshots = self._collection.prepare(run_id)
             for snapshot in snapshots:
@@ -100,6 +133,13 @@ class Pipeline:
                 self._deep.prepare_queue(run_id, job_ids)
                 self._transition(run_id, JobSearchRunStatus.DEEP_EVALUATING)
                 await self._deep.process(run_id)
+            if self._is_daily_digest(run_id):
+                self._transition(run_id, JobSearchRunStatus.NOTIFYING)
+                batch = await self._notifications.process(
+                    run_id, recipient_key=self._notification_recipient
+                )
+                if self._retry_wait(batch):
+                    return self._release_notification_run(run_id)
             return self._complete(run_id)
         except Exception as exc:
             return self._fail(run_id, _safe_code(str(exc)) or "pipeline_failed")
@@ -199,9 +239,55 @@ class Pipeline:
             if run is None:
                 raise LookupError("run not found")
             jobs = list(session.scalars(select(RunJob).where(RunJob.run_id == run_id)))
-            run.stats_json = recompute_stats(run.source_results_json, jobs)
+            stats = recompute_stats(run.source_results_json, jobs)
+            batches = list(
+                session.scalars(select(NotificationBatch).where(NotificationBatch.run_id == run_id))
+            )
+            items = list(
+                session.scalars(select(NotificationItem).where(NotificationItem.run_id == run_id))
+            )
+            stats.update(
+                digests_sent=sum(batch.status.value == "sent" for batch in batches),
+                digests_failed=sum(batch.status.value == "failed" for batch in batches),
+                digests_unknown=sum(batch.status.value == "unknown" for batch in batches),
+                notified_jobs=sum(item.status.value == "sent" for item in items),
+                notification_failed=sum(item.status.value == "failed" for item in items),
+                notification_unknown=sum(item.status.value == "unknown" for item in items),
+                notification_skipped=sum(
+                    job.status is RunJobStatus.SKIPPED
+                    for job in jobs
+                    if job.stage is RunJobStage.NOTIFIED
+                ),
+            )
+            run.stats_json = stats
             run.status = JobSearchRunStatus.COMPLETED
             run.completed_at = datetime.now(UTC)
+            run.claimed_by = None
+            run.lease_expires_at = None
+            run.heartbeat_at = None
+            session.commit()
+            return run
+
+    def _is_daily_digest(self, run_id: str) -> bool:
+        with self._session_factory() as session:
+            run = session.get(JobSearchRun, run_id)
+            return (
+                run is not None
+                and getattr(run.notification_mode, "value", run.notification_mode) == "daily_digest"
+            )
+
+    @staticmethod
+    def _retry_wait(batch: NotificationBatch | None) -> bool:
+        return batch is not None and getattr(batch.status, "value", batch.status) in {
+            NotificationBatchStatus.RETRY_WAIT.value,
+            NotificationBatchStatus.SENDING.value,
+        }
+
+    def _release_notification_run(self, run_id: str) -> JobSearchRun:
+        with self._session_factory() as session:
+            run = session.get(JobSearchRun, run_id)
+            if run is None:
+                raise LookupError("run not found")
             run.claimed_by = None
             run.lease_expires_at = None
             run.heartbeat_at = None

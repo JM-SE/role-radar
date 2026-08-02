@@ -45,6 +45,8 @@ class RunService:
         profile_id: str | None = None,
         idempotency_key: str | None = None,
         trigger_namespace: str = "POST:/runs",
+        notification_mode: str = "none",
+        schedule_slot: str | None = None,
     ) -> JobSearchRun:
         intent = self._resolve_intent(reason=reason, profile_id=profile_id)
         trigger_hash = (
@@ -65,6 +67,8 @@ class RunService:
                     profile_id=intent.profile_id,
                     trigger_key_hash=trigger_hash,
                     request_hash=intent.request_hash,
+                    notification_mode=notification_mode,
+                    schedule_slot=schedule_slot,
                 )
         except IntegrityError as exc:
             if trigger_hash is None:
@@ -73,6 +77,17 @@ class RunService:
             if existing is None or existing.request_hash != intent.request_hash:
                 raise RunConflict("idempotency key was used with a different request") from exc
             return existing
+
+    def resolve_profile_id(self, profile_id: str | None = None) -> str:
+        """Resolve the profile that a new intent would freeze."""
+        if profile_id is not None:
+            if self._profiles.get(profile_id) is None:
+                raise RunNotFound("profile not found")
+            return profile_id
+        active = self._profiles.list_active()
+        if len(active) != 1:
+            raise RunConflict("profile_id is required unless exactly one active profile exists")
+        return active[0].id
 
     def list(
         self,
@@ -92,9 +107,7 @@ class RunService:
             raise RunNotFound("run not found")
         return run
 
-    def retry(
-        self, run_id: str, *, idempotency_key: str | None = None
-    ) -> JobSearchRun:
+    def retry(self, run_id: str, *, idempotency_key: str | None = None) -> JobSearchRun:
         parent = self._runs.get_run(run_id)
         if parent is None:
             raise RunNotFound("run not found")
@@ -122,6 +135,10 @@ class RunService:
                     trigger_key_hash=trigger_hash,
                     request_hash=parent.request_hash,
                     source_snapshot_json=parent.source_snapshot_json,
+                    notification_mode=getattr(
+                        parent.notification_mode, "value", parent.notification_mode
+                    ),
+                    schedule_slot=parent.schedule_slot,
                 )
         except IntegrityError as exc:
             if trigger_hash is None:
