@@ -5,14 +5,16 @@ Availability and CRUD policy live in ``sources.catalog`` and
 Greenhouse factory from an already validated DTO.
 """
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any
 
+import httpx
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from role_radar.collectors.greenhouse import GreenhouseCollector
+from role_radar.collectors.policy import CollectionRunBudget
 from role_radar.collectors.protocols import JobCollector, SourceSnapshot
 from role_radar.domain.enums import SourceType
 from role_radar.sources.catalog import CATALOG, get_catalog_entry
@@ -26,8 +28,10 @@ class CollectorConfigurationError(ValueError):
 
 @dataclass(frozen=True)
 class CollectorContext:
-    client: Any = None
-    timeout: float = 30.0
+    transport: httpx.AsyncBaseTransport | None = None
+    clock: Callable[[], float] | None = None
+    sleeper: Callable[[float], Awaitable[None]] | None = None
+    budget: CollectionRunBudget | None = None
     user_agent: str = "role-radar/0.1 (+homelab)"
 
 
@@ -94,8 +98,10 @@ def _greenhouse_factory(snapshot: SourceSnapshot, context: CollectorContext) -> 
         raise CollectorConfigurationError("invalid greenhouse source configuration") from exc
     assert isinstance(config, GreenhouseSourceConfig)
     return GreenhouseCollector(
-        client=context.client,
-        timeout=context.timeout,
+        transport=context.transport,
+        clock=context.clock,
+        sleeper=context.sleeper,
+        budget=context.budget,
         user_agent=context.user_agent,
         config=config,
     )

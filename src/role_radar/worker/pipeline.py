@@ -101,6 +101,7 @@ class Pipeline:
                         return self._release_notification_run(run_id)
                 return self._complete(run_id)
             snapshots = self._collection.prepare(run_id)
+            self._collection.start_run_budget()
             for snapshot in snapshots:
                 result = await self._collection.execute(snapshot)
                 self._collection.finalize(run_id, result)
@@ -111,7 +112,10 @@ class Pipeline:
             if (
                 not snapshots
                 or not outcomes
-                or all(result.get("status") != "ok" for result in outcomes.values())
+                or all(
+                    result.get("status") not in {"ok", "partial"}
+                    for result in outcomes.values()
+                )
             ):
                 return self._fail(run_id, "all_sources_failed")
 

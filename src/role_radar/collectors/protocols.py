@@ -1,10 +1,15 @@
 """Contratos agnósticos a la fuente para collectors persistentes."""
 
-from collections.abc import Mapping
+import asyncio
+import time
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from role_radar.domain.dto import RawJob
+import httpx
+
+from role_radar.collectors.outcomes import CollectionOutcome
+from role_radar.collectors.policy import CollectionRunBudget
 
 
 @dataclass(frozen=True)
@@ -37,5 +42,17 @@ class CollectionContext:
     source_name: str = ""
 
 
+@dataclass(frozen=True)
+class CollectorRuntime:
+    """Test seams and stage budget; no ORM or provider payload crosses here."""
+
+    transport: httpx.AsyncBaseTransport | None = None
+    clock: Callable[[], float] = time.monotonic
+    sleeper: Callable[[float], Awaitable[None]] = asyncio.sleep
+    budget: CollectionRunBudget | None = None
+
+
 class JobCollector(Protocol):
-    async def collect(self, snapshot: SourceSnapshot) -> list[RawJob]: ...
+    async def collect(
+        self, snapshot: SourceSnapshot, runtime: CollectorRuntime
+    ) -> CollectionOutcome: ...

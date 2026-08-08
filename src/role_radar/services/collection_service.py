@@ -6,9 +6,7 @@ from typing import Any
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
-from role_radar.collectors.greenhouse import GreenhouseCollector
 from role_radar.collectors.protocols import SourceSnapshot
-from role_radar.config import Settings
 from role_radar.db.models import JobSearchRun
 from role_radar.db.session import get_session_factory
 from role_radar.domain.enums import JobSearchRunStatus
@@ -35,12 +33,6 @@ class CollectionService:
         self._sources = sources or SourceRepository(session)
         self._jobs = jobs or JobRepository(session)
         self._runs = runs or RunRepository(session)
-        if collector is None:
-            settings = Settings()
-            collector = GreenhouseCollector(
-                timeout=settings.http_timeout_seconds,
-                user_agent=settings.http_user_agent,
-            )
         self._collector = collector
         self._logger = get_logger()
 
@@ -48,7 +40,9 @@ class CollectionService:
         """Nueva frontera F5: materializa snapshots sin hacer I/O externo."""
         service = PipelineCollectionService(
             self._session_factory(),
-            collector_factory=lambda _snapshot: self._collector,
+            collector_factory=(lambda _snapshot: self._collector)
+            if self._collector is not None
+            else None,
         )
         return service.prepare(run_id)
 
@@ -56,7 +50,9 @@ class CollectionService:
         """Execute solo recibe un snapshot DTO; no usa Session/ORM."""
         service = PipelineCollectionService(
             self._session_factory(),
-            collector_factory=lambda _snapshot: self._collector,
+            collector_factory=(lambda _snapshot: self._collector)
+            if self._collector is not None
+            else None,
         )
         return await service.execute(snapshot)
 
@@ -73,7 +69,9 @@ class CollectionService:
     def _persistent_service(self) -> PipelineCollectionService:
         return PipelineCollectionService(
             self._session_factory(),
-            collector_factory=lambda _snapshot: self._collector,
+            collector_factory=(lambda _snapshot: self._collector)
+            if self._collector is not None
+            else None,
         )
 
     async def run_collect(self, *, reason: str = "cli_collect") -> JobSearchRun:
@@ -85,7 +83,9 @@ class CollectionService:
         # pipeline owns short-lived sessions for prepare/finalize.
         pipeline = PipelineCollectionService(
             self._session_factory(),
-            collector_factory=lambda _snapshot: self._collector,
+            collector_factory=(lambda _snapshot: self._collector)
+            if self._collector is not None
+            else None,
         )
         snapshots = pipeline.prepare(run_id)
         stats: dict[str, int] = {

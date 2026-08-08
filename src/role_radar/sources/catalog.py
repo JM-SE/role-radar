@@ -18,8 +18,14 @@ _ENTRIES: dict[SourceType, SourceCatalogEntry] = {
         auth_mode=AuthMode.NONE,
         allowed_origins=(_ORIGIN,),
         paging=PagingMode.NONE,
-        notes="Public Greenhouse board API; resource bounds are planned for F8.2.",
-        resource_bounds=ResourceBounds(),
+        notes="Public Greenhouse board API; fixed-origin bounded single-page collection.",
+        resource_bounds=ResourceBounds(
+            max_pages=1,
+            max_items=500,
+            max_bytes=8 * 1024 * 1024,
+            max_duration_seconds=120.0,
+            enforced=True,
+        ),
     ),
 }
 
