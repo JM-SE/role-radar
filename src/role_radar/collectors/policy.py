@@ -44,6 +44,19 @@ GREENHOUSE_POLICY = CollectionPolicy(
     )
 )
 
+LEVER_POLICY = CollectionPolicy(
+    http=HttpPolicy(
+        origin="https://api.lever.co",
+        allowed_path_prefix="/v0/postings/",
+        allowed_query_keys=frozenset({"mode", "limit", "skip"}),
+        allowed_query_values=MappingProxyType({"mode": frozenset({"json"})}),
+    ),
+    max_pages=6,
+    max_items=500,
+)
+
+LEVER_EU_HTTP_ORIGIN = "https://api.eu.lever.co"
+
 RETRYABLE_FAILURES = frozenset(
     {
         CollectorFailureCode.CONNECT,

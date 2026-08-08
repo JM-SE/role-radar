@@ -50,6 +50,7 @@ class CollectionStopCode(StrEnum):
     INVALID_PAYLOAD = "invalid_payload"
     NO_VALID_ITEMS = "no_valid_items"
     RATE_LIMITED = "rate_limited"
+    PAGINATION_LOOP = "pagination_loop"
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,7 +167,14 @@ class CollectionFailure:
             raise ValueError("invalid HTTP status")
         if self.metrics.accepted_items != 0:
             raise ValueError("failed collection cannot contain accepted jobs")
-        _validate_common(self.metrics, self.rejection_counts)
+        # A source-level failure is atomic: items accepted by earlier pages are
+        # discarded, while provider_items/transfer metrics still describe the
+        # work observed before the failure.  Therefore data-item conservation
+        # is meaningful for successes, not for an atomic failure prefix.
+        if self.metrics.rejected_items != self.rejection_counts.rejected_items:
+            raise ValueError("rejection accounting invariant violated")
+        if self.metrics.duplicate_items != self.rejection_counts.duplicate_items:
+            raise ValueError("duplicate accounting invariant violated")
 
 
 CollectionOutcome = CollectionSuccess | CollectionFailure

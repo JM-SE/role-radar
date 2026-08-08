@@ -17,8 +17,8 @@ from sqlalchemy.orm import Session
 
 from role_radar.db.models import JobSearchRun, JobSourceReference, Source
 from role_radar.domain.enums import SourceType
-from role_radar.sources.configuration import GreenhouseSourceConfig
-from role_radar.sources.identity import greenhouse_source_key, legacy_source_key
+from role_radar.sources.configuration import GreenhouseSourceConfig, LeverSourceConfigV1
+from role_radar.sources.identity import greenhouse_source_key, legacy_source_key, lever_source_key
 
 SourceList = list[Source]
 
@@ -189,8 +189,15 @@ class SourceRepository:
             config = parsed.model_dump(mode="json", exclude_none=True)
             key = greenhouse_source_key(parsed.board_token)
             version = 1
+        elif type is SourceType.LEVER and config.get("site") and config.get("region"):
+            parsed_lever = LeverSourceConfigV1.model_validate(config)
+            config = parsed_lever.model_dump(mode="json", exclude_none=True)
+            key = lever_source_key(parsed_lever)
+            version = 1
         else:
             key = legacy_source_key(type, source_id)
+        if version == 0 or type is SourceType.LEVER:
+            enabled = False
         return self.create_row(
             source_id=source_id,
             source_type=type,

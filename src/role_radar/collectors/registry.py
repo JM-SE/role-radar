@@ -2,7 +2,7 @@
 
 Availability and CRUD policy live in ``sources.catalog`` and
 ``services.source_service``. This module only resolves the one approved
-Greenhouse factory from an already validated DTO.
+Static factories from already validated DTOs.
 """
 
 from collections.abc import Awaitable, Callable
@@ -14,6 +14,7 @@ import httpx
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from role_radar.collectors.greenhouse import GreenhouseCollector
+from role_radar.collectors.lever import LeverCollector
 from role_radar.collectors.policy import CollectionRunBudget
 from role_radar.collectors.protocols import JobCollector, SourceSnapshot
 from role_radar.domain.enums import SourceType
@@ -63,20 +64,28 @@ class SourceSnapshotModel(BaseModel):
     def as_snapshot(self) -> SourceSnapshot:
         source_key = self.source_key
         version = self.configuration_version
-        if self.source_type is SourceType.GREENHOUSE:
+        if version == 0:
+            if source_key is None:
+                source_key = legacy_source_key(self.source_type, self.source_id)
+            return SourceSnapshot(
+                source_id=self.source_id,
+                source_type=self.source_type.value,
+                name=self.name,
+                configuration=MappingProxyType(dict(self.configuration)),
+                source_key=source_key,
+                configuration_version=0,
+            )
+        if version == 1:
             try:
-                config = GreenhouseSourceConfig.model_validate(self.configuration)
+                config = validate_configuration(
+                    self.source_type, version, dict(self.configuration)
+                )
                 calculated_key = canonical_source_key(self.source_type, config.model_dump())
                 if source_key is not None and source_key != calculated_key:
                     raise ValueError("snapshot source key does not match configuration")
                 source_key = source_key or calculated_key
-                version = version or GreenhouseSourceConfig.VERSION
             except ValueError as exc:
-                raise CollectorConfigurationError(
-                    "invalid greenhouse source configuration"
-                ) from exc
-        elif source_key is None:
-            source_key = legacy_source_key(self.source_type, self.source_id)
+                raise CollectorConfigurationError("invalid source configuration") from exc
         return SourceSnapshot(
             source_id=self.source_id,
             source_type=self.source_type.value,
@@ -91,7 +100,7 @@ def _greenhouse_factory(snapshot: SourceSnapshot, context: CollectorContext) -> 
     try:
         config = validate_configuration(
             SourceType.GREENHOUSE,
-            snapshot.configuration_version or GreenhouseSourceConfig.VERSION,
+            snapshot.configuration_version,
             dict(snapshot.configuration),
         )
     except ValueError as exc:
@@ -107,11 +116,29 @@ def _greenhouse_factory(snapshot: SourceSnapshot, context: CollectorContext) -> 
     )
 
 
+def _lever_factory(snapshot: SourceSnapshot, context: CollectorContext) -> JobCollector:
+    try:
+        config = validate_configuration(
+            SourceType.LEVER, snapshot.configuration_version, dict(snapshot.configuration)
+        )
+    except ValueError as exc:
+        raise CollectorConfigurationError("invalid source configuration") from exc
+    return LeverCollector(
+        transport=context.transport,
+        clock=context.clock,
+        sleeper=context.sleeper,
+        budget=context.budget,
+        user_agent=context.user_agent,
+        config=config,  # type: ignore[arg-type]
+    )
+
+
 def _factory_map() -> dict[str, CollectorRegistration]:
     return {
         "greenhouse.v1": CollectorRegistration(
             SourceType.GREENHOUSE, "greenhouse.v1", _greenhouse_factory
-        )
+        ),
+        "lever.v1": CollectorRegistration(SourceType.LEVER, "lever.v1", _lever_factory),
     }
 
 
@@ -136,23 +163,27 @@ def validate_snapshot(snapshot: SourceSnapshot) -> SourceSnapshot:
         raise CollectorConfigurationError("unsupported source type") from exc
     if not entry.adapter_available or entry.factory_ref is None:
         raise CollectorConfigurationError("source type has no enabled collector")
-    if snapshot.configuration_version not in (0, GreenhouseSourceConfig.VERSION):
+    if snapshot.configuration_version == 0:
+        raise CollectorConfigurationError("legacy source configuration is not collectible")
+    if snapshot.configuration_version != entry.configuration_version:
         raise CollectorConfigurationError("unsupported source configuration version")
     try:
-        config = GreenhouseSourceConfig.model_validate(dict(snapshot.configuration))
+        config = validate_configuration(
+            source_type, snapshot.configuration_version, dict(snapshot.configuration)
+        )
         calculated_key = canonical_source_key(source_type, config.model_dump())
         if snapshot.source_key is not None and snapshot.source_key != calculated_key:
             raise ValueError("snapshot source key does not match configuration")
         source_key = snapshot.source_key or calculated_key
     except ValueError as exc:
-        raise CollectorConfigurationError("invalid greenhouse source configuration") from exc
+        raise CollectorConfigurationError("invalid source configuration") from exc
     return SourceSnapshot(
         source_id=snapshot.source_id,
         source_type=source_type.value,
         name=snapshot.name,
         configuration=MappingProxyType(config.model_dump(mode="json", exclude_none=True)),
         source_key=source_key,
-        configuration_version=GreenhouseSourceConfig.VERSION,
+        configuration_version=entry.configuration_version,
     )
 
 

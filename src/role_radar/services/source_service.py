@@ -14,7 +14,7 @@ from role_radar.db.models import Source
 from role_radar.domain.enums import SourceType
 from role_radar.repositories.sources import SourceRepository
 from role_radar.sources.catalog import get_catalog_entry
-from role_radar.sources.configuration import GreenhouseSourceConfig, validate_configuration
+from role_radar.sources.configuration import validate_configuration
 from role_radar.sources.identity import canonical_source_key
 
 LAST_ERROR_CODES = frozenset(
@@ -227,7 +227,7 @@ class SourceService:
         entry = get_catalog_entry(source.type)
         if (
             not entry.adapter_available
-            or source.configuration_version != GreenhouseSourceConfig.VERSION
+            or source.configuration_version != entry.configuration_version
         ):
             raise SourceServiceError("source_type_unavailable")
         try:

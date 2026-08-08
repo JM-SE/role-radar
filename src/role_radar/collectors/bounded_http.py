@@ -124,7 +124,8 @@ class BoundedHttpClient:
             key not in self.policy.allowed_query_keys
             or (
                 self.policy.allowed_query_values is not None
-                and value not in self.policy.allowed_query_values.get(key, frozenset())
+                and key in self.policy.allowed_query_values
+                and value not in self.policy.allowed_query_values[key]
             )
             for key, value in query
         ):

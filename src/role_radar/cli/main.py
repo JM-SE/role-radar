@@ -13,7 +13,6 @@ from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
 from role_radar.broker.factory import create_llm_provider
-from role_radar.collectors.greenhouse import GreenhouseCollector
 from role_radar.config import Settings
 from role_radar.db.engine import get_engine
 from role_radar.db.session import get_session_factory
@@ -85,11 +84,7 @@ def _seed_boards(settings: Settings, fixtures_dir: Path) -> int:
 async def _run_collect(settings: Settings, reason: str) -> tuple[str, str, dict[str, int]]:
     engine, session = _open_session(settings)
     try:
-        async with GreenhouseCollector(
-            timeout=settings.http_timeout_seconds,
-            user_agent=settings.http_user_agent,
-        ) as collector:
-            run = await CollectionService(session, collector=collector).run_collect(reason=reason)
+        run = await CollectionService(session).run_collect(reason=reason)
         session.commit()
         return run.id, run.status.value, run.stats_json or {}
     except Exception:
@@ -263,7 +258,7 @@ def _run_score_pending(
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="role-radar")
     subparsers = parser.add_subparsers(dest="command", required=True)
-    collect = subparsers.add_parser("collect", help="colecta y persiste ofertas Greenhouse")
+    collect = subparsers.add_parser("collect", help="colecta y persiste ofertas habilitadas")
     collect.add_argument("--reason", default="cli_collect")
     subparsers.add_parser("seed-boards", help="carga boards Greenhouse curados")
     discover = subparsers.add_parser("discover-boards", help="propone boards sin activarlos")
@@ -282,15 +277,21 @@ def _parser() -> argparse.ArgumentParser:
     source_show = source_commands.add_parser("show")
     source_show.add_argument("id")
     source_create = source_commands.add_parser("create")
-    source_create.add_argument("--type", required=True, choices=[SourceType.GREENHOUSE.value])
+    source_create.add_argument(
+        "--type", required=True, choices=[SourceType.GREENHOUSE.value, SourceType.LEVER.value]
+    )
     source_create.add_argument("--name", required=True)
-    source_create.add_argument("--board-token", required=True)
+    source_create.add_argument("--board-token")
+    source_create.add_argument("--site")
+    source_create.add_argument("--region", choices=["global", "eu"])
     source_create.add_argument("--company")
     source_update = source_commands.add_parser("update")
     source_update.add_argument("id")
     source_update.add_argument("--revision", required=True, type=int)
     source_update.add_argument("--name")
     source_update.add_argument("--board-token")
+    source_update.add_argument("--site")
+    source_update.add_argument("--region", choices=["global", "eu"])
     source_update.add_argument("--company")
     for command in ("enable", "disable", "archive"):
         action = source_commands.add_parser(command)
@@ -365,28 +366,58 @@ def _run_source(settings: Settings, args: argparse.Namespace) -> int:
             print(json.dumps(_source_payload(service.get(args.id))))
             return 0
         if args.source_command == "create":
-            configuration = {"board_token": args.board_token}
+            source_type = SourceType(args.type)
+            if source_type is SourceType.GREENHOUSE:
+                if args.site is not None or args.region is not None or args.board_token is None:
+                    raise SourceServiceError("invalid_source_config")
+                configuration = {"board_token": args.board_token}
+            else:
+                if (
+                    args.board_token is not None
+                    or args.site is None
+                    or args.region is None
+                ):
+                    raise SourceServiceError("invalid_source_config")
+                configuration = {"site": args.site, "region": args.region}
             if args.company is not None:
                 configuration["company"] = args.company
             row = service.create(
-                source_type=SourceType(args.type), name=args.name, configuration=configuration
+                source_type=source_type, name=args.name, configuration=configuration
             )
         elif args.source_command == "update":
             current = service.get(args.id)
-            if args.name is None and args.board_token is None and args.company is None:
+            if (
+                args.name is None
+                and args.board_token is None
+                and args.site is None
+                and args.region is None
+                and args.company is None
+            ):
                 raise SourceServiceError("invalid_source_config")
             configuration = dict(current.configuration or {})
+            if current.type is SourceType.GREENHOUSE and (
+                args.site is not None or args.region is not None
+            ):
+                raise SourceServiceError("invalid_source_config")
+            if current.type is SourceType.LEVER and args.board_token is not None:
+                raise SourceServiceError("invalid_source_config")
             if args.board_token is not None:
                 configuration["board_token"] = args.board_token
+            if args.site is not None:
+                configuration["site"] = args.site
+            if args.region is not None:
+                configuration["region"] = args.region
             if args.company is not None:
                 configuration["company"] = args.company
+            config_changed = any(
+                value is not None
+                for value in (args.board_token, args.site, args.region, args.company)
+            )
             row = service.update(
                 args.id,
                 expected_revision=args.revision,
                 name=args.name,
-                configuration=configuration
-                if args.board_token is not None or args.company is not None
-                else None,
+                configuration=configuration if config_changed else None,
             )
         else:
             row = getattr(service, args.source_command)(args.id, expected_revision=args.revision)

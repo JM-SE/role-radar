@@ -4,6 +4,8 @@ from role_radar.domain.enums import SourceType
 from role_radar.sources.contracts import AuthMode, PagingMode, ResourceBounds, SourceCatalogEntry
 
 _ORIGIN = "https://boards-api.greenhouse.io"
+_LEVER_GLOBAL_ORIGIN = "https://api.lever.co"
+_LEVER_EU_ORIGIN = "https://api.eu.lever.co"
 
 _ENTRIES: dict[SourceType, SourceCatalogEntry] = {
     SourceType.GREENHOUSE: SourceCatalogEntry(
@@ -27,6 +29,27 @@ _ENTRIES: dict[SourceType, SourceCatalogEntry] = {
             enforced=True,
         ),
     ),
+    SourceType.LEVER: SourceCatalogEntry(
+        source_type=SourceType.LEVER,
+        display_name="Lever Postings",
+        docs_url="https://hire.lever.co/developer/documentation",
+        adapter_available=True,
+        configuration_model="LeverSourceConfigV1",
+        configuration_version=1,
+        factory_ref="lever.v1",
+        canonicalizer_ref="lever_source_key",
+        auth_mode=AuthMode.NONE,
+        allowed_origins=(_LEVER_GLOBAL_ORIGIN, _LEVER_EU_ORIGIN),
+        paging=PagingMode.OFFSET,
+        notes="Public Lever postings API; fixed regional origin and bounded offset collection.",
+        resource_bounds=ResourceBounds(
+            max_pages=6,
+            max_items=500,
+            max_bytes=8 * 1024 * 1024,
+            max_duration_seconds=120.0,
+            enforced=True,
+        ),
+    ),
 }
 
 for _source_type in SourceType:
@@ -44,7 +67,7 @@ for _source_type in SourceType:
             auth_mode=AuthMode.FUTURE,
             allowed_origins=(),
             paging=PagingMode.NONE,
-            notes="Visible catalog entry; adapter is not implemented in F8.1.",
+            notes="Visible catalog entry; adapter is not implemented.",
             resource_bounds=ResourceBounds(),
         ),
     )

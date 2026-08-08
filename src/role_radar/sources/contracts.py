@@ -14,6 +14,7 @@ class AuthMode(StrEnum):
 class PagingMode(StrEnum):
     NONE = "none"
     PAGE = "page"
+    OFFSET = "offset"
 
 
 @dataclass(frozen=True)
@@ -53,6 +54,19 @@ class PublicSourceConfiguration:
         result: dict[str, str] = {}
         if self.board_token is not None:
             result["board_token"] = self.board_token
+        if self.company is not None:
+            result["company"] = self.company
+        return result
+
+
+@dataclass(frozen=True)
+class PublicLeverSourceConfiguration:
+    site: str
+    region: str
+    company: str | None = None
+
+    def as_dict(self) -> dict[str, str]:
+        result = {"site": self.site, "region": self.region}
         if self.company is not None:
             result["company"] = self.company
         return result
