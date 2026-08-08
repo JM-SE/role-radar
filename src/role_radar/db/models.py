@@ -21,6 +21,9 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
 )
+from sqlalchemy import (
+    text as sa_text,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from role_radar.db.base import Base
@@ -78,14 +81,27 @@ class Source(Base):
     """Fuente de ofertas (board ATS, web, email, manual...)."""
 
     __tablename__ = "sources"
+    __table_args__ = (
+        UniqueConstraint("source_key", name="uq_sources_source_key"),
+        CheckConstraint("revision >= 1", name="ck_sources_revision"),
+        CheckConstraint("archived_at IS NULL OR enabled = 0", name="ck_sources_archived_disabled"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     type: Mapped[SourceType] = mapped_column(
         Enum(SourceType, native_enum=False, length=24, values_callable=_enum_values)
     )
-    name: Mapped[str] = mapped_column(String(255), unique=True)
+    name: Mapped[str] = mapped_column(String(255))
     configuration: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
-    enabled: Mapped[bool] = mapped_column(default=True)
+    enabled: Mapped[bool] = mapped_column(default=False)
+    source_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    configuration_version: Mapped[int] = mapped_column(default=0, nullable=False)
+    revision: Mapped[int] = mapped_column(default=1, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
+    )
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
     last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_error_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
@@ -331,6 +347,15 @@ class JobSourceReference(Base):
     """Referencia de un Job a una Source concreta (collect)."""
 
     __tablename__ = "job_source_references"
+    __table_args__ = (
+        Index(
+            "uq_job_source_references_source_external",
+            "source_id",
+            "external_id",
+            unique=True,
+            sqlite_where=sa_text("external_id IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     job_id: Mapped[str] = mapped_column(ForeignKey("jobs.id"))

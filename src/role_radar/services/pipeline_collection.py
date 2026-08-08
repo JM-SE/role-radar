@@ -53,6 +53,8 @@ class PipelineCollectionService:
             if run is None:
                 raise LookupError("run not found")
             if run.source_snapshot_json is not None:
+                # A retry is historical input: parse the stored shape only and
+                # never validate against or rewrite the current Source row.
                 snapshots = tuple(
                     SourceSnapshotModel.model_validate(item).as_snapshot()
                     for item in run.source_snapshot_json
@@ -61,7 +63,7 @@ class PipelineCollectionService:
                 sources = list(
                     session.scalars(
                         select(Source)
-                        .where(Source.enabled.is_(True))
+                        .where(Source.enabled.is_(True), Source.archived_at.is_(None))
                         .order_by(Source.name, Source.id)
                     )
                 )
@@ -71,18 +73,22 @@ class PipelineCollectionService:
                         source_type=SourceType(source.type),
                         name=source.name,
                         configuration=dict(source.configuration or {}),
+                        source_key=source.source_key,
+                        configuration_version=source.configuration_version,
                     ).as_snapshot()
                     for source in sources
                 )
             # create_collector validates adapter-specific config without network.
-            for snapshot in snapshots:
-                validate_snapshot(snapshot)
-            run.source_snapshot_json = [
+            if run.source_snapshot_json is None:
+                snapshots = tuple(validate_snapshot(snapshot) for snapshot in snapshots)
+            run.source_snapshot_json = run.source_snapshot_json or [
                 SourceSnapshotModel(
                     source_id=item.source_id,
                     source_type=SourceType(item.source_type),
                     name=item.name,
-                    configuration=item.configuration,
+                    configuration=dict(item.configuration),
+                    source_key=item.source_key,
+                    configuration_version=item.configuration_version,
                 ).model_dump(mode="json")
                 for item in snapshots
             ]
@@ -111,6 +117,7 @@ class PipelineCollectionService:
                 raise LookupError("source not found")
             if result.error_code is not None:
                 source.last_error_at = datetime.now(UTC)
+                source.last_error_code = result.error_code
                 outcomes = dict(run.source_results_json or {})
                 outcomes[result.source_id] = {"status": "failed", "error_code": result.error_code}
                 run.source_results_json = outcomes
@@ -118,6 +125,7 @@ class PipelineCollectionService:
                 return
 
             source.last_success_at = datetime.now(UTC)
+            source.last_error_code = None
             jobs = JobRepository(session)
             runs = RunRepository(session)
             dedup = DedupService(jobs)
@@ -129,8 +137,10 @@ class PipelineCollectionService:
             for raw_job in result.jobs:
                 try:
                     normalized = normalize_raw_job(raw_job)
-                    if not normalized.title or not normalized.description or not (
-                        normalized.application_url or normalized.source_url
+                    if (
+                        not normalized.title
+                        or not normalized.description
+                        or not (normalized.application_url or normalized.source_url)
                     ):
                         source_stats["prefiltered"] = source_stats.get("prefiltered", 0) + 1
                         continue
@@ -151,9 +161,7 @@ class PipelineCollectionService:
                             stage=stage,
                             status=RunJobStatus.SUCCEEDED,
                             outcome_json=(
-                                {"dedup": outcome}
-                                if stage is RunJobStage.DEDUPLICATED
-                                else None
+                                {"dedup": outcome} if stage is RunJobStage.DEDUPLICATED else None
                             ),
                         )
                     if resolved.is_new:

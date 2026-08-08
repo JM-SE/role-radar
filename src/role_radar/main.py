@@ -11,6 +11,7 @@ from role_radar.api.health import router as health_router
 from role_radar.api.jobs import router as jobs_router
 from role_radar.api.profiles import router as profiles_router
 from role_radar.api.runs import router as runs_router
+from role_radar.api.sources import router as sources_router
 from role_radar.config import Settings
 from role_radar.db.engine import get_engine
 from role_radar.db.session import get_session_factory
@@ -49,6 +50,7 @@ def create_app() -> FastAPI:
     app.include_router(profiles_router)
     app.include_router(jobs_router)
     app.include_router(runs_router)
+    app.include_router(sources_router)
     return app
 
 

@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from role_radar.domain.enums import JobStatus, SourceType
 from role_radar.repositories.jobs import JobRepository
 from role_radar.repositories.profiles import ProfileRepository
-from role_radar.repositories.sources import SourceRepository
+from role_radar.services.source_service import SourceService
 
 
 def load_fixtures(session: Session, fixtures_dir: str | Path) -> dict[str, str]:
@@ -35,10 +35,14 @@ def load_fixtures(session: Session, fixtures_dir: str | Path) -> dict[str, str]:
     source_data = job_data["source"]
     job_fields: dict[str, Any] = job_data["job"]
 
-    source = SourceRepository(session).create(
-        type=SourceType(source_data["type"]),
+    source_service = SourceService(session)
+    source = source_service.create(
+        source_type=SourceType(source_data["type"]),
         name=source_data["name"],
-        enabled=source_data.get("enabled", True),
+        configuration={
+            "board_token": source_data.get("board_token", "acme"),
+            "company": source_data.get("company", job_fields["company"]),
+        },
     )
 
     job_repo = JobRepository(session)

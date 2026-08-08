@@ -16,6 +16,7 @@ from role_radar.repositories.profiles import ProfileRepository
 from role_radar.repositories.runs import RunRepository
 from role_radar.repositories.sources import SourceRepository
 from role_radar.services.run_service import RunService
+from role_radar.services.source_service import SourceService
 
 __all__ = [
     "Settings",
@@ -26,6 +27,7 @@ __all__ = [
     "get_session",
     "get_settings",
     "get_source_repository",
+    "get_source_service",
 ]
 
 
@@ -55,6 +57,10 @@ def get_job_repository(session: SessionDep) -> JobRepository:
 
 def get_source_repository(session: SessionDep) -> SourceRepository:
     return SourceRepository(session)
+
+
+def get_source_service(session: SessionDep) -> SourceService:
+    return SourceService(session)
 
 
 def get_run_repository(session: SessionDep) -> RunRepository:

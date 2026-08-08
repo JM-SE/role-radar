@@ -19,12 +19,19 @@ from role_radar.db.engine import get_engine
 from role_radar.db.session import get_session_factory
 from role_radar.discovery.null_provider import NullSearchProvider
 from role_radar.discovery.protocols import SearchProvider, SearchQuery
-from role_radar.repositories.sources import SourceRepository
+from role_radar.domain.enums import SourceType
 from role_radar.scheduler import latest_slot
 from role_radar.services.collection_service import CollectionService
 from role_radar.services.extraction_service import ExtractionService
 from role_radar.services.matching_service import MatchingService
 from role_radar.services.run_service import RunConflict, RunNotFound, RunService
+from role_radar.services.source_service import (
+    RevisionConflict,
+    SourceNotFound,
+    SourceService,
+    SourceServiceError,
+)
+from role_radar.sources.public import project_public_configuration
 from role_radar.worker.main import run_worker
 
 DISCOVERY_QUERY = "greenhouse job board software engineer"
@@ -51,14 +58,20 @@ def _seed_boards(settings: Settings, fixtures_dir: Path) -> int:
     engine, session = _open_session(settings)
     try:
         boards = json.loads((fixtures_dir / "greenhouse_boards.json").read_text())
-        repo = SourceRepository(session)
+        service = SourceService(session)
         for board in boards:
-            repo.upsert_greenhouse_board(
-                name=board["name"],
-                board_token=board["board_token"],
-                company=board.get("company"),
-                enabled=board.get("enabled", False),
-            )
+            config = {"board_token": board["board_token"]}
+            if board.get("company") is not None:
+                config["company"] = board["company"]
+            try:
+                service.create(
+                    source_type=SourceType.GREENHOUSE,
+                    name=board["name"],
+                    configuration=config,
+                )
+            except SourceServiceError as exc:
+                if exc.code != "source_key_conflict":
+                    raise
         session.commit()
         return 0
     except Exception:
@@ -155,18 +168,22 @@ async def _run_discover(
     settings: Settings, provider: SearchProvider, query_text: str, max_results: int
 ) -> int:
     engine, session = _open_session(settings)
+    service = SourceService(session)
     try:
         results = await provider.search(SearchQuery(query=query_text, max_results=max_results))
-        repo = SourceRepository(session)
         for result in results:
             token = _extract_board_token(result.url)
             if token is None:
                 continue
-            repo.upsert_greenhouse_board(
-                name=result.title or f"Greenhouse {token}",
-                board_token=token,
-                enabled=False,
-            )
+            try:
+                service.create(
+                    source_type=SourceType.GREENHOUSE,
+                    name=result.title or f"Greenhouse {token}",
+                    configuration={"board_token": token},
+                )
+            except SourceServiceError as exc:
+                if exc.code != "source_key_conflict":
+                    raise
         session.commit()
         return 0
     except Exception:
@@ -252,6 +269,33 @@ def _parser() -> argparse.ArgumentParser:
     discover = subparsers.add_parser("discover-boards", help="propone boards sin activarlos")
     discover.add_argument("--query", default=DISCOVERY_QUERY)
     discover.add_argument("--max-results", type=int, default=10)
+    source = subparsers.add_parser("source", help="administra el catálogo local de sources")
+    source_commands = source.add_subparsers(dest="source_command", required=True)
+    source_list = source_commands.add_parser("list")
+    source_list.add_argument(
+        "--type", dest="source_type", choices=[item.value for item in SourceType]
+    )
+    source_list.add_argument("--enabled", choices=["true", "false"])
+    source_list.add_argument("--archived", choices=["true", "false"])
+    source_list.add_argument("--limit", type=int, default=50)
+    source_list.add_argument("--offset", type=int, default=0)
+    source_show = source_commands.add_parser("show")
+    source_show.add_argument("id")
+    source_create = source_commands.add_parser("create")
+    source_create.add_argument("--type", required=True, choices=[SourceType.GREENHOUSE.value])
+    source_create.add_argument("--name", required=True)
+    source_create.add_argument("--board-token", required=True)
+    source_create.add_argument("--company")
+    source_update = source_commands.add_parser("update")
+    source_update.add_argument("id")
+    source_update.add_argument("--revision", required=True, type=int)
+    source_update.add_argument("--name")
+    source_update.add_argument("--board-token")
+    source_update.add_argument("--company")
+    for command in ("enable", "disable", "archive"):
+        action = source_commands.add_parser(command)
+        action.add_argument("id")
+        action.add_argument("--revision", required=True, type=int)
     extract = subparsers.add_parser("extract", help="extrae un Job de forma estructurada")
     extract.add_argument("--job-id", required=True)
     pending = subparsers.add_parser("extract-pending", help="extrae Jobs pendientes")
@@ -281,6 +325,85 @@ def _parser() -> argparse.ArgumentParser:
     run_retry.add_argument("--idempotency-key")
     subparsers.add_parser("worker", help="procesa runs pending/recoverables")
     return parser
+
+
+def _source_payload(source: object) -> dict[str, object]:
+    row = source
+    public = project_public_configuration(row.type, row.configuration_version, row.configuration)  # type: ignore[attr-defined]
+    return {
+        "id": row.id,  # type: ignore[attr-defined]
+        "source_type": row.type.value,  # type: ignore[attr-defined]
+        "source_key": row.source_key,  # type: ignore[attr-defined]
+        "name": row.name,  # type: ignore[attr-defined]
+        "configuration_version": row.configuration_version,  # type: ignore[attr-defined]
+        "public_configuration": public.as_dict() if hasattr(public, "as_dict") else public,
+        "enabled": row.enabled,  # type: ignore[attr-defined]
+        "revision": row.revision,  # type: ignore[attr-defined]
+        "archived_at": row.archived_at.isoformat() if row.archived_at else None,  # type: ignore[attr-defined]
+    }
+
+
+def _run_source(settings: Settings, args: argparse.Namespace) -> int:
+    engine, session = _open_session(settings)
+    service = SourceService(session)
+    try:
+        if args.source_command == "list":
+
+            def parse_bool(value: str | None) -> bool | None:
+                return None if value is None else value == "true"
+
+            rows, _total = service.list_sources(
+                source_type=SourceType(args.source_type) if args.source_type else None,
+                enabled=parse_bool(args.enabled),
+                archived=parse_bool(args.archived),
+                limit=args.limit,
+                offset=args.offset,
+            )
+            print(json.dumps([_source_payload(row) for row in rows]))
+            return 0
+        if args.source_command == "show":
+            print(json.dumps(_source_payload(service.get(args.id))))
+            return 0
+        if args.source_command == "create":
+            configuration = {"board_token": args.board_token}
+            if args.company is not None:
+                configuration["company"] = args.company
+            row = service.create(
+                source_type=SourceType(args.type), name=args.name, configuration=configuration
+            )
+        elif args.source_command == "update":
+            current = service.get(args.id)
+            if args.name is None and args.board_token is None and args.company is None:
+                raise SourceServiceError("invalid_source_config")
+            configuration = dict(current.configuration or {})
+            if args.board_token is not None:
+                configuration["board_token"] = args.board_token
+            if args.company is not None:
+                configuration["company"] = args.company
+            row = service.update(
+                args.id,
+                expected_revision=args.revision,
+                name=args.name,
+                configuration=configuration
+                if args.board_token is not None or args.company is not None
+                else None,
+            )
+        else:
+            row = getattr(service, args.source_command)(args.id, expected_revision=args.revision)
+        session.commit()
+        print(json.dumps(_source_payload(row)))
+        return 0
+    except SourceNotFound as exc:
+        session.rollback()
+        print(f"role-radar: {exc.code}", file=sys.stderr)
+        return 3
+    except (RevisionConflict, SourceServiceError) as exc:
+        session.rollback()
+        print(f"role-radar: {exc.code}", file=sys.stderr)
+        return 4 if exc.code == "revision_conflict" else 2
+    finally:
+        session.close()
+        engine.dispose()
 
 
 def _run_control(settings: Settings, args: argparse.Namespace) -> int:
@@ -345,6 +468,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "worker":
             run_worker(settings)
             return 0
+        if args.command == "source":
+            return _run_source(settings, args)
         direct_commands = {"collect", "extract", "extract-pending", "score", "score-pending"}
         if args.command in direct_commands and not settings.allow_direct_pipeline_writes:
             print(
@@ -354,14 +479,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 1
         if args.command == "seed-boards":
             return _seed_boards(settings, _fixtures_dir())
-        if args.command == "collect":
-            run_id, status, stats = asyncio.run(_run_collect(settings, args.reason))
-            print(json.dumps({"run_id": run_id, "status": status, "stats": stats}))
-            return 0 if status == "completed" else 1
         if args.command == "discover-boards":
             return asyncio.run(
                 _run_discover(settings, NullSearchProvider(), args.query, args.max_results)
             )
+        if args.command == "collect":
+            run_id, status, stats = asyncio.run(_run_collect(settings, args.reason))
+            print(json.dumps({"run_id": run_id, "status": status, "stats": stats}))
+            return 0 if status == "completed" else 1
         if args.command == "extract":
             print(json.dumps(asyncio.run(_run_extract(settings, args.job_id))))
             return 0

@@ -1,28 +1,31 @@
-"""Registry estático de adapters de sources.
+"""Static collector factory registry.
 
-No hay discovery dinámico ni plugins: habilitar un segundo ATS requiere una
-decisión explícita y otro adapter. Greenhouse es el único adapter real de F5.
+Availability and CRUD policy live in ``sources.catalog`` and
+``services.source_service``. This module only resolves the one approved
+Greenhouse factory from an already validated DTO.
 """
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from role_radar.collectors.greenhouse import GreenhouseCollector, GreenhouseSourceConfig
+from role_radar.collectors.greenhouse import GreenhouseCollector
 from role_radar.collectors.protocols import JobCollector, SourceSnapshot
 from role_radar.domain.enums import SourceType
+from role_radar.sources.catalog import CATALOG, get_catalog_entry
+from role_radar.sources.configuration import GreenhouseSourceConfig, validate_configuration
+from role_radar.sources.identity import canonical_source_key, legacy_source_key
 
 
 class CollectorConfigurationError(ValueError):
-    """La source no tiene configuración válida o un adapter habilitado."""
+    """Snapshot cannot be used by a registered adapter."""
 
 
 @dataclass(frozen=True)
 class CollectorContext:
-    """Dependencias opcionales de un collector, aisladas del registry."""
-
     client: Any = None
     timeout: float = 30.0
     user_agent: str = "role-radar/0.1 (+homelab)"
@@ -31,11 +34,12 @@ class CollectorContext:
 @dataclass(frozen=True)
 class CollectorRegistration:
     source_type: SourceType
+    factory_ref: str
     factory: Callable[[SourceSnapshot, CollectorContext], JobCollector]
 
 
 class SourceSnapshotModel(BaseModel):
-    """Modelo JSON canónico utilizado al persistir snapshots de run."""
+    """Persisted v0/v1 snapshot shape, with strict unknown-field rejection."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -43,21 +47,52 @@ class SourceSnapshotModel(BaseModel):
     source_type: SourceType
     name: str = Field(min_length=1, max_length=255)
     configuration: dict[str, Any]
+    source_key: str | None = None
+    configuration_version: int = 0
+
+    @model_validator(mode="after")
+    def validate_version(self) -> "SourceSnapshotModel":
+        if self.configuration_version not in (0, 1):
+            raise ValueError("unsupported source snapshot version")
+        return self
 
     def as_snapshot(self) -> SourceSnapshot:
+        source_key = self.source_key
+        version = self.configuration_version
+        if self.source_type is SourceType.GREENHOUSE:
+            try:
+                config = GreenhouseSourceConfig.model_validate(self.configuration)
+                calculated_key = canonical_source_key(self.source_type, config.model_dump())
+                if source_key is not None and source_key != calculated_key:
+                    raise ValueError("snapshot source key does not match configuration")
+                source_key = source_key or calculated_key
+                version = version or GreenhouseSourceConfig.VERSION
+            except ValueError as exc:
+                raise CollectorConfigurationError(
+                    "invalid greenhouse source configuration"
+                ) from exc
+        elif source_key is None:
+            source_key = legacy_source_key(self.source_type, self.source_id)
         return SourceSnapshot(
             source_id=self.source_id,
             source_type=self.source_type.value,
             name=self.name,
-            configuration=self.configuration,
+            configuration=MappingProxyType(dict(self.configuration)),
+            source_key=source_key,
+            configuration_version=version,
         )
 
 
 def _greenhouse_factory(snapshot: SourceSnapshot, context: CollectorContext) -> JobCollector:
     try:
-        config = GreenhouseSourceConfig.model_validate(snapshot.configuration)
+        config = validate_configuration(
+            SourceType.GREENHOUSE,
+            snapshot.configuration_version or GreenhouseSourceConfig.VERSION,
+            dict(snapshot.configuration),
+        )
     except ValueError as exc:
         raise CollectorConfigurationError("invalid greenhouse source configuration") from exc
+    assert isinstance(config, GreenhouseSourceConfig)
     return GreenhouseCollector(
         client=context.client,
         timeout=context.timeout,
@@ -66,39 +101,61 @@ def _greenhouse_factory(snapshot: SourceSnapshot, context: CollectorContext) -> 
     )
 
 
-REGISTRY: dict[SourceType, CollectorRegistration] = {
-    SourceType.GREENHOUSE: CollectorRegistration(SourceType.GREENHOUSE, _greenhouse_factory)
+def _factory_map() -> dict[str, CollectorRegistration]:
+    return {
+        "greenhouse.v1": CollectorRegistration(
+            SourceType.GREENHOUSE, "greenhouse.v1", _greenhouse_factory
+        )
+    }
+
+
+FACTORIES = _factory_map()
+# The public registry contract is factory_ref -> callable. The type-indexed
+# view is intentionally separate and is not used for availability decisions.
+REGISTRY = {factory_ref: registration.factory for factory_ref, registration in FACTORIES.items()}
+REGISTRATIONS_BY_TYPE = {
+    registration.source_type: registration for registration in FACTORIES.values()
 }
+
+if set(REGISTRY) != {entry.factory_ref for entry in CATALOG.values() if entry.factory_ref}:
+    raise AssertionError("catalog and collector factory references diverge")
 
 
 def validate_snapshot(snapshot: SourceSnapshot) -> SourceSnapshot:
-    """Valida adapter/type/config y devuelve una copia canónica."""
+    """Validate adapter/config without opening a network client."""
     try:
         source_type = SourceType(snapshot.source_type)
-    except ValueError as exc:
+        entry = get_catalog_entry(source_type)
+    except (KeyError, ValueError) as exc:
         raise CollectorConfigurationError("unsupported source type") from exc
-    registration = REGISTRY.get(source_type)
-    if registration is None:
+    if not entry.adapter_available or entry.factory_ref is None:
         raise CollectorConfigurationError("source type has no enabled collector")
-    if not snapshot.source_id or not snapshot.name:
-        raise CollectorConfigurationError("source snapshot identity is invalid")
-    if source_type is SourceType.GREENHOUSE:
-        try:
-            GreenhouseSourceConfig.model_validate(snapshot.configuration)
-        except ValueError as exc:
-            raise CollectorConfigurationError("invalid greenhouse source configuration") from exc
+    if snapshot.configuration_version not in (0, GreenhouseSourceConfig.VERSION):
+        raise CollectorConfigurationError("unsupported source configuration version")
+    try:
+        config = GreenhouseSourceConfig.model_validate(dict(snapshot.configuration))
+        calculated_key = canonical_source_key(source_type, config.model_dump())
+        if snapshot.source_key is not None and snapshot.source_key != calculated_key:
+            raise ValueError("snapshot source key does not match configuration")
+        source_key = snapshot.source_key or calculated_key
+    except ValueError as exc:
+        raise CollectorConfigurationError("invalid greenhouse source configuration") from exc
     return SourceSnapshot(
         source_id=snapshot.source_id,
         source_type=source_type.value,
         name=snapshot.name,
-        configuration=dict(snapshot.configuration),
+        configuration=MappingProxyType(config.model_dump(mode="json", exclude_none=True)),
+        source_key=source_key,
+        configuration_version=GreenhouseSourceConfig.VERSION,
     )
 
 
 def create_collector(
     snapshot: SourceSnapshot, context: CollectorContext | None = None
 ) -> JobCollector:
-    """Construye el adapter estático para un snapshot ya persistible."""
     valid = validate_snapshot(snapshot)
-    registration = REGISTRY[SourceType(valid.source_type)]
-    return registration.factory(valid, context or CollectorContext())
+    entry = get_catalog_entry(valid.source_type)
+    factory = REGISTRY.get(entry.factory_ref or "")
+    if factory is None:
+        raise CollectorConfigurationError("collector factory is unavailable")
+    return factory(valid, context or CollectorContext())

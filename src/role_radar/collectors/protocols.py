@@ -1,5 +1,6 @@
 """Contratos agnósticos a la fuente para collectors persistentes."""
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -17,7 +18,9 @@ class SourceSnapshot:
     source_id: str
     source_type: str
     name: str
-    configuration: dict[str, Any]
+    configuration: Mapping[str, Any]
+    source_key: str | None = None
+    configuration_version: int = 0
 
 
 @dataclass(frozen=True)

@@ -65,6 +65,24 @@ conservan para dev/test, pero están bloqueados salvo
 `ROLE_RADAR_ALLOW_DIRECT_PIPELINE_WRITES=true` (nunca válido en prod).
 No se usa Tavily para colectar ofertas.
 
+## Source catalog (F8.1)
+
+Source mutations are local-only and require the current revision. Creation is
+always disabled:
+
+```text
+role-radar source list
+role-radar source show <id>
+role-radar source create --type greenhouse --name "Acme" --board-token acme
+role-radar source update <id> --revision 1 --name "Acme Board"
+role-radar source enable|disable|archive <id> --revision <n>
+```
+
+The source API is read-only (`GET /source-types`, `/sources`, and
+`/sources/{id}`) and exposes only the public Greenhouse projection. There are
+no source HTTP mutations, arbitrary URLs, credentials, discovery, or dynamic
+adapters. Greenhouse resource bounds are not enforced until F8.2.
+
 ## Estructura
 
 ```

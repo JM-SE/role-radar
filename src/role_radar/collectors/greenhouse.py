@@ -4,21 +4,12 @@ from datetime import UTC, datetime
 from typing import Any
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field
 
 from role_radar.collectors.protocols import CollectionContext, SourceSnapshot
 from role_radar.domain.dto import RawJob
+from role_radar.sources.configuration import GreenhouseSourceConfig
 
 GREENHOUSE_BOARDS_API_BASE = "https://boards-api.greenhouse.io/v1/boards"
-
-
-class GreenhouseSourceConfig(BaseModel):
-    """Configuración propia del adapter Greenhouse (no del protocolo común)."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    board_token: str = Field(min_length=1, max_length=255)
-    company: str | None = Field(default=None, max_length=255)
 
 
 class GreenhouseCollector:
@@ -50,7 +41,9 @@ class GreenhouseCollector:
 
     async def collect(self, context: SourceSnapshot | CollectionContext) -> list[RawJob]:
         if isinstance(context, SourceSnapshot):
-            config = self._config or GreenhouseSourceConfig.model_validate(context.configuration)
+            config = self._config or GreenhouseSourceConfig.model_validate(
+                dict(context.configuration)
+            )
             board_token = config.board_token
             company = config.company or context.name
             source_name = context.name
