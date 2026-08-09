@@ -38,6 +38,9 @@ class SourceResponse(BaseModel):
     last_success_at: datetime | None
     last_error_at: datetime | None
     last_error_code: str | None
+    management_origin: str
+    discovery_policy_version: str | None
+    discovery_verified_at: datetime | None
 
     model_config = ConfigDict(extra="forbid")
 

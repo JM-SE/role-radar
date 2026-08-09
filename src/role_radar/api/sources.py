@@ -97,4 +97,7 @@ def _project(row: Source) -> SourceResponse:
         last_success_at=row.last_success_at,
         last_error_at=row.last_error_at,
         last_error_code=row.last_error_code,
+        management_origin=row.management_origin,
+        discovery_policy_version=row.discovery_policy_version,
+        discovery_verified_at=row.discovery_verified_at,
     )

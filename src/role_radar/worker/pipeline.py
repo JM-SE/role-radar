@@ -28,6 +28,7 @@ from role_radar.notifications.fake import DisabledTelegramGateway
 from role_radar.repositories.runs import RunRepository
 from role_radar.services.pipeline_collection import PipelineCollectionService
 from role_radar.services.pipeline_deep_evaluation import PipelineDeepEvaluationService
+from role_radar.services.pipeline_discovery import PipelineDiscoveryService
 from role_radar.services.pipeline_extraction import PipelineExtractionService
 from role_radar.services.pipeline_notifications import PipelineNotificationService
 from role_radar.services.pipeline_scoring import PipelineScoringService
@@ -45,6 +46,8 @@ class Pipeline:
         collector_factory: Any = None,
         notification_gateway: TelegramGateway | None = None,
         notification_recipient: str | None = None,
+        discovery_provider: Any = None,
+        discovery_collector_factory: Any = None,
     ) -> None:
         self._session_factory = session_factory
         self._settings = settings or Settings()
@@ -52,6 +55,17 @@ class Pipeline:
             session_factory,
             collector_factory=collector_factory,
             settings=self._settings,
+        )
+        hmac_key = (
+            self._settings.discovery_query_hmac_key.get_secret_value()
+            if self._settings.discovery_query_hmac_key is not None
+            else None
+        )
+        self._discovery = PipelineDiscoveryService(
+            session_factory,
+            provider=discovery_provider,
+            collector_factory=discovery_collector_factory or collector_factory,
+            query_key_secret=hmac_key,
         )
         self._extraction = PipelineExtractionService(session_factory, provider=provider)
         self._scoring = PipelineScoringService(session_factory)
@@ -102,6 +116,17 @@ class Pipeline:
                 return self._complete(run_id)
             snapshots = self._collection.prepare(run_id)
             self._collection.start_run_budget()
+            discovery_finalization = None
+            try:
+                discovery_plan = self._discovery.prepare(run_id)
+                if discovery_plan is not None:
+                    discovery_finalization = self._discovery.finalize(
+                        await self._discovery.execute(discovery_plan)
+                    )
+            except Exception:
+                # Discovery is advisory; ATS collection continues on any
+                # provider, classifier, or discovery persistence failure.
+                discovery_finalization = None
             for snapshot in snapshots:
                 result = await self._collection.execute(snapshot)
                 self._collection.finalize(run_id, result)
@@ -109,7 +134,7 @@ class Pipeline:
             with self._session_factory() as session:
                 run_after_collection = session.get(JobSearchRun, run_id)
                 outcomes = run_after_collection.source_results_json if run_after_collection else {}
-            if (
+            if not (discovery_finalization and discovery_finalization.producer_success) and (
                 not snapshots
                 or not outcomes
                 or all(

@@ -7,7 +7,6 @@ import sys
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from urllib.parse import urlsplit
 
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session
@@ -16,9 +15,11 @@ from role_radar.broker.factory import create_llm_provider
 from role_radar.config import Settings
 from role_radar.db.engine import get_engine
 from role_radar.db.session import get_session_factory
+from role_radar.discovery.contracts import KnownOfficialCandidate, UnknownCandidate
 from role_radar.discovery.null_provider import NullSearchProvider
 from role_radar.discovery.protocols import SearchProvider, SearchQuery
-from role_radar.domain.enums import SourceType
+from role_radar.discovery.url_classifier import classify_url
+from role_radar.domain.enums import DiscoveryMode, SourceType
 from role_radar.scheduler import latest_slot
 from role_radar.services.collection_service import CollectionService
 from role_radar.services.extraction_service import ExtractionService
@@ -34,7 +35,6 @@ from role_radar.sources.public import project_public_configuration
 from role_radar.worker.main import run_worker
 
 DISCOVERY_QUERY = "greenhouse job board software engineer"
-_GREENHOUSE_HOSTS = {"boards.greenhouse.io", "job-boards.greenhouse.io"}
 
 
 def _fixtures_dir() -> Path:
@@ -146,47 +146,33 @@ async def _run_extract_pending(settings: Settings, limit: int) -> list[dict[str,
         engine.dispose()
 
 
-def _extract_board_token(url: str) -> str | None:
-    parsed = urlsplit(url)
-    if parsed.hostname not in _GREENHOUSE_HOSTS:
-        return None
-    segments = [segment for segment in parsed.path.split("/") if segment]
-    if not segments:
-        return None
-    token = segments[0]
-    if token.lower() in {"jobs", "job-boards"}:
-        return None
-    return token
-
-
 async def _run_discover(
     settings: Settings, provider: SearchProvider, query_text: str, max_results: int
 ) -> int:
-    engine, session = _open_session(settings)
-    service = SourceService(session)
-    try:
-        results = await provider.search(SearchQuery(query=query_text, max_results=max_results))
-        for result in results:
-            token = _extract_board_token(result.url)
-            if token is None:
-                continue
-            try:
-                service.create(
-                    source_type=SourceType.GREENHOUSE,
-                    name=result.title or f"Greenhouse {token}",
-                    configuration={"board_token": token},
-                )
-            except SourceServiceError as exc:
-                if exc.code != "source_key_conflict":
-                    raise
-        session.commit()
-        return 0
-    except Exception:
-        session.rollback()
-        raise
-    finally:
-        session.close()
-        engine.dispose()
+    # Deprecated local preview only.  It intentionally does not open a DB,
+    # does not fetch a URL, and never turns a result title/snippet into a
+    # Source.  F8.5 owns real provider wiring.
+    results = await provider.search(SearchQuery(query=query_text, max_results=max_results))
+    known = unknown = rejected = 0
+    for result in results[:max_results]:
+        classified = classify_url(result.url)
+        if isinstance(classified, KnownOfficialCandidate):
+            known += 1
+        elif isinstance(classified, UnknownCandidate):
+            unknown += 1
+        else:
+            rejected += 1
+    print(
+        json.dumps(
+            {
+                "candidates": len(results[:max_results]),
+                "known": known,
+                "unknown": unknown,
+                "rejected": rejected,
+            }
+        )
+    )
+    return 0
 
 
 def _run_score(settings: Settings, job_id: str, profile_id: str | None) -> dict[str, object]:
@@ -464,6 +450,9 @@ def _run_control(settings: Settings, args: argparse.Namespace) -> int:
                 idempotency_key=key,
                 notification_mode="daily_digest" if reason == "scheduled" else "none",
                 schedule_slot=slot if reason == "scheduled" else None,
+                discovery_mode=(
+                    DiscoveryMode.SCHEDULED_DUE if reason == "scheduled" else DiscoveryMode.NONE
+                ),
             )
         elif args.run_command == "list":
             from role_radar.domain.enums import JobSearchRunStatus

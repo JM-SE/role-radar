@@ -25,7 +25,7 @@ def test_fresh_and_f7_upgrade_downgrade_smoke(tmp_path: Path) -> None:
     with sqlite3.connect(fresh) as connection:
         assert connection.execute("PRAGMA user_version").fetchone() == (0,)
         assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            "b8c1d4e6f901",
+            "48213cabbd50",
         )
 
     upgraded = tmp_path / "f7.db"

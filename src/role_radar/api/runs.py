@@ -103,6 +103,7 @@ def _response(run: JobSearchRun) -> RunResponse:
         recovery_count=run.recovery_count,
         notification_mode=getattr(run.notification_mode, "value", run.notification_mode),
         schedule_slot=run.schedule_slot,
+        discovery_mode=getattr(run.discovery_mode, "value", run.discovery_mode),
         notification_summary=_notification_summary(run),
         run_jobs=[
             RunJobResponse(

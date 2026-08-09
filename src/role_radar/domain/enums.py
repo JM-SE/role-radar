@@ -129,3 +129,37 @@ class NotificationItemStatus(StrEnum):
     SENT = "sent"
     FAILED = "failed"
     UNKNOWN = "unknown"
+
+
+class DiscoveryMode(StrEnum):
+    """Whether the scheduled run may execute the discovery sub-step."""
+
+    NONE = "none"
+    SCHEDULED_DUE = "scheduled_due"
+
+
+class DiscoveryCycleStatus(StrEnum):
+    PLANNED = "planned"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    DEGRADED = "degraded"
+    FAILED = "failed"
+    REUSED = "reused"
+
+
+class DiscoveryQueryStatus(StrEnum):
+    PLANNED = "planned"
+    EXECUTED = "executed"
+    EMPTY = "empty"
+    FAILED = "failed"
+    REUSED = "reused"
+
+
+class DiscoveryErrorCode(StrEnum):
+    QUERY_KEY_UNAVAILABLE = "query_key_unavailable"
+    PROVIDER_UNAVAILABLE = "provider_unavailable"
+    PROVIDER_FAILED = "provider_failed"
+    VERIFICATION_FAILED = "verification_failed"
+    CAP_EXCEEDED = "cap_exceeded"
+    UNSUPPORTED_CANDIDATE = "unsupported_candidate"
+    INTERNAL = "internal"

@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from role_radar.db.models import JobSearchRun
-from role_radar.domain.enums import JobSearchRunStatus
+from role_radar.domain.enums import DiscoveryMode, JobSearchRunStatus
 from role_radar.repositories.profiles import ProfileRepository
 from role_radar.repositories.runs import RunRepository
 
@@ -30,6 +30,7 @@ class RunIntent:
     reason: str
     profile_id: str
     request_hash: str
+    discovery_mode: DiscoveryMode
 
 
 class RunService:
@@ -47,8 +48,10 @@ class RunService:
         trigger_namespace: str = "POST:/runs",
         notification_mode: str = "none",
         schedule_slot: str | None = None,
+        discovery_mode: DiscoveryMode | str = DiscoveryMode.NONE,
     ) -> JobSearchRun:
-        intent = self._resolve_intent(reason=reason, profile_id=profile_id)
+        mode = DiscoveryMode(discovery_mode)
+        intent = self._resolve_intent(reason=reason, profile_id=profile_id, discovery_mode=mode)
         trigger_hash = (
             _hash(f"{trigger_namespace}:{_normalize_key(idempotency_key)}")
             if idempotency_key
@@ -69,6 +72,7 @@ class RunService:
                     request_hash=intent.request_hash,
                     notification_mode=notification_mode,
                     schedule_slot=schedule_slot,
+                    discovery_mode=mode,
                 )
         except IntegrityError as exc:
             if trigger_hash is None:
@@ -139,6 +143,9 @@ class RunService:
                         parent.notification_mode, "value", parent.notification_mode
                     ),
                     schedule_slot=parent.schedule_slot,
+                    discovery_mode=DiscoveryMode(
+                        getattr(parent.discovery_mode, "value", parent.discovery_mode)
+                    ),
                 )
         except IntegrityError as exc:
             if trigger_hash is None:
@@ -148,7 +155,9 @@ class RunService:
                 raise RunConflict("retry idempotency conflict") from exc
             return existing
 
-    def _resolve_intent(self, *, reason: str, profile_id: str | None) -> RunIntent:
+    def _resolve_intent(
+        self, *, reason: str, profile_id: str | None, discovery_mode: DiscoveryMode
+    ) -> RunIntent:
         normalized_reason = " ".join(reason.split())[:255]
         if not normalized_reason:
             raise RunConflict("reason must not be empty")
@@ -163,12 +172,16 @@ class RunService:
             profile = active[0]
         request_hash = _hash(
             json.dumps(
-                {"reason": normalized_reason, "profile_id": profile.id},
+                {
+                    "reason": normalized_reason,
+                    "profile_id": profile.id,
+                    "discovery_mode": discovery_mode.value,
+                },
                 sort_keys=True,
                 separators=(",", ":"),
             )
         )
-        return RunIntent(normalized_reason, profile.id, request_hash)
+        return RunIntent(normalized_reason, profile.id, request_hash, discovery_mode)
 
 
 def _normalize_key(value: str | None) -> str:

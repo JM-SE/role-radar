@@ -45,6 +45,7 @@ class RunResponse(BaseModel):
     recovery_count: int
     notification_mode: str
     schedule_slot: str | None
+    discovery_mode: str
     notification_summary: "NotificationSummary | None" = None
     run_jobs: list[RunJobResponse]
 

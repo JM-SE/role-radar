@@ -27,11 +27,8 @@ from role_radar.collectors.registry import (
 )
 from role_radar.config import Settings
 from role_radar.db.models import JobSearchRun, Source
-from role_radar.dedup.service import DedupService
-from role_radar.domain.enums import JobSearchRunStatus, RunJobStage, RunJobStatus, SourceType
-from role_radar.normalization.jobs import normalize_raw_job
-from role_radar.repositories.jobs import JobRepository
-from role_radar.repositories.runs import RunRepository
+from role_radar.domain.enums import JobSearchRunStatus, SourceType
+from role_radar.services.acquired_job_writer import AcquiredJobWriter
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,41 +165,16 @@ class PipelineCollectionService:
             self._set_result(run, result.source_id, projected)
             return
 
-        jobs = JobRepository(session)
-        runs = RunRepository(session)
-        dedup = DedupService(jobs)
+        writer = AcquiredJobWriter(session)
         projected["status"] = result.outcome.status
         projected["collected"] = len(result.outcome.jobs)
         projected["failed"] = result.outcome.rejection_counts.rejected_items
-        for raw_job in result.outcome.jobs:
-            normalized = normalize_raw_job(raw_job)
-            if not normalized.title or not normalized.description or not (
-                normalized.application_url or normalized.source_url
-            ):
-                projected["prefiltered"] += 1
-                continue
-            resolved = dedup.resolve(
-                normalized=normalized,
-                source_id=source.id,
-                raw_payload=raw_job.structured_data,
-            )
-            dedup_outcome = "new" if resolved.is_new else "existing"
-            for stage in (RunJobStage.COLLECTED, RunJobStage.NORMALIZED, RunJobStage.DEDUPLICATED):
-                runs.update_run_job(
-                    run_id=run_id,
-                    job_id=resolved.job.id,
-                    stage=stage,
-                    status=RunJobStatus.SUCCEEDED,
-                    outcome_json=(
-                        {"dedup": dedup_outcome}
-                        if stage is RunJobStage.DEDUPLICATED
-                        else None
-                    ),
-                )
-            if resolved.is_new:
-                projected["new_jobs"] += 1
-            else:
-                projected["duplicates"] += 1
+        written = writer.write(
+            run_id=run_id, source_id=source.id, raw_jobs=result.outcome.jobs, acquisition="ats"
+        )
+        projected["prefiltered"] += written.prefiltered
+        projected["new_jobs"] += written.new_jobs
+        projected["duplicates"] += written.duplicates
         source.last_success_at = datetime.now(UTC)
         source.last_error_code = None
         self._set_result(run, result.source_id, projected)

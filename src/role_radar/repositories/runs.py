@@ -7,7 +7,7 @@ from sqlalchemy import and_, or_, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from role_radar.db.models import JobSearchRun, RunJob
-from role_radar.domain.enums import JobSearchRunStatus, RunJobStage, RunJobStatus
+from role_radar.domain.enums import DiscoveryMode, JobSearchRunStatus, RunJobStage, RunJobStatus
 
 _TERMINAL = {
     JobSearchRunStatus.COMPLETED,
@@ -46,6 +46,7 @@ class RunRepository:
         source_snapshot_json: list[dict[str, Any]] | None = None,
         notification_mode: str = "none",
         schedule_slot: str | None = None,
+        discovery_mode: DiscoveryMode = DiscoveryMode.NONE,
     ) -> JobSearchRun:
         run = JobSearchRun(
             reason=reason,
@@ -57,6 +58,7 @@ class RunRepository:
             source_snapshot_json=source_snapshot_json,
             notification_mode=notification_mode,
             schedule_slot=schedule_slot,
+            discovery_mode=discovery_mode,
             recovery_count=0,
         )
         self._session.add(run)

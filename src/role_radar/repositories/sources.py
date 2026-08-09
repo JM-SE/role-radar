@@ -76,6 +76,20 @@ class SourceRepository:
             )
         return int(self._session.scalar(stmt) or 0)
 
+    def count_active_management_origin(self, origin: str) -> int:
+        return int(
+            self._session.scalar(
+                select(func.count())
+                .select_from(Source)
+                .where(
+                    Source.management_origin == origin,
+                    Source.enabled.is_(True),
+                    Source.archived_at.is_(None),
+                )
+            )
+            or 0
+        )
+
     def create_row(
         self,
         *,
@@ -91,6 +105,9 @@ class SourceRepository:
         updated_at: datetime | None = None,
         archived_at: datetime | None = None,
         last_error_code: str | None = None,
+        management_origin: str = "manual",
+        discovery_policy_version: str | None = None,
+        discovery_verified_at: datetime | None = None,
     ) -> Source:
         source = Source(
             id=source_id,
@@ -105,6 +122,9 @@ class SourceRepository:
             updated_at=updated_at or datetime.now(UTC),
             archived_at=archived_at,
             last_error_code=last_error_code,
+            management_origin=management_origin,
+            discovery_policy_version=discovery_policy_version,
+            discovery_verified_at=discovery_verified_at,
         )
         self._session.add(source)
         self._session.flush()

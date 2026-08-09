@@ -29,6 +29,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from role_radar.db.base import Base
 from role_radar.domain.enums import (
     DeepEvaluationStatus,
+    DiscoveryCycleStatus,
+    DiscoveryMode,
+    DiscoveryQueryStatus,
     ExtractionStatus,
     JobSearchRunStatus,
     JobStatus,
@@ -85,6 +88,20 @@ class Source(Base):
         UniqueConstraint("source_key", name="uq_sources_source_key"),
         CheckConstraint("revision >= 1", name="ck_sources_revision"),
         CheckConstraint("archived_at IS NULL OR enabled = 0", name="ck_sources_archived_disabled"),
+        CheckConstraint(
+            "management_origin IN ('manual','discovery')", name="ck_sources_management_origin"
+        ),
+        CheckConstraint(
+            "management_origin='manual' OR "
+            "(discovery_policy_version IS NOT NULL AND discovery_verified_at IS NOT NULL)",
+            name="ck_sources_discovery_metadata",
+        ),
+        Index(
+            "ix_sources_management_enabled_archived",
+            "management_origin",
+            "enabled",
+            "archived_at",
+        ),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
@@ -105,6 +122,13 @@ class Source(Base):
     last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_error_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    management_origin: Mapped[str] = mapped_column(
+        String(16), default="manual", server_default="manual", nullable=False
+    )
+    discovery_policy_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    discovery_verified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     source_references: Mapped[list[JobSourceReference]] = relationship(back_populates="source")
 
@@ -383,6 +407,10 @@ class JobSearchRun(Base):
         ),
         Index("ix_job_search_runs_profile", "profile_id"),
         Index("ix_job_search_runs_retry_parent", "retry_of_run_id"),
+        CheckConstraint(
+            "discovery_mode IN ('none','scheduled_due')",
+            name="ck_job_search_runs_discovery_mode",
+        ),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
@@ -390,6 +418,12 @@ class JobSearchRun(Base):
     notification_mode: Mapped[NotificationMode] = mapped_column(
         Enum(NotificationMode, native_enum=False, length=16, values_callable=_enum_values),
         default=NotificationMode.NONE,
+        nullable=False,
+    )
+    discovery_mode: Mapped[DiscoveryMode] = mapped_column(
+        Enum(DiscoveryMode, native_enum=False, length=16, values_callable=_enum_values),
+        default=DiscoveryMode.NONE,
+        server_default="none",
         nullable=False,
     )
     schedule_slot: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
@@ -436,6 +470,84 @@ class JobSearchRun(Base):
     retry_of: Mapped[JobSearchRun | None] = relationship(
         remote_side=[id], foreign_keys=[retry_of_run_id], uselist=False
     )
+
+
+class DiscoveryCycle(Base):
+    """Minimized durable journal for one discovery planning/execution cycle."""
+
+    __tablename__ = "discovery_cycles"
+    __table_args__ = (
+        UniqueConstraint("run_id", name="uq_discovery_cycles_run_id"),
+        CheckConstraint(
+            "status IN ('planned','running','completed','degraded','failed','reused')",
+            name="ck_discovery_cycles_status",
+        ),
+        Index("ix_discovery_cycles_reuse", "reused_from_cycle_id"),
+        Index("ix_discovery_cycles_status", "status"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("job_search_runs.id", ondelete="RESTRICT"), nullable=False
+    )
+    reused_from_cycle_id: Mapped[str | None] = mapped_column(
+        ForeignKey("discovery_cycles.id", ondelete="RESTRICT"), nullable=True
+    )
+    profile_snapshot_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    planner_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    planner_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    policy_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[DiscoveryCycleStatus] = mapped_column(
+        Enum(DiscoveryCycleStatus, native_enum=False, length=16, values_callable=_enum_values),
+        nullable=False,
+    )
+    stats_json: Mapped[dict[str, int]] = mapped_column(JSON, nullable=False, default=dict)
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    planned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class DiscoveryQuery(Base):
+    """Only HMAC/query-family aggregates are durable; no search result is stored."""
+
+    __tablename__ = "discovery_queries"
+    __table_args__ = (
+        UniqueConstraint("cycle_id", "ordinal", name="uq_discovery_queries_cycle_ordinal"),
+        UniqueConstraint(
+            "cycle_id", "query_key", "provider_intent", name="uq_discovery_queries_identity"
+        ),
+        Index("ix_discovery_queries_cycle_ordinal", "cycle_id", "ordinal"),
+        Index("ix_discovery_queries_query_key", "query_key"),
+        CheckConstraint(
+            "status IN ('planned','executed','empty','failed','reused')",
+            name="ck_discovery_queries_status",
+        ),
+        CheckConstraint("ordinal >= 0 AND ordinal < 24", name="ck_discovery_queries_ordinal"),
+        CheckConstraint(
+            "candidate_count >= 0 AND known_count >= 0 AND unknown_count >= 0 "
+            "AND rejected_count >= 0 AND verified_count >= 0",
+            name="ck_discovery_queries_counts",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    cycle_id: Mapped[str] = mapped_column(
+        ForeignKey("discovery_cycles.id", ondelete="RESTRICT"), nullable=False
+    )
+    ordinal: Mapped[int] = mapped_column(nullable=False)
+    family: Mapped[str] = mapped_column(String(64), nullable=False)
+    query_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    provider_intent: Mapped[str] = mapped_column(String(16), nullable=False)
+    status: Mapped[DiscoveryQueryStatus] = mapped_column(
+        Enum(DiscoveryQueryStatus, native_enum=False, length=16, values_callable=_enum_values),
+        nullable=False,
+    )
+    candidate_count: Mapped[int] = mapped_column(default=0, nullable=False)
+    known_count: Mapped[int] = mapped_column(default=0, nullable=False)
+    unknown_count: Mapped[int] = mapped_column(default=0, nullable=False)
+    rejected_count: Mapped[int] = mapped_column(default=0, nullable=False)
+    verified_count: Mapped[int] = mapped_column(default=0, nullable=False)
 
 
 class RunJob(Base):
