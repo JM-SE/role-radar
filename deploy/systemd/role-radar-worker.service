@@ -8,14 +8,13 @@ User=ROLE_RADAR_USER
 WorkingDirectory=/ROLE_RADAR_APP_DIR
 EnvironmentFile=/etc/role-radar/role-radar.env
 Environment=PATH=/ROLE_RADAR_APP_DIR/.venv/bin:/usr/bin
-LoadCredential=brave_api_key:/etc/role-radar/credentials/brave_api_key
-LoadCredential=tavily_api_key:/etc/role-radar/credentials/tavily_api_key
-LoadCredential=query_hmac_key:/etc/role-radar/credentials/query_hmac_key
+SupplementaryGroups=role-radar
 UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
+ReadOnlyPaths=/etc/role-radar/acquisition.toml /etc/role-radar/evidence/jobicy
 ReadWritePaths=/ROLE_RADAR_APP_DIR/data
 ExecStart=/usr/bin/env role-radar worker
 Restart=on-failure

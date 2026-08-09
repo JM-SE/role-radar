@@ -8,7 +8,7 @@ from role_radar.mailbox.mime_parser import MAX_RFC822_BYTES, MimeLimitError, par
 def test_plain_and_html_are_bounded_and_remote_resources_are_not_loaded() -> None:
     raw = (
         b"From: alerts@example.com\n"
-        b"Authentication-Results: mx; dkim=pass\n"
+        b"Authentication-Results: mx.google.com; dkim=pass\n"
         b"Content-Type: text/html; charset=utf-8\n\n"
         b"<script>https://secret.invalid</script><a href=\"https://example.com/job\">job</a>"
     )

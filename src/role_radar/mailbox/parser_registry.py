@@ -7,6 +7,8 @@ from role_radar.mailbox.contracts import (
     ParseResult,
     TerminalRejection,
 )
+from role_radar.mailbox.detectors.registry import REGISTRY_VERSION
+from role_radar.mailbox.detectors.registry import select as select_auto
 
 Parser = Callable[[BoundedMailboxMessage], ParseResult]
 
@@ -28,6 +30,28 @@ class MailboxParserRegistry:
         self._parsers = dict(parsers)
 
     def parse(self, profile: str, message: BoundedMailboxMessage) -> ParseResult:
+        if profile == "auto":
+            selected, match = select_auto(message)
+            if match is None:
+                code = "quarantine" if selected == "ambiguous" else "review"
+                return ParseResult(
+                    selected,
+                    REGISTRY_VERSION,
+                    (TerminalRejection(code, selected, REGISTRY_VERSION),),
+                    template_code=REGISTRY_VERSION,
+                    terminal_code=code,
+                )
+            parser = self._parsers.get(selected)
+            if parser is None:
+                return ParseResult("unknown", REGISTRY_VERSION, terminal_code="review")
+            parsed = parser(message)
+            return ParseResult(
+                parsed.parser_name,
+                parsed.schema_version,
+                parsed.outputs,
+                f"{REGISTRY_VERSION}:{match.detector_version}:{match.fingerprint_version}",
+                parsed.terminal_code,
+            )
         parser = self._parsers.get(profile)
         if parser is None:
             return ParseResult(

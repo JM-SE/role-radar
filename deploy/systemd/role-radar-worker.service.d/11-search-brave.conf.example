@@ -1,0 +1,3 @@
+[Service]
+LoadCredential=brave-free:/etc/role-radar/credentials/brave-free
+ExecStartPre=/usr/bin/env role-radar acquisition validate --runtime --require-ready brave

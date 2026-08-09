@@ -112,6 +112,14 @@ class SourceService:
         if name is not None:
             changes["name"] = self._name(name)
         if configuration is not None:
+            if source.type is SourceType.EMAIL and (
+                source.enabled
+                or (
+                    source.mailbox_state is not None
+                    and source.mailbox_state.operation_id is not None
+                )
+            ):
+                raise SourceServiceError("source_busy")
             entry = get_catalog_entry(source.type)
             if not entry.adapter_available or entry.configuration_version is None:
                 raise SourceServiceError("source_type_unavailable")
@@ -240,6 +248,8 @@ class SourceService:
             )
             if terms_error is not None:
                 raise SourceServiceError(terms_error)
+            if jobicy_terms is None or jobicy_terms.terms_sha256 is None:
+                raise SourceServiceError("terms_digest_invalid")
         entry = get_catalog_entry(source.type)
         if (
             not entry.adapter_available

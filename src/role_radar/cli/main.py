@@ -3,7 +3,6 @@
 import argparse
 import asyncio
 import json
-import os
 import sys
 from collections.abc import Sequence
 from datetime import UTC, datetime
@@ -12,9 +11,31 @@ from pathlib import Path
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
+from role_radar.acquisition.activation import (
+    ActivationError,
+    parse_xoauth_expiry,
+    validate_jobicy_activation,
+)
+from role_radar.acquisition.configuration import (
+    AcquisitionConfig,
+    DevelopmentAcquisitionFilePolicy,
+    ProductionAcquisitionFilePolicy,
+    load_acquisition_config,
+)
+from role_radar.acquisition.credentials import (
+    CredentialError,
+    CredentialResolver,
+    resolve_mailbox_credentials,
+)
+from role_radar.acquisition.jobicy_terms_evidence import (
+    JobicyEvidenceError,
+    load_jobicy_terms_evidence,
+)
+from role_radar.acquisition.readiness import CapabilityMetadata, calculate_readiness
 from role_radar.broker.factory import create_llm_provider
 from role_radar.config import Settings
 from role_radar.db.engine import get_engine
+from role_radar.db.models import Source
 from role_radar.db.session import get_session_factory
 from role_radar.discovery.contracts import (
     KnownOfficialCandidate,
@@ -26,14 +47,11 @@ from role_radar.discovery.null_provider import NullSearchProvider
 from role_radar.discovery.protocols import SearchProvider
 from role_radar.discovery.url_classifier import classify_url
 from role_radar.domain.enums import DiscoveryMode, SourceType
-from role_radar.mailbox.configuration import (
-    EmailSourceConfigV1,
-    FileCredentialResolver,
-    load_acquisition_configuration,
-)
+from role_radar.mailbox.configuration import EmailSourceConfigV1
 from role_radar.mailbox.imap_provider import GmailImapProvider
 from role_radar.repositories.mailbox_states import MailboxStateRepository
 from role_radar.scheduler import latest_slot
+from role_radar.services.acquisition_smoke_service import AcquisitionSmokeService
 from role_radar.services.collection_service import CollectionService
 from role_radar.services.extraction_service import ExtractionService
 from role_radar.services.matching_service import MatchingService
@@ -289,7 +307,12 @@ def _parser() -> argparse.ArgumentParser:
     source_create.add_argument(
         "--type",
         required=True,
-        choices=[SourceType.GREENHOUSE.value, SourceType.LEVER.value, SourceType.EMAIL.value],
+        choices=[
+            SourceType.GREENHOUSE.value,
+            SourceType.LEVER.value,
+            SourceType.EMAIL.value,
+            SourceType.JOBICY.value,
+        ],
     )
     source_create.add_argument("--name", required=True)
     source_create.add_argument("--board-token")
@@ -312,6 +335,8 @@ def _parser() -> argparse.ArgumentParser:
         action = source_commands.add_parser(command)
         action.add_argument("id")
         action.add_argument("--revision", required=True, type=int)
+        if command == "enable":
+            action.add_argument("--config", default="/etc/role-radar/acquisition.toml")
     extract = subparsers.add_parser("extract", help="extrae un Job de forma estructurada")
     extract.add_argument("--job-id", required=True)
     pending = subparsers.add_parser("extract-pending", help="extrae Jobs pendientes")
@@ -351,12 +376,23 @@ def _parser() -> argparse.ArgumentParser:
     mailbox_preflight = mailbox_commands.add_parser("preflight")
     mailbox_preflight.add_argument("source")
     mailbox_preflight.add_argument("--config", default="/etc/role-radar/acquisition.toml")
+    mailbox_preflight.add_argument("--ack-live", action="store_true")
     mailbox_reconcile = mailbox_commands.add_parser("reconcile")
     mailbox_reconcile.add_argument("source")
     mailbox_reconcile.add_argument("--revision", required=True, type=int)
     mailbox_reconcile.add_argument("--uidvalidity", required=True, type=int)
     mailbox_reconcile.add_argument("--ack", required=True)
     mailbox_reconcile.add_argument("--strategy", default="bounded-lookback")
+    acquisition = subparsers.add_parser("acquisition", help="validación offline de adquisición")
+    acquisition_commands = acquisition.add_subparsers(dest="acquisition_command", required=True)
+    validate = acquisition_commands.add_parser("validate")
+    validate.add_argument("--config", default="/etc/role-radar/acquisition.toml")
+    validate.add_argument("--runtime", action="store_true")
+    validate.add_argument("--require-ready")
+    smoke = acquisition_commands.add_parser("smoke")
+    smoke.add_argument("capability", choices=["jobicy", "brave", "tavily"])
+    smoke.add_argument("--ack-live", action="store_true")
+    smoke.add_argument("--confirmation")
     return parser
 
 
@@ -376,9 +412,192 @@ def _source_payload(source: object) -> dict[str, object]:
     }
 
 
+def _run_acquisition(settings: Settings, args: argparse.Namespace) -> int:
+    """Offline validation only; no engine, provider, socket, or secret value."""
+    policy = (
+        ProductionAcquisitionFilePolicy()
+        if args.config == "/etc/role-radar/acquisition.toml"
+        else DevelopmentAcquisitionFilePolicy()
+    )
+    try:
+        config = load_acquisition_config(args.config, policy=policy)
+        metadata: dict[str, CapabilityMetadata] = {}
+        if args.runtime:
+            metadata = _runtime_acquisition_metadata(config)
+        if config.jobicy is not None:
+            try:
+                evidence = load_jobicy_terms_evidence(config.jobicy.terms_sha256)
+                validate_jobicy_activation(
+                    evidence,
+                    terms_sha256=config.jobicy.terms_sha256,
+                    reviewed_at=config.jobicy.reviewed_at,
+                    fair_use_ack=config.jobicy.fair_use_ack,
+                    preserve_destination_ack=config.jobicy.preserve_destination_ack,
+                    no_redistribution_ack=config.jobicy.no_redistribution_ack,
+                    now=datetime.now(UTC),
+                )
+                metadata["jobicy"] = CapabilityMetadata()
+            except (JobicyEvidenceError, ActivationError) as exc:
+                metadata["jobicy"] = CapabilityMetadata(terms_code=exc.code)
+        report = calculate_readiness(
+            config,
+            metadata=metadata,
+            policy=policy.name,
+            runtime=args.runtime,
+        )
+        print(json.dumps(report.as_dict(), sort_keys=True))
+        if args.require_ready is not None:
+            target = next(
+                (item for item in report.capabilities if item.capability == args.require_ready),
+                None,
+            )
+            return 0 if target is not None and target.state == "ready" else 3
+        return 0
+    except Exception as exc:
+        code = getattr(exc, "code", "config_invalid")
+        print(
+            json.dumps(
+                {
+                    "schema_version": "acquisition-readiness-v1",
+                    "state": "blocked",
+                    "codes": [code],
+                }
+            )
+        )
+        return 2
+
+
+def _runtime_acquisition_metadata(
+    config: AcquisitionConfig,
+) -> dict[str, CapabilityMetadata]:
+    """Inspect every enabled capability without returning secret material."""
+    metadata: dict[str, CapabilityMetadata] = {}
+    try:
+        resolver = CredentialResolver()
+    except CredentialError as exc:
+        code = exc.code
+        if config.discovery is not None and (
+            config.brave_free.enabled
+            or config.tavily_free.enabled
+            or config.brave_paid.enabled
+        ):
+            metadata["query_hmac"] = CapabilityMetadata(config_code=code)
+        for name, enabled in (
+            ("brave", config.brave_free.enabled or config.brave_paid.enabled),
+            ("tavily", config.tavily_free.enabled),
+        ):
+            if enabled:
+                metadata[name] = CapabilityMetadata(config_code=code)
+        for alias in config.mailboxes:
+            metadata[f"mailbox:{alias}"] = CapabilityMetadata(config_code=code)
+        return metadata
+
+    def check_handles(
+        capability: str,
+        handles: tuple[str, ...],
+        *,
+        expiry_handle: str | None = None,
+    ) -> None:
+        available: set[str] = set()
+        error_code: str | None = None
+        for handle in handles:
+            try:
+                resolver.resolve(handle, text=True)
+                available.add(handle)
+            except CredentialError as exc:
+                error_code = error_code or exc.code
+        if expiry_handle is not None and expiry_handle in available:
+            try:
+                parse_xoauth_expiry(
+                    resolver.resolve(expiry_handle, text=True).get_secret_value(),
+                    now=datetime.now(UTC),
+                )
+            except (CredentialError, ActivationError) as exc:
+                error_code = error_code or getattr(exc, "code", "oauth_expiry_invalid")
+        metadata[capability] = CapabilityMetadata(
+            frozenset(available),
+            oauth_code=error_code if expiry_handle is not None else None,
+            config_code=error_code if expiry_handle is None else None,
+        )
+
+    if config.discovery is not None and (
+        config.brave_free.enabled or config.tavily_free.enabled or config.brave_paid.enabled
+    ):
+        check_handles("query_hmac", (config.discovery.query_hmac_handle,))
+    if config.brave_free.enabled or config.brave_paid.enabled:
+        assert config.brave_free.credential_handle is not None
+        check_handles("brave", (config.brave_free.credential_handle,))
+    if config.tavily_free.enabled:
+        assert config.tavily_free.credential_handle is not None
+        check_handles("tavily", (config.tavily_free.credential_handle,))
+    for alias, descriptor in config.mailboxes.items():
+        auth_handle = (
+            descriptor.oauth2_handle
+            if descriptor.auth_mode == "xoauth2"
+            else descriptor.app_password_handle
+        )
+        handles = tuple(
+            item
+            for item in (
+                descriptor.username_handle,
+                auth_handle,
+                descriptor.oauth2_expiry_handle
+                if descriptor.auth_mode == "xoauth2"
+                else None,
+                descriptor.message_hmac_handle,
+                descriptor.content_hmac_handle,
+            )
+            if item is not None
+        )
+        check_handles(
+            f"mailbox:{alias}",
+            handles,
+            expiry_handle=descriptor.oauth2_expiry_handle
+            if descriptor.auth_mode == "xoauth2"
+            else None,
+        )
+    return metadata
+
+
+def _run_smoke(args: argparse.Namespace) -> int:
+    result = asyncio.run(
+        AcquisitionSmokeService().run(
+            args.capability,
+            ack_live=args.ack_live,
+            confirmation=args.confirmation,
+        )
+    )
+    print(json.dumps(result.as_dict(), sort_keys=True))
+    return 0 if result.state == "ok" else 4 if result.code == "live_ack_required" else 3
+
+
 def _run_source(settings: Settings, args: argparse.Namespace) -> int:
     engine, session = _open_session(settings)
-    service = SourceService(session)
+    acceptance = None
+    try:
+        if args.source_command == "enable":
+            current = session.get(Source, args.id)
+            if current is not None and current.type is SourceType.JOBICY:
+                config = load_acquisition_config(
+                    args.config, policy=ProductionAcquisitionFilePolicy()
+                )
+                if config.jobicy is None:
+                    raise SourceServiceError("terms_missing")
+                evidence = load_jobicy_terms_evidence(config.jobicy.terms_sha256)
+                acceptance = validate_jobicy_activation(
+                    evidence,
+                    terms_sha256=config.jobicy.terms_sha256,
+                    reviewed_at=config.jobicy.reviewed_at,
+                    fair_use_ack=config.jobicy.fair_use_ack,
+                    preserve_destination_ack=config.jobicy.preserve_destination_ack,
+                    no_redistribution_ack=config.jobicy.no_redistribution_ack,
+                    now=datetime.now(UTC),
+                )
+    except Exception:
+        session.close()
+        engine.dispose()
+        raise
+    service = SourceService(session, jobicy_terms=acceptance)
     try:
         if args.source_command == "list":
 
@@ -399,7 +618,21 @@ def _run_source(settings: Settings, args: argparse.Namespace) -> int:
             return 0
         if args.source_command == "create":
             source_type = SourceType(args.type)
-            if source_type is SourceType.GREENHOUSE:
+            if source_type is SourceType.JOBICY:
+                if any(
+                    value is not None
+                    for value in (
+                        args.board_token,
+                        args.site,
+                        args.region,
+                        args.company,
+                        args.connection_alias,
+                        args.parser_profile,
+                    )
+                ):
+                    raise SourceServiceError("invalid_source_config")
+                configuration = {"region": "latam", "remote_only": True}
+            elif source_type is SourceType.GREENHOUSE:
                 if args.site is not None or args.region is not None or args.board_token is None:
                     raise SourceServiceError("invalid_source_config")
                 configuration = {"board_token": args.board_token}
@@ -633,7 +866,11 @@ def _run_mailbox(settings: Settings, args: argparse.Namespace) -> int:
             }))
             return 0
         if args.mailbox_command == "preflight":
-            config = load_acquisition_configuration(args.config)
+            if not args.ack_live:
+                print("role-radar: live_ack_required", file=sys.stderr)
+                return 4
+            policy = ProductionAcquisitionFilePolicy()
+            config = load_acquisition_config(args.config, policy=policy)
             alias = EmailSourceConfigV1.model_validate(
                 dict(source.configuration or {})
             ).connection_alias
@@ -641,22 +878,8 @@ def _run_mailbox(settings: Settings, args: argparse.Namespace) -> int:
             if descriptor is None:
                 raise ValueError("mailbox descriptor unavailable")
             mailbox_descriptor = descriptor.descriptor()
-            credential_dir = Path(
-                os.environ.get("CREDENTIALS_DIRECTORY", "/etc/role-radar/credentials")
-            )
-            handles = {
-                handle
-                for handle in (
-                    mailbox_descriptor.username_handle,
-                    mailbox_descriptor.oauth2_handle,
-                    mailbox_descriptor.app_password_handle,
-                )
-                if handle is not None
-            }
-            resolver = FileCredentialResolver(
-                {handle: credential_dir / handle for handle in handles}
-            )
-            credentials = resolver(mailbox_descriptor)
+            resolver = CredentialResolver()
+            credentials = resolve_mailbox_credentials(mailbox_descriptor, resolver)
             provider = GmailImapProvider(mailbox_descriptor, credentials)
             session.close()
             engine.dispose()
@@ -719,6 +942,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_mailbox(settings, args)
         if args.command == "source":
             return _run_source(settings, args)
+        if args.command == "acquisition":
+            if args.acquisition_command == "smoke":
+                return _run_smoke(args)
+            return _run_acquisition(settings, args)
         direct_commands = {"collect", "extract", "extract-pending", "score", "score-pending"}
         if args.command in direct_commands and not settings.allow_direct_pipeline_writes:
             print(

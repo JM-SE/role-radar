@@ -143,11 +143,29 @@ def parse_rfc822(data: bytes) -> BoundedMailboxMessage:
     urls = _bounded_urls(raw_urls)
     sender = parseaddr(str(message.get("From", "")))[1]
     domain = sender.rsplit("@", 1)[1].lower().strip(".") if "@" in sender else None
-    list_id = str(message.get("List-ID", "")).strip().lower() or None
+    list_values = message.get_all("List-ID", [])
+    list_id = str(list_values[0]).strip().lower() if len(list_values) == 1 else None
     list_id = list_id[:255] if list_id is not None else None
-    auth = _auth_evidence(str(message.get("Authentication-Results", "")))
+    auth, authserv, dmarc, header_from, dkim, ambiguous = _auth_evidence(
+        message.get_all("Authentication-Results", [])
+    )
+    header_from = header_from or domain
     subject = _decode_header(str(message.get("Subject", "")))[:255]
-    return BoundedMailboxMessage(domain, list_id, auth, subject, text, html, tuple(urls))
+    return BoundedMailboxMessage(
+        domain,
+        list_id,
+        auth,
+        subject,
+        text,
+        html,
+        tuple(urls),
+        None,
+        authserv,
+        dmarc,
+        header_from,
+        dkim,
+        ambiguous or (len(list_values) != 1 and bool(list_values)),
+    )
 
 
 def _bounded_urls(values: list[str]) -> list[str]:
@@ -170,16 +188,36 @@ def _decode_header(value: str) -> str:
         raise MimeLimitError(MailboxErrorCode.MALFORMED.value) from exc
 
 
-def _auth_evidence(value: str) -> str:
+def _auth_evidence(
+    values: list[str],
+) -> tuple[str, str | None, str | None, str | None, tuple[str, ...], bool]:
+    if not values:
+        return "missing", None, None, None, (), False
+    if len(values) != 1:
+        return "ambiguous", None, None, None, (), True
+    value = values[0]
     lowered = value.lower()
-    if not lowered:
-        return "missing"
-    passes = [name for name in ("dkim", "dmarc", "spf") if re.search(rf"\b{name}=pass\b", lowered)]
-    if passes:
-        return "pass"
+    match = re.match(r"\s*([^;\s]+)", lowered)
+    authserv = match.group(1) if match else None
+    trusted = authserv == "mx.google.com"
+    dmarc_match = re.search(r"\bdmarc=(pass|fail|softfail|neutral)\b", lowered)
+    dmarc = dmarc_match.group(1) if dmarc_match else None
+    header_match = re.search(r"\bheader\.from=([a-z0-9.-]+)", lowered)
+    header_from = header_match.group(1).strip(".") if header_match else None
+    dkim_domains = tuple(
+        dict.fromkeys(
+            item
+            for item in re.findall(r"\bdkim=.*?\b(?:header\.)?d=([a-z0-9.-]+)", lowered)
+        )
+    )
+    passes = any(
+        re.search(rf"\b{name}=pass\b", lowered) for name in ("dkim", "dmarc", "spf")
+    )
+    if trusted and passes:
+        return "pass", authserv, dmarc, header_from, dkim_domains, False
     if any(
         re.search(rf"\b{name}=(fail|softfail|neutral)\b", lowered)
         for name in ("dkim", "dmarc", "spf")
     ):
-        return "fail"
-    return "ambiguous"
+        return "fail", authserv, dmarc, header_from, dkim_domains, not trusted
+    return "ambiguous", authserv, dmarc, header_from, dkim_domains, not trusted

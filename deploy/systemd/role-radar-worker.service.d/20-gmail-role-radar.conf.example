@@ -1,0 +1,7 @@
+[Service]
+LoadCredential=gmail-username:/etc/role-radar/credentials/gmail-username
+LoadCredential=gmail-xoauth2:/etc/role-radar/credentials/gmail-xoauth2
+LoadCredential=gmail-xoauth2-expiry:/etc/role-radar/credentials/gmail-xoauth2-expiry
+LoadCredential=mailbox-message-hmac:/etc/role-radar/credentials/mailbox-message-hmac
+LoadCredential=mailbox-content-hmac:/etc/role-radar/credentials/mailbox-content-hmac
+ExecStartPre=/usr/bin/env role-radar acquisition validate --runtime --require-ready mailbox:role-radar

@@ -1,8 +1,11 @@
-# Install as /etc/role-radar/acquisition.toml with owner root and mode 0600.
+# Install as /etc/role-radar/acquisition.toml with owner root:role-radar and mode 0640.
 # This file contains no credentials. Provider origins and request options are
 # owned by the application and cannot be overridden here.
 schema_version = 1
 config_version = "acquisition-v1"
+
+[discovery]
+query_hmac_handle = "query-hmac"
 
 # Worker-only Gmail IMAP descriptor.  Credential values are never stored in
 # this file; the handles below point to root-managed 0600 systemd credentials.
@@ -19,6 +22,7 @@ readonly = true
 auth_mode = "xoauth2"
 username_handle = "gmail-username"
 oauth2_handle = "gmail-xoauth2"
+oauth2_expiry_handle = "gmail-xoauth2-expiry"
 message_hmac_handle = "mailbox-message-hmac"
 content_hmac_handle = "mailbox-content-hmac"
 
@@ -26,11 +30,13 @@ content_hmac_handle = "mailbox-content-hmac"
 enabled = true
 units_limit = 1000
 version = "brave-free-quota-v1"
+credential_handle = "brave-free"
 
 [tavily_free]
 enabled = true
 units_limit = 1000
 version = "tavily-free-quota-v1"
+credential_handle = "tavily-free"
 
 [brave_paid]
 enabled = false
@@ -39,7 +45,7 @@ enabled = false
 # Optional explicit operator acceptance for the disabled-by-default Jobicy source.
 # This is not a source URL or a feed override. Keep the real values outside Git.
 # [jobicy]
-# terms_url = "<REAL_HTTPS_TERMS_URL>"
+# terms_sha256 = "<MANIFEST_SHA256>"
 # reviewed_at = "<REAL_UTC_REVIEW_TIMESTAMP>"
 # policy_version = "jobicy-terms-v1"
 # fair_use_ack = true

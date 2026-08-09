@@ -13,7 +13,7 @@ import imaplib
 import re
 from collections.abc import Callable
 from contextlib import suppress
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol, cast
 
 from role_radar.mailbox.contracts import (
@@ -181,6 +181,12 @@ class GmailImapProvider(MailboxProvider):
             self._session = self._session_factory(self._descriptor, self._credentials)
             if self._descriptor.auth_mode == "xoauth2":
                 if not self._credentials.oauth2_token:
+                    raise ImapProviderError(MailboxErrorCode.CREDENTIALS.value)
+                if self._descriptor.oauth2_expiry_handle is not None and (
+                    self._credentials.oauth2_expires_at is None
+                    or self._credentials.oauth2_expires_at.astimezone(UTC) - datetime.now(UTC)
+                    < timedelta(minutes=5)
+                ):
                     raise ImapProviderError(MailboxErrorCode.CREDENTIALS.value)
                 status, _ = self._session.authenticate(
                     "XOAUTH2",

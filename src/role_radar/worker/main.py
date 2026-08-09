@@ -1,28 +1,25 @@
 """Entrypoint de proceso del worker (no ejecuta migraciones)."""
 
 import asyncio
-import os
 import signal
-from pathlib import Path
 
+from role_radar.acquisition.configuration import (
+    AcquisitionConfigError,
+    ProductionAcquisitionFilePolicy,
+    load_acquisition_config,
+)
+from role_radar.acquisition.credentials import CredentialError
 from role_radar.broker.factory import create_deep_llm_provider, create_llm_provider
 from role_radar.config import Settings
 from role_radar.db.engine import get_engine
 from role_radar.db.session import get_session_factory
-from role_radar.discovery.acquisition_config import AcquisitionConfigError, load_acquisition_config
-from role_radar.discovery.credentials import (
-    CredentialError,
-    read_worker_secret,
-    resolve_worker_credentials,
-)
-from role_radar.discovery.providers.brave import BraveSearchProvider
-from role_radar.discovery.providers.tavily import TavilySearchProvider
-from role_radar.mailbox.configuration import FileCredentialResolver
+from role_radar.mailbox.contracts import CredentialMaterial, MailboxDescriptor
 from role_radar.notifications.contracts import TelegramGateway
 from role_radar.notifications.fake import FakeTelegramGateway
 from role_radar.notifications.telegram_client import TelegramClient
 from role_radar.services.acquisition_budget_service import AcquisitionBudgetService
 from role_radar.services.search_routing_service import SearchRoutingService
+from role_radar.worker.acquisition import compose_acquisition_capabilities
 from role_radar.worker.pipeline import Pipeline
 from role_radar.worker.runner import WorkerRunner
 
@@ -36,80 +33,45 @@ def run_worker(settings: Settings | None = None) -> None:
     brave_search = tavily_search = None
     discovery_provider = None
     discovery_hmac: bytes | None = None
+    query_hmac: bytes | None = None
     acquisition_config = None
     mailbox_descriptor_resolver = None
     mailbox_credential_resolver = None
-    mailbox_url_hmac_key = mailbox_content_hmac_key = None
+    mailbox_hmac_keys: dict[str, tuple[bytes, bytes]] = {}
     try:
-        acquisition_config = load_acquisition_config(current.acquisition_config_path)
-        credential_dir = os.environ.get("CREDENTIALS_DIRECTORY")
-        local_credential_dir = "/etc/role-radar/credentials"
-        credentials = resolve_worker_credentials(
-            brave_path=(
-                f"{credential_dir}/brave_api_key"
-                if credential_dir
-                else f"{local_credential_dir}/brave_api_key"
-            ),
-            tavily_path=(
-                f"{credential_dir}/tavily_api_key"
-                if credential_dir
-                else f"{local_credential_dir}/tavily_api_key"
-            ),
-            hmac_path=(
-                f"{credential_dir}/query_hmac_key"
-                if credential_dir
-                else f"{local_credential_dir}/query_hmac_key"
-            ),
+        acquisition_config = load_acquisition_config(
+            current.acquisition_config_path,
+            policy=ProductionAcquisitionFilePolicy(),
         )
-        brave_search = BraveSearchProvider(credentials.brave_api_key.get_secret_value())
-        tavily_search = TavilySearchProvider(credentials.tavily_api_key.get_secret_value())
-        asyncio.run(brave_search.__aenter__())
-        asyncio.run(tavily_search.__aenter__())
-        discovery_hmac = credentials.query_hmac_key
-        discovery_provider = SearchRoutingService(
-            factory,
-            brave=brave_search,
-            tavily=tavily_search,
-            budget=AcquisitionBudgetService(factory, acquisition_config),
-            config=acquisition_config,
-        )
-    except (AcquisitionConfigError, CredentialError, OSError, UnicodeError):
-        # Credentialed acquisition is fail-closed; the rest of the worker runs.
+        capabilities = compose_acquisition_capabilities(acquisition_config)
+        brave_search = capabilities.brave
+        tavily_search = capabilities.tavily
+        discovery_hmac = capabilities.query_hmac
+        if brave_search is not None:
+            asyncio.run(brave_search.__aenter__())
+        if tavily_search is not None:
+            asyncio.run(tavily_search.__aenter__())
+        if query_hmac is not None and (brave_search is not None or tavily_search is not None):
+            discovery_provider = SearchRoutingService(
+                factory,
+                brave=brave_search,
+                tavily=tavily_search,
+                budget=AcquisitionBudgetService(factory, acquisition_config),
+                config=acquisition_config,
+            )
+        mailbox_descriptor_resolver = capabilities.mailbox_descriptors.get
+        if capabilities.mailbox_credentials is not None:
+            credential_provider = capabilities.mailbox_credentials
+
+            def resolve_mailbox_credential(descriptor: MailboxDescriptor) -> CredentialMaterial:
+                alias = descriptor.connection_alias
+                return credential_provider(alias)
+
+            mailbox_credential_resolver = resolve_mailbox_credential
+            mailbox_hmac_keys = dict(capabilities.mailbox_hmacs)
+    except (AcquisitionConfigError, CredentialError, OSError, UnicodeError, ValueError):
+        # Config/credential failures block only acquisition; the worker heartbeat survives.
         discovery_provider = None
-    if acquisition_config is not None and acquisition_config.mailboxes:
-        try:
-            credential_dir = os.environ.get(
-                "CREDENTIALS_DIRECTORY", "/etc/role-radar/credentials"
-            )
-            mailbox_descriptors = {
-                alias: descriptor.descriptor()
-                for alias, descriptor in acquisition_config.mailboxes.items()
-            }
-            mailbox_descriptor_resolver = mailbox_descriptors.__getitem__
-            handles = {
-                handle
-                for descriptor in mailbox_descriptors.values()
-                for handle in (
-                    descriptor.username_handle,
-                    descriptor.oauth2_handle,
-                    descriptor.app_password_handle,
-                )
-                if handle is not None
-            }
-            mailbox_credential_resolver = FileCredentialResolver(
-                {handle: Path(credential_dir) / handle for handle in handles}
-            )
-            first_descriptor = next(iter(mailbox_descriptors.values()))
-            mailbox_url_hmac_key = read_worker_secret(
-                str(Path(credential_dir) / first_descriptor.message_hmac_handle)
-            )
-            mailbox_content_hmac_key = read_worker_secret(
-                str(Path(credential_dir) / first_descriptor.content_hmac_handle)
-            )
-        except (CredentialError, OSError, UnicodeError, ValueError):
-            # Gmail remains disabled without changing the rest of acquisition.
-            mailbox_descriptor_resolver = mailbox_credential_resolver = None
-            mailbox_url_hmac_key = mailbox_content_hmac_key = None
     gateway: TelegramGateway | None = None
     if current.telegram_provider == "fake":
         gateway = FakeTelegramGateway()
@@ -136,15 +98,10 @@ def run_worker(settings: Settings | None = None) -> None:
             ),
             discovery_provider=discovery_provider,
             discovery_query_key_secret=discovery_hmac,
-            free_source_terms=(
-                acquisition_config.jobicy.acceptance()
-                if acquisition_config is not None and acquisition_config.jobicy is not None
-                else None
-            ),
+            free_source_terms=capabilities.jobicy_terms if acquisition_config is not None else None,
             mailbox_descriptor_resolver=mailbox_descriptor_resolver,
             mailbox_credential_resolver=mailbox_credential_resolver,
-            mailbox_url_hmac_key=mailbox_url_hmac_key,
-            mailbox_content_hmac_key=mailbox_content_hmac_key,
+            mailbox_hmac_keys=mailbox_hmac_keys,
         ),
         settings=current,
     )

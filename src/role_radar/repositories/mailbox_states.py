@@ -96,6 +96,57 @@ class MailboxStateRepository:
         self._session.flush()
         return int(getattr(result, "rowcount", 0)) == 1
 
+    def clear(
+        self,
+        source_id: str,
+        *,
+        operation_id: str,
+        now: datetime,
+        error_code: str | None = None,
+    ) -> bool:
+        """Clear only this reservation; repeated recovery is a no-op."""
+        row = self.get(source_id)
+        if row is None or row.operation_id != operation_id:
+            return False
+        row.operation_id = None
+        row.reservation_id = None
+        row.last_error_code = error_code
+        row.revision += 1
+        row.updated_at = _utc(now)
+        self._session.flush()
+        return True
+
+    def finalize(
+        self,
+        source_id: str,
+        *,
+        operation_id: str,
+        uidvalidity: int,
+        highest_terminal_uid: int,
+        now: datetime,
+        error_code: str | None = None,
+    ) -> bool:
+        """Finalize monotonically and idempotently for one operation."""
+        row = self.get(source_id)
+        if row is None:
+            return False
+        if row.operation_id not in {operation_id, None}:
+            return False
+        if row.uidvalidity is not None and row.uidvalidity != uidvalidity:
+            return False
+        changed = row.operation_id == operation_id or row.uidvalidity is None
+        row.uidvalidity = uidvalidity
+        row.highest_terminal_uid = max(row.highest_terminal_uid, highest_terminal_uid)
+        row.last_error_code = error_code
+        row.operation_id = None
+        row.reservation_id = None
+        if changed:
+            row.last_success_at = _utc(now) if error_code is None else row.last_success_at
+            row.revision += 1
+            row.updated_at = _utc(now)
+            self._session.flush()
+        return True
+
     def reconcile(
         self,
         source_id: str,

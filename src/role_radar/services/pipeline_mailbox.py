@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urlsplit
@@ -56,6 +56,7 @@ class PipelineMailboxService:
         parser_registry: MailboxParserRegistry | None = None,
         url_hmac_key: bytes | None = None,
         content_hmac_key: bytes | None = None,
+        mailbox_hmac_keys: Mapping[str, tuple[bytes, bytes]] | None = None,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._session_factory = session_factory
@@ -66,6 +67,7 @@ class PipelineMailboxService:
         self._registry = parser_registry or default_registry()
         self._url_key = url_hmac_key
         self._content_key = content_hmac_key
+        self._mailbox_hmac_keys = dict(mailbox_hmac_keys or {})
         self._clock = clock or (lambda: datetime.now(UTC))
 
     def prepare(self, run_id: str) -> MailboxPlan:
@@ -112,6 +114,8 @@ class PipelineMailboxService:
                         state.uidvalidity is None,
                         now - timedelta(days=LOOKBACK_DAYS) if state.uidvalidity is None else None,
                         INITIAL_LIMIT if state.uidvalidity is None else POLL_LIMIT,
+                        source.revision,
+                        "auto-v1",
                     )
                 )
             session.commit()
@@ -127,8 +131,6 @@ class PipelineMailboxService:
                     or self._credential_resolver is None
                 )
             )
-            or self._url_key is None
-            or self._content_key is None
         ):
             return (
                 MailboxExecution(plan, (), "credentials")
@@ -138,6 +140,27 @@ class PipelineMailboxService:
         fetched: list[MailboxFetchedMessage] = []
         first_error: str | None = None
         for task in plan.tasks:
+            url_hmac_key, content_hmac_key = self._keys_for(task)
+            if url_hmac_key is None or content_hmac_key is None:
+                first_error = first_error or MailboxErrorCode.CREDENTIALS.value
+                continue
+            # The reservation is the durable point of no-repeat.  Commit it
+            # before the first await/provider I/O and never retain ORM state.
+            with self._session_factory() as session:
+                source = session.get(Source, task.source_id)
+                started = bool(
+                    source is not None
+                    and source.revision == task.source_revision
+                    and MailboxStateRepository(session).mark_started(
+                        task.source_id,
+                        operation_id=task.operation_id,
+                        now=_utc(self._clock()),
+                    )
+                )
+                session.commit()
+            if not started:
+                first_error = first_error or "configuration_changed"
+                continue
             provider = (
                 self._provider_factory(task)
                 if self._provider_factory
@@ -187,6 +210,9 @@ class PipelineMailboxService:
         terminal = proposals = 0
         processed_sources = {item.task.source_id for item in execution.messages}
         for item in execution.messages:
+            url_hmac_key, content_hmac_key = self._keys_for(item.task)
+            if url_hmac_key is None or content_hmac_key is None:
+                raise ValueError("mailbox HMAC keys unavailable")
             with self._session_factory() as session:
                 state = MailboxStateRepository(session).get(item.task.source_id)
                 if state is None:
@@ -210,7 +236,7 @@ class PipelineMailboxService:
                 message: BoundedMailboxMessage | None = None
                 error_code = item.terminal_code
                 content_hmac = (
-                    _digest(self._content_key, item.raw) if item.raw is not None else None
+                    _digest(content_hmac_key, item.raw) if item.raw is not None else None
                 )
                 if error_code is None and item.raw is not None:
                     try:
@@ -234,8 +260,8 @@ class PipelineMailboxService:
                     parser_version=parsed.schema_version,
                     status=status,
                     error_code=error_code or parsed.terminal_code,
-                    sender_domain=message.sender_domain if message else None,
-                    list_id=message.list_id if message else None,
+                    sender_domain=None,
+                    list_id=None,
                     auth_evidence=message.auth_evidence if message else "missing",
                     template_code=parsed.template_code,
                     proposal_count=0,
@@ -256,7 +282,7 @@ class PipelineMailboxService:
                     EmailLinkProposalRepository(session).add(
                         id=str(uuid4()),
                         receipt_id=created.id,
-                        url_hmac=_digest(self._url_key, url or reason) or "hmac-unavailable",
+                        url_hmac=_digest(url_hmac_key, url or reason) or "hmac-unavailable",
                         normalized_url=safe_url,
                         parser_name=parsed.parser_name,
                         parser_version=parsed.schema_version,
@@ -285,6 +311,33 @@ class PipelineMailboxService:
                     state.last_success_at = _utc(self._clock())
                 state.revision += 1
                 session.commit()
+        for task in execution.plan.tasks:
+            with self._session_factory() as session:
+                state = MailboxStateRepository(session).get(task.source_id)
+                if state is not None and state.operation_id == task.operation_id:
+                    seen = [
+                        item.message.uid
+                        for item in execution.messages
+                        if item.task.operation_id == task.operation_id
+                    ]
+                    task_messages = [
+                        item
+                        for item in execution.messages
+                        if item.task.operation_id == task.operation_id
+                    ]
+                    MailboxStateRepository(session).finalize(
+                        task.source_id,
+                        operation_id=task.operation_id,
+                        uidvalidity=(
+                            task_messages[0].message.uidvalidity
+                            if task_messages
+                            else state.uidvalidity or 0
+                        ),
+                        highest_terminal_uid=max(seen, default=state.highest_terminal_uid),
+                        now=_utc(self._clock()),
+                        error_code=execution.error_code if not seen else None,
+                    )
+                session.commit()
         return MailboxFinalization(
             execution.plan.run_id,
             len(execution.messages),
@@ -292,6 +345,11 @@ class PipelineMailboxService:
             proposals,
             execution.error_code,
         )
+
+    def _keys_for(self, task: MailboxTask) -> tuple[bytes | None, bytes | None]:
+        if self._mailbox_hmac_keys:
+            return self._mailbox_hmac_keys.get(task.connection_alias, (None, None))
+        return self._url_key, self._content_key
 
 
 def _safe_ats_url(value: str | None) -> str | None:

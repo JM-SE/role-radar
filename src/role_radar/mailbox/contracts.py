@@ -46,17 +46,22 @@ class MailboxDescriptor:
     username_handle: str
     oauth2_handle: str | None = None
     app_password_handle: str | None = None
+    oauth2_expiry_handle: str | None = None
     message_hmac_handle: str = "mailbox-message-hmac"
     content_hmac_handle: str = "mailbox-content-hmac"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, repr=False)
 class CredentialMaterial:
     """Worker-only material; never put this object in a plan or log record."""
 
     username: str
     oauth2_token: str | None = None
     app_password: str | None = None
+    oauth2_expires_at: datetime | None = None
+
+    def __repr__(self) -> str:
+        return "CredentialMaterial(<redacted>)"
 
 
 CredentialResolver = Callable[[MailboxDescriptor], CredentialMaterial]
@@ -89,6 +94,11 @@ class BoundedMailboxMessage:
     html: str
     urls: tuple[str, ...] = ()
     received_at: datetime | None = None
+    authserv_id: str | None = None
+    dmarc_result: str | None = None
+    header_from_domain: str | None = None
+    dkim_domains: tuple[str, ...] = ()
+    auth_ambiguous: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,6 +175,8 @@ class MailboxTask:
     initial_read: bool
     lookback_started_at: datetime | None
     uid_limit: int
+    source_revision: int = 1
+    parser_registry_version: str = "auto-v1"
 
 
 @dataclass(frozen=True, slots=True)

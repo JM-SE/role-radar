@@ -7,8 +7,8 @@ contienen secretos ni ejecutan migraciones al arrancar.
 ```bash
 sudo install -d /etc/role-radar
 sudo install -m 0600 role-radar.env /etc/role-radar/role-radar.env
-# Install acquisition.toml.example as acquisition.toml with owner root/mode 0600.
-# Place the three worker-only credentials under /etc/role-radar/credentials/0600.
+# Install acquisition.toml.example as root:role-radar 0640.
+# Install only target capability credentials as root-owned 0600 source files.
 # editar las cuatro units y copiarlas a /etc/systemd/system/
 uv run alembic upgrade head             # paso separado
 sudo systemctl daemon-reload
@@ -24,13 +24,13 @@ EnvironmentFile con permisos 0600. El provider por defecto es `disabled`; fake
 solo sirve para pruebas. Los estados `unknown` no se reenvían automáticamente.
 
 La adquisición Brave/Tavily solo se compone dentro del worker programado. Las
-credenciales `brave_api_key`, `tavily_api_key` y `query_hmac_key` se inyectan
-mediante `LoadCredential`; API y scheduler no las cargan. Paid Brave permanece
+credenciales se inyectan mediante drop-ins `LoadCredential` mínimos y separados;
+API y scheduler no las cargan. Paid Brave permanece
 deshabilitado por defecto y Tavily paid no existe.
 
 Jobicy LATAM es una fuente gratuita fija y nace deshabilitada. Su activación
-requiere una aceptación externa vigente en `acquisition.toml` (`terms_url`,
-`reviewed_at`, `policy_version` y los tres acknowledgements de fair use,
+requiere un bundle externo inmutable de dos páginas y su `terms_sha256` en
+`acquisition.toml` (`reviewed_at`, `policy_version` y los tres acknowledgements de fair use,
 destino original y no redistribución). El worker no acepta URL, host, path,
 query ni headers desde ese archivo y nunca hace más de una consulta por hora.
 Los valores reales de aceptación son artefactos locales del homelab; el ejemplo
