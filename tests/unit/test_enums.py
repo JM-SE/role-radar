@@ -70,6 +70,7 @@ def test_source_type_values() -> None:
         "linkedin_public",
         "manual",
         "other",
+        "jobicy",
     ]
 
 

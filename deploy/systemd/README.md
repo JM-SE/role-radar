@@ -28,6 +28,14 @@ credenciales `brave_api_key`, `tavily_api_key` y `query_hmac_key` se inyectan
 mediante `LoadCredential`; API y scheduler no las cargan. Paid Brave permanece
 deshabilitado por defecto y Tavily paid no existe.
 
+Jobicy LATAM es una fuente gratuita fija y nace deshabilitada. Su activación
+requiere una aceptación externa vigente en `acquisition.toml` (`terms_url`,
+`reviewed_at`, `policy_version` y los tres acknowledgements de fair use,
+destino original y no redistribución). El worker no acepta URL, host, path,
+query ni headers desde ese archivo y nunca hace más de una consulta por hora.
+Los valores reales de aceptación son artefactos locales del homelab; el ejemplo
+solo contiene placeholders.
+
 Para rollback, detener timer, después worker y finalmente API; conservar DB y
 backups. `systemd-analyze verify` sobre las cuatro units es el smoke estático
 recomendado cuando systemd está disponible.

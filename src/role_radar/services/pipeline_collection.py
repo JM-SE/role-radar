@@ -68,7 +68,12 @@ class PipelineCollectionService:
     def start_run_budget(self) -> None:
         self._run_budget = CollectionRunBudget(100)
 
-    def prepare(self, run_id: str) -> tuple[SourceSnapshot, ...]:
+    def prepare(
+        self,
+        run_id: str,
+        *,
+        exclude_source_types: frozenset[SourceType] = frozenset(),
+    ) -> tuple[SourceSnapshot, ...]:
         with self._session_factory() as session:
             run = session.get(JobSearchRun, run_id)
             if run is None:
@@ -77,6 +82,7 @@ class PipelineCollectionService:
                 snapshots = tuple(
                     SourceSnapshotModel.model_validate(item).as_snapshot()
                     for item in run.source_snapshot_json
+                    if _snapshot_source_type(item) not in exclude_source_types
                 )
             else:
                 sources = list(
@@ -96,6 +102,7 @@ class PipelineCollectionService:
                         configuration_version=source.configuration_version,
                     ).as_snapshot()
                     for source in sources
+                    if SourceType(source.type) not in exclude_source_types
                 )
                 snapshots = tuple(validate_snapshot(snapshot) for snapshot in snapshots)
             run.source_snapshot_json = run.source_snapshot_json or [
@@ -262,3 +269,8 @@ class PipelineCollectionService:
                 budget=self._run_budget,
             ),
         )
+
+
+def _snapshot_source_type(item: dict[str, Any]) -> SourceType:
+    value = item.get("source_type")
+    return SourceType(value) if isinstance(value, str) else SourceType.OTHER

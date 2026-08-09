@@ -17,6 +17,7 @@ class RawJob(BaseModel):
     company: str
     location: str | None = None
     description: str | None = None
+    published_at: datetime | None = None
     structured_data: dict[str, Any] = Field(default_factory=dict)
     collected_at: datetime
 
@@ -33,6 +34,7 @@ class NormalizedJob(BaseModel):
     location: str | None = None
     normalized_location: str | None = None
     description: str | None = None
+    published_at: datetime | None = None
     description_hash: str | None = None
     structured_data: dict[str, Any] = Field(default_factory=dict)
     collected_at: datetime

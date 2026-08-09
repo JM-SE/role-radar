@@ -43,6 +43,7 @@ class SourceCatalogEntry:
     paging: PagingMode
     notes: str
     resource_bounds: ResourceBounds
+    terms_policy_version: str | None = None
 
 
 @dataclass(frozen=True)
@@ -70,3 +71,17 @@ class PublicLeverSourceConfiguration:
         if self.company is not None:
             result["company"] = self.company
         return result
+
+
+@dataclass(frozen=True)
+class PublicJobicySourceConfiguration:
+    region: str
+    remote_only: str
+    configuration_version: str
+
+    def as_dict(self) -> dict[str, str]:
+        return {
+            "region": self.region,
+            "remote_only": self.remote_only,
+            "configuration_version": self.configuration_version,
+        }

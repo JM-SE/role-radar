@@ -11,6 +11,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from role_radar.free_sources.terms import JobicyTermsAcceptance
+
 DEFAULT_ACQUISITION_CONFIG = Path("/etc/role-radar/acquisition.toml")
 BRAVE_PAID_LOCAL_CAP_MICRO_USD = 5_000_000
 
@@ -62,6 +64,37 @@ class BravePaidConfig(BaseModel):
         return self
 
 
+class JobicyTermsConfig(BaseModel):
+    """Non-secret operator acceptance; origins and request policy stay in code."""
+
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
+
+    terms_url: str = Field(min_length=1, max_length=2048)
+    reviewed_at: datetime
+    policy_version: str = Field(min_length=1, max_length=64)
+    fair_use_ack: bool = False
+    preserve_destination_ack: bool = False
+    no_redistribution_ack: bool = False
+
+    @model_validator(mode="after")
+    def validate_terms(self) -> JobicyTermsConfig:
+        if not self.terms_url.startswith("https://"):
+            raise ValueError("Jobicy terms URL must use HTTPS")
+        if self.reviewed_at.tzinfo is None or self.reviewed_at.utcoffset() != timedelta(0):
+            raise ValueError("Jobicy terms review timestamp must be UTC")
+        return self
+
+    def acceptance(self) -> JobicyTermsAcceptance:
+        return JobicyTermsAcceptance(
+            terms_url=self.terms_url,
+            reviewed_at=self.reviewed_at,
+            policy_version=self.policy_version,
+            fair_use_ack=self.fair_use_ack,
+            preserve_destination_ack=self.preserve_destination_ack,
+            no_redistribution_ack=self.no_redistribution_ack,
+        )
+
+
 class AcquisitionConfig(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
 
@@ -70,6 +103,7 @@ class AcquisitionConfig(BaseModel):
     brave_free: FreeQuota = FreeQuota()
     tavily_free: FreeQuota = FreeQuota()
     brave_paid: BravePaidConfig = BravePaidConfig()
+    jobicy: JobicyTermsConfig | None = None
 
     @property
     def effective_brave_paid_cap(self) -> int:

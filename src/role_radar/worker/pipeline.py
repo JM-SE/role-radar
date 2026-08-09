@@ -22,7 +22,9 @@ from role_radar.domain.enums import (
     NotificationBatchStatus,
     RunJobStage,
     RunJobStatus,
+    SourceType,
 )
+from role_radar.free_sources.terms import JobicyTermsAcceptance
 from role_radar.notifications.contracts import TelegramGateway
 from role_radar.notifications.fake import DisabledTelegramGateway
 from role_radar.repositories.runs import RunRepository
@@ -30,6 +32,7 @@ from role_radar.services.pipeline_collection import PipelineCollectionService
 from role_radar.services.pipeline_deep_evaluation import PipelineDeepEvaluationService
 from role_radar.services.pipeline_discovery import PipelineDiscoveryService
 from role_radar.services.pipeline_extraction import PipelineExtractionService
+from role_radar.services.pipeline_free_sources import PipelineFreeSourcesService
 from role_radar.services.pipeline_notifications import PipelineNotificationService
 from role_radar.services.pipeline_scoring import PipelineScoringService
 from role_radar.worker.checkpoints import recompute_stats
@@ -49,6 +52,8 @@ class Pipeline:
         discovery_provider: Any = None,
         discovery_collector_factory: Any = None,
         discovery_query_key_secret: bytes | str | None = None,
+        free_source_terms: JobicyTermsAcceptance | None = None,
+        free_source_collector_factory: Any = None,
     ) -> None:
         self._session_factory = session_factory
         self._settings = settings or Settings()
@@ -62,6 +67,11 @@ class Pipeline:
             provider=discovery_provider,
             collector_factory=discovery_collector_factory or collector_factory,
             query_key_secret=discovery_query_key_secret,
+        )
+        self._free_sources = PipelineFreeSourcesService(
+            session_factory,
+            terms=free_source_terms,
+            collector_factory=free_source_collector_factory or collector_factory,
         )
         self._extraction = PipelineExtractionService(session_factory, provider=provider)
         self._scoring = PipelineScoringService(session_factory)
@@ -110,8 +120,16 @@ class Pipeline:
                     if self._notification_retry_wait(run_id):
                         return self._release_notification_run(run_id)
                 return self._complete(run_id)
-            snapshots = self._collection.prepare(run_id)
+            snapshots = self._collection.prepare(
+                run_id, exclude_source_types=frozenset({SourceType.JOBICY})
+            )
             self._collection.start_run_budget()
+            free_plan = None
+            try:
+                free_plan = self._free_sources.prepare(run_id)
+            except Exception:
+                # Free-source scheduling is an independent producer path.
+                free_plan = None
             discovery_finalization = None
             try:
                 discovery_plan = self._discovery.prepare(run_id)
@@ -123,6 +141,15 @@ class Pipeline:
                 # Discovery is advisory; ATS collection continues on any
                 # provider, classifier, or discovery persistence failure.
                 discovery_finalization = None
+            if free_plan is not None:
+                for task in free_plan.tasks:
+                    try:
+                        execution = await self._free_sources.execute(task)
+                        self._free_sources.finalize(run_id, execution)
+                    except Exception:
+                        # A Jobicy outage or persistence error must not remove
+                        # ATS/search successes from the same collecting run.
+                        continue
             for snapshot in snapshots:
                 result = await self._collection.execute(snapshot)
                 self._collection.finalize(run_id, result)

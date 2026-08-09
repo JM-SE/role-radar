@@ -30,6 +30,10 @@ STAT_KEYS = (
     "notification_failed",
     "notification_unknown",
     "notification_skipped",
+    "due",
+    "attempted",
+    "ok",
+    "deferred",
 )
 
 
@@ -42,6 +46,12 @@ def recompute_stats(
 ) -> dict[str, int]:
     stats = {key: 0 for key in STAT_KEYS}
     for result in (source_results or {}).values():
+        if "due" in result:
+            stats["due"] += int(result.get("due", 0))
+            stats["attempted"] += int(result.get("attempted", 0))
+            stats["ok"] += int(result.get("ok", 0))
+            stats["deferred"] += int(result.get("deferred", 0))
+            continue
         if result.get("status") == "ok":
             stats["sources_ok"] += 1
             stats["collected"] += int(result.get("collected", 0))

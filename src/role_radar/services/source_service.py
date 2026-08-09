@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from role_radar.db.models import Source
 from role_radar.domain.enums import SourceType
+from role_radar.free_sources.terms import JobicyTermsAcceptance, validate_jobicy_terms
 from role_radar.repositories.sources import SourceRepository
 from role_radar.sources.catalog import get_catalog_entry
 from role_radar.sources.configuration import validate_configuration
@@ -47,8 +48,15 @@ class RevisionConflict(SourceServiceError):
 class SourceService:
     """Business policy over a DB-only repository."""
 
-    def __init__(self, session: Session, repository: SourceRepository | None = None) -> None:
+    def __init__(
+        self,
+        session: Session,
+        repository: SourceRepository | None = None,
+        *,
+        jobicy_terms: JobicyTermsAcceptance | None = None,
+    ) -> None:
         self._repo = repository or SourceRepository(session)
+        self._jobicy_terms = jobicy_terms
 
     def create(
         self,
@@ -134,7 +142,7 @@ class SourceService:
         source = self._required(source_id)
         if source.archived_at is not None:
             raise SourceServiceError("source_archived")
-        self._assert_enableable(source)
+        self._assert_enableable(source, jobicy_terms=self._jobicy_terms)
         if source.enabled:
             if source.revision != expected_revision:
                 raise RevisionConflict()
@@ -223,7 +231,15 @@ class SourceService:
             raise SourceServiceError("source_type_unavailable") from exc
 
     @staticmethod
-    def _assert_enableable(source: Source) -> None:
+    def _assert_enableable(
+        source: Source, *, jobicy_terms: JobicyTermsAcceptance | None = None
+    ) -> None:
+        if source.type is SourceType.JOBICY:
+            terms_error = validate_jobicy_terms(
+                jobicy_terms, now=datetime.now(UTC)
+            )
+            if terms_error is not None:
+                raise SourceServiceError(terms_error)
         entry = get_catalog_entry(source.type)
         if (
             not entry.adapter_available

@@ -6,6 +6,7 @@ from role_radar.sources.contracts import AuthMode, PagingMode, ResourceBounds, S
 _ORIGIN = "https://boards-api.greenhouse.io"
 _LEVER_GLOBAL_ORIGIN = "https://api.lever.co"
 _LEVER_EU_ORIGIN = "https://api.eu.lever.co"
+_JOBICY_ORIGIN = "https://jobicy.com"
 
 _ENTRIES: dict[SourceType, SourceCatalogEntry] = {
     SourceType.GREENHOUSE: SourceCatalogEntry(
@@ -49,6 +50,31 @@ _ENTRIES: dict[SourceType, SourceCatalogEntry] = {
             max_duration_seconds=120.0,
             enforced=True,
         ),
+    ),
+    SourceType.JOBICY: SourceCatalogEntry(
+        source_type=SourceType.JOBICY,
+        display_name="Jobicy LATAM Remote Jobs",
+        docs_url="https://jobicy.com/jobs-rss-feed",
+        adapter_available=True,
+        configuration_model="JobicySourceConfigV1",
+        configuration_version=1,
+        factory_ref="jobicy.v1",
+        canonicalizer_ref="jobicy_source_key",
+        auth_mode=AuthMode.NONE,
+        allowed_origins=(_JOBICY_ORIGIN,),
+        paging=PagingMode.NONE,
+        notes=(
+            "Fixed Jobicy LATAM JSON source; count=100, at most one request per hour. "
+            "Preserve original Jobicy URLs and do not redistribute to external job boards."
+        ),
+        resource_bounds=ResourceBounds(
+            max_pages=1,
+            max_items=100,
+            max_bytes=8 * 1024 * 1024,
+            max_duration_seconds=120.0,
+            enforced=True,
+        ),
+        terms_policy_version="jobicy-terms-v1",
     ),
 }
 

@@ -57,6 +57,20 @@ LEVER_POLICY = CollectionPolicy(
 
 LEVER_EU_HTTP_ORIGIN = "https://api.eu.lever.co"
 
+JOBICY_POLICY = CollectionPolicy(
+    http=HttpPolicy(
+        origin="https://jobicy.com",
+        allowed_path_prefix="/api/v2/",
+        allowed_query_keys=frozenset({"count", "geo"}),
+        allowed_query_values=MappingProxyType(
+            {"count": frozenset({"100"}), "geo": frozenset({"latam"})}
+        ),
+        max_retries=0,
+    ),
+    max_pages=1,
+    max_items=100,
+)
+
 RETRYABLE_FAILURES = frozenset(
     {
         CollectorFailureCode.CONNECT,

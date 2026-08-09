@@ -131,6 +131,48 @@ class Source(Base):
     )
 
     source_references: Mapped[list[JobSourceReference]] = relationship(back_populates="source")
+    poll_state: Mapped[SourcePollState | None] = relationship(
+        back_populates="source", uselist=False
+    )
+
+
+class SourcePollState(Base):
+    """Durable due/reservation state for one source, independent of run status."""
+
+    __tablename__ = "source_poll_states"
+    __table_args__ = (
+        UniqueConstraint("source_id", name="uq_source_poll_states_source_id"),
+        CheckConstraint("revision >= 1", name="ck_source_poll_states_revision"),
+        CheckConstraint(
+            "last_reserved_slot IS NULL OR last_reserved_slot <= next_due_at",
+            name="ck_source_poll_states_reserved_slot_order",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    source_id: Mapped[str] = mapped_column(
+        ForeignKey("sources.id", ondelete="RESTRICT"), nullable=False
+    )
+    cadence_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    policy_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    next_due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_reserved_slot: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_request_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reservation_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    operation_id: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    etag: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    last_modified: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    revision: Mapped[int] = mapped_column(default=1, nullable=False)
+    last_error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
+    )
+
+    source: Mapped[Source] = relationship(back_populates="poll_state")
 
 
 class Job(Base):

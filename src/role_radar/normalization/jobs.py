@@ -19,13 +19,16 @@ def normalize_raw_job(raw: RawJob) -> NormalizedJob:
     return NormalizedJob(
         source=raw.source,
         external_id=raw.external_id,
-        source_url=clean_url(raw.source_url),
-        application_url=clean_url(raw.application_url),
+        source_url=raw.source_url if raw.source == "jobicy" else clean_url(raw.source_url),
+        application_url=(
+            raw.application_url if raw.source == "jobicy" else clean_url(raw.application_url)
+        ),
         title=normalize_title(raw.title),
         company=normalize_company(raw.company),
         location=location,
         normalized_location=normalized_location,
         description=description,
+        published_at=raw.published_at,
         description_hash=description_hash(description),
         structured_data=raw.structured_data,
         collected_at=raw.collected_at,

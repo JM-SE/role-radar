@@ -216,7 +216,7 @@ class SourceRepository:
             version = 1
         else:
             key = legacy_source_key(type, source_id)
-        if version == 0 or type is SourceType.LEVER:
+        if version == 0 or type in {SourceType.LEVER, SourceType.JOBICY}:
             enabled = False
         return self.create_row(
             source_id=source_id,

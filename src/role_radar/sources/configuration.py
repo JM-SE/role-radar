@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from enum import StrEnum
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StrictStr, field_validator, model_validator
 
@@ -165,6 +165,24 @@ class LeverSourceConfigV1(BaseModel):
         return value
 
 
+class JobicySourceConfigV1(BaseModel):
+    """Jobicy v1: the LATAM remote feed is entirely code-owned."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    VERSION: ClassVar[int] = 1
+
+    region: Literal["latam"] = "latam"
+    remote_only: Literal[True] = True
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_forbidden_keys(cls, value: Any) -> Any:
+        if isinstance(value, dict):
+            _reject_forbidden_keys(value)
+        return value
+
+
 def validate_configuration(
     source_type: SourceType, version: int, configuration: dict[str, Any]
 ) -> BaseModel:
@@ -172,6 +190,7 @@ def validate_configuration(
     models: dict[tuple[SourceType, int], type[BaseModel]] = {
         (SourceType.GREENHOUSE, GreenhouseSourceConfig.VERSION): GreenhouseSourceConfig,
         (SourceType.LEVER, LeverSourceConfigV1.VERSION): LeverSourceConfigV1,
+        (SourceType.JOBICY, JobicySourceConfigV1.VERSION): JobicySourceConfigV1,
     }
     model = models.get((SourceType(source_type), version))
     if model is None:

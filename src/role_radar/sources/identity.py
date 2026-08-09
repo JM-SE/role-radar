@@ -3,7 +3,11 @@
 from typing import Any
 
 from role_radar.domain.enums import SourceType
-from role_radar.sources.configuration import GreenhouseSourceConfig, LeverSourceConfigV1
+from role_radar.sources.configuration import (
+    GreenhouseSourceConfig,
+    JobicySourceConfigV1,
+    LeverSourceConfigV1,
+)
 
 
 def greenhouse_source_key(board_token: str) -> str:
@@ -26,6 +30,17 @@ def lever_source_key(configuration: dict[str, Any] | LeverSourceConfigV1) -> str
     return key
 
 
+def jobicy_source_key(configuration: dict[str, Any] | JobicySourceConfigV1 | None = None) -> str:
+    config = (
+        configuration
+        if isinstance(configuration, JobicySourceConfigV1)
+        else JobicySourceConfigV1.model_validate(configuration or {})
+    )
+    if config.region != "latam" or config.remote_only is not True:
+        raise ValueError("only the Jobicy LATAM remote source is supported")
+    return "jobicy:latam"
+
+
 def legacy_source_key(source_type: SourceType | str, source_id: str) -> str:
     value = source_type.value if isinstance(source_type, SourceType) else str(source_type)
     key = f"legacy:{value}:{source_id}"
@@ -40,4 +55,6 @@ def canonical_source_key(source_type: SourceType | str, configuration: dict[str,
         return greenhouse_source_key(configuration.get("board_token", ""))
     if value is SourceType.LEVER:
         return lever_source_key(configuration)
+    if value is SourceType.JOBICY:
+        return jobicy_source_key(configuration)
     raise ValueError("source type has no canonicalizer")

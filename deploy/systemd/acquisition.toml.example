@@ -17,3 +17,13 @@ version = "tavily-free-quota-v1"
 [brave_paid]
 enabled = false
 # Paid remains fail-closed unless every price/ceiling gate is reviewed.
+
+# Optional explicit operator acceptance for the disabled-by-default Jobicy source.
+# This is not a source URL or a feed override. Keep the real values outside Git.
+# [jobicy]
+# terms_url = "<REAL_HTTPS_TERMS_URL>"
+# reviewed_at = "<REAL_UTC_REVIEW_TIMESTAMP>"
+# policy_version = "jobicy-terms-v1"
+# fair_use_ack = true
+# preserve_destination_ack = true
+# no_redistribution_ack = true

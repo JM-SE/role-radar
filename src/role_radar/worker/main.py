@@ -33,6 +33,7 @@ def run_worker(settings: Settings | None = None) -> None:
     brave_search = tavily_search = None
     discovery_provider = None
     discovery_hmac: bytes | None = None
+    acquisition_config = None
     try:
         acquisition_config = load_acquisition_config(current.acquisition_config_path)
         credential_dir = os.environ.get("CREDENTIALS_DIRECTORY")
@@ -95,6 +96,11 @@ def run_worker(settings: Settings | None = None) -> None:
             ),
             discovery_provider=discovery_provider,
             discovery_query_key_secret=discovery_hmac,
+            free_source_terms=(
+                acquisition_config.jobicy.acceptance()
+                if acquisition_config is not None and acquisition_config.jobicy is not None
+                else None
+            ),
         ),
         settings=current,
     )

@@ -83,6 +83,7 @@ class SourceType(StrEnum):
     LINKEDIN_PUBLIC = "linkedin_public"
     MANUAL = "manual"
     OTHER = "other"
+    JOBICY = "jobicy"
 
 
 class DeepEvaluationStatus(StrEnum):

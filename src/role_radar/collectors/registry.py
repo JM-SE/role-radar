@@ -14,12 +14,17 @@ import httpx
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from role_radar.collectors.greenhouse import GreenhouseCollector
+from role_radar.collectors.jobicy import JobicyCollector
 from role_radar.collectors.lever import LeverCollector
 from role_radar.collectors.policy import CollectionRunBudget
 from role_radar.collectors.protocols import JobCollector, SourceSnapshot
 from role_radar.domain.enums import SourceType
 from role_radar.sources.catalog import CATALOG, get_catalog_entry
-from role_radar.sources.configuration import GreenhouseSourceConfig, validate_configuration
+from role_radar.sources.configuration import (
+    GreenhouseSourceConfig,
+    JobicySourceConfigV1,
+    validate_configuration,
+)
 from role_radar.sources.identity import canonical_source_key, legacy_source_key
 
 
@@ -133,12 +138,31 @@ def _lever_factory(snapshot: SourceSnapshot, context: CollectorContext) -> JobCo
     )
 
 
+def _jobicy_factory(snapshot: SourceSnapshot, context: CollectorContext) -> JobCollector:
+    try:
+        config = validate_configuration(
+            SourceType.JOBICY, snapshot.configuration_version, dict(snapshot.configuration)
+        )
+    except ValueError as exc:
+        raise CollectorConfigurationError("invalid Jobicy source configuration") from exc
+    assert isinstance(config, JobicySourceConfigV1)
+    return JobicyCollector(
+        transport=context.transport,
+        clock=context.clock,
+        sleeper=context.sleeper,
+        budget=context.budget,
+        user_agent=context.user_agent,
+        config=config,
+    )
+
+
 def _factory_map() -> dict[str, CollectorRegistration]:
     return {
         "greenhouse.v1": CollectorRegistration(
             SourceType.GREENHOUSE, "greenhouse.v1", _greenhouse_factory
         ),
         "lever.v1": CollectorRegistration(SourceType.LEVER, "lever.v1", _lever_factory),
+        "jobicy.v1": CollectorRegistration(SourceType.JOBICY, "jobicy.v1", _jobicy_factory),
     }
 
 

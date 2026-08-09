@@ -61,6 +61,7 @@ class DedupService:
             description=normalized.description,
             description_hash=normalized.description_hash,
             application_url=normalized.application_url,
+            published_at=normalized.published_at,
             first_seen_at=now,
             last_seen_at=now,
         )
