@@ -26,13 +26,14 @@ from role_radar.discovery.contracts import (
     KnownOfficialCandidate,
     QueryExecution,
     QueryIdentity,
+    SearchRequest,
     UnknownCandidate,
     VerifiedBatch,
 )
 from role_radar.discovery.null_provider import NullSearchProvider
 from role_radar.discovery.planner import QueryPlannerV1
 from role_radar.discovery.policy import DiscoveryPolicy
-from role_radar.discovery.protocols import SearchProvider, SearchQuery
+from role_radar.discovery.protocols import SearchProvider
 from role_radar.discovery.query_keys import QueryKeyFactory
 from role_radar.discovery.url_classifier import classify_url
 from role_radar.domain.enums import (
@@ -162,10 +163,16 @@ class PipelineDiscoveryService:
             query = by_ordinal[identity.ordinal]
             self._checkpoint_query_started(plan.cycle_id, identity)
             try:
-                results = await self._provider.search(
-                    SearchQuery(
+                response = await self._provider.search(
+                    SearchRequest(
+                        operation_key=f"{plan.cycle_id}:query:{identity.ordinal}",
                         query=query.canonical_query,
-                        max_results=self._policy.max_results_per_query,
+                        query_key=identity.query_key,
+                        planner_version=plan.planner_version,
+                        query_version=plan.policy_version,
+                        max_results=min(self._policy.max_results_per_query, 10),
+                        provider_intent=identity.provider_intent,
+                        cycle_query_count=len(plan.queries),
                     )
                 )
             except Exception:
@@ -177,7 +184,7 @@ class PipelineDiscoveryService:
                 )
                 first_error = first_error or DiscoveryErrorCode.PROVIDER_FAILED.value
                 continue
-            results = list(results[: self._policy.max_results_per_query])
+            results = list(response.hits[: self._policy.max_results_per_query])
             known = unknown = rejected = 0
             verified_count = 0
             for result in results:
@@ -202,7 +209,9 @@ class PipelineDiscoveryService:
                 identity,
                 (
                     DiscoveryQueryStatus.EMPTY.value
-                    if not results
+                    if response.status == "empty"
+                    else DiscoveryQueryStatus.FAILED.value
+                    if response.status != "succeeded"
                     else DiscoveryQueryStatus.EXECUTED.value
                 ),
                 len(results),

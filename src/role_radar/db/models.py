@@ -550,6 +550,159 @@ class DiscoveryQuery(Base):
     verified_count: Mapped[int] = mapped_column(default=0, nullable=False)
 
 
+class AcquisitionBudgetPeriod(Base):
+    """UTC-month budget ledger; no provider result data is stored here."""
+
+    __tablename__ = "acquisition_budget_periods"
+    __table_args__ = (
+        UniqueConstraint("provider", "tier", "utc_month", name="uq_acquisition_budget_period"),
+        CheckConstraint("provider IN ('brave','tavily')", name="ck_acquisition_budget_provider"),
+        CheckConstraint("tier IN ('free','paid')", name="ck_acquisition_budget_tier"),
+        CheckConstraint(
+            "unit_limit >= 0 AND units_used >= 0 AND units_reserved >= 0 "
+            "AND micro_usd_limit >= 0 AND micro_usd_used >= 0 AND micro_usd_reserved >= 0",
+            name="ck_acquisition_budget_nonnegative",
+        ),
+        CheckConstraint(
+            "units_used + units_reserved <= unit_limit", name="ck_acquisition_budget_units"
+        ),
+        CheckConstraint(
+            "micro_usd_used + micro_usd_reserved <= micro_usd_limit",
+            name="ck_acquisition_budget_micro_usd",
+        ),
+        Index("ix_acquisition_budget_period_month", "utc_month"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    provider: Mapped[str] = mapped_column(String(16), nullable=False)
+    tier: Mapped[str] = mapped_column(String(16), nullable=False)
+    utc_month: Mapped[str] = mapped_column(String(7), nullable=False)
+    config_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    unit_limit: Mapped[int] = mapped_column(nullable=False)
+    units_used: Mapped[int] = mapped_column(default=0, nullable=False)
+    units_reserved: Mapped[int] = mapped_column(default=0, nullable=False)
+    micro_usd_limit: Mapped[int] = mapped_column(nullable=False)
+    micro_usd_used: Mapped[int] = mapped_column(default=0, nullable=False)
+    micro_usd_reserved: Mapped[int] = mapped_column(default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
+    )
+
+
+class AcquisitionReservation(Base):
+    """Durable pre-I/O reservation and conservative settlement state."""
+
+    __tablename__ = "acquisition_reservations"
+    __table_args__ = (
+        UniqueConstraint("operation_key", name="uq_acquisition_reservation_operation"),
+        CheckConstraint(
+            "units_reserved >= 0 AND micro_usd_reserved >= 0",
+            name="ck_acquisition_reservation_nonnegative",
+        ),
+        CheckConstraint(
+            "status IN ('reserved','spent','released')", name="ck_acquisition_reservation_status"
+        ),
+        CheckConstraint(
+            "transmission_status IN ('not_sent','sent','indeterminate')",
+            name="ck_acquisition_reservation_transmission",
+        ),
+        Index("ix_acquisition_reservations_period_status", "period_id", "status"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    operation_key: Mapped[str] = mapped_column(String(512), nullable=False)
+    period_id: Mapped[str] = mapped_column(
+        ForeignKey("acquisition_budget_periods.id", ondelete="RESTRICT"), nullable=False
+    )
+    units_reserved: Mapped[int] = mapped_column(nullable=False)
+    micro_usd_reserved: Mapped[int] = mapped_column(nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="reserved")
+    transmission_status: Mapped[str] = mapped_column(String(16), nullable=False, default="not_sent")
+    reserved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    settled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ProviderCallLedger(Base):
+    """One sanitized durable record per transmitted provider operation."""
+
+    __tablename__ = "provider_call_ledger"
+    __table_args__ = (
+        UniqueConstraint("operation_key", name="uq_provider_call_ledger_operation"),
+        CheckConstraint("provider IN ('brave','tavily')", name="ck_provider_call_provider"),
+        CheckConstraint("tier IN ('free','paid')", name="ck_provider_call_tier"),
+        CheckConstraint(
+            "status IN ('succeeded','empty','failed','malformed','indeterminate','reserved')",
+            name="ck_provider_call_status",
+        ),
+        CheckConstraint(
+            "candidate_count >= 0 AND known_count >= 0 AND unknown_count >= 0 "
+            "AND rejected_count >= 0",
+            name="ck_provider_call_counts",
+        ),
+        Index("ix_provider_call_ledger_cycle_query", "cycle_id", "query_ordinal"),
+        Index("ix_provider_call_ledger_status", "status"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    task_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    operation_key: Mapped[str] = mapped_column(String(512), nullable=False)
+    cycle_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    query_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    query_ordinal: Mapped[int] = mapped_column(nullable=False)
+    provider: Mapped[str] = mapped_column(String(16), nullable=False)
+    tier: Mapped[str] = mapped_column(String(16), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    candidate_count: Mapped[int] = mapped_column(default=0, nullable=False)
+    known_count: Mapped[int] = mapped_column(default=0, nullable=False)
+    unknown_count: Mapped[int] = mapped_column(default=0, nullable=False)
+    rejected_count: Mapped[int] = mapped_column(default=0, nullable=False)
+    duration_ms: Mapped[int] = mapped_column(default=0, nullable=False)
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    reservation_id: Mapped[str | None] = mapped_column(
+        ForeignKey("acquisition_reservations.id", ondelete="RESTRICT"), nullable=True
+    )
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class DiscoveryQueryMemo(Base):
+    """24-hour suppression memo containing no search result or query text."""
+
+    __tablename__ = "discovery_query_memos"
+    __table_args__ = (
+        UniqueConstraint(
+            "provider",
+            "tier",
+            "query_key",
+            "planner_version",
+            "query_version",
+            "config_version",
+            name="uq_discovery_query_memo_identity",
+        ),
+        CheckConstraint("provider IN ('brave','tavily')", name="ck_discovery_memo_provider"),
+        CheckConstraint("tier IN ('free','paid')", name="ck_discovery_memo_tier"),
+        CheckConstraint("status IN ('succeeded','empty')", name="ck_discovery_memo_status"),
+        CheckConstraint(
+            "candidate_count >= 0 AND known_count >= 0", name="ck_discovery_memo_counts"
+        ),
+        Index("ix_discovery_query_memos_expiry", "expires_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    provider: Mapped[str] = mapped_column(String(16), nullable=False)
+    tier: Mapped[str] = mapped_column(String(16), nullable=False)
+    query_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    planner_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    query_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    config_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    executed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    candidate_count: Mapped[int] = mapped_column(default=0, nullable=False)
+    known_count: Mapped[int] = mapped_column(default=0, nullable=False)
+
+
 class RunJob(Base):
     """Journal por etapa de cada oferta dentro de una ejecución (D14)."""
 

@@ -4,6 +4,8 @@ from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from role_radar.discovery.contracts import SearchRequest, SearchResponse
+
 
 class SearchQuery(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
@@ -21,4 +23,6 @@ class SearchResult(BaseModel):
 
 
 class SearchProvider(Protocol):
-    async def search(self, query: SearchQuery) -> list[SearchResult]: ...
+    async def search(self, request: SearchRequest) -> SearchResponse: ...
+
+    async def aclose(self) -> None: ...

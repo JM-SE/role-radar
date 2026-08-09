@@ -46,8 +46,9 @@ class Settings(BaseSettings):
     schedule_timezone: Literal["America/Argentina/Buenos_Aires"] = "America/Argentina/Buenos_Aires"
     http_timeout_seconds: float = Field(default=30.0, gt=0, le=86400)
     http_user_agent: str = "role-radar/0.1 (+homelab)"
-    tavily_api_key: SecretStr | None = None
-    discovery_query_hmac_key: SecretStr | None = None
+    # Only the non-secret TOML path is app configuration; credentials are
+    # resolved exclusively by the worker from systemd's credential directory.
+    acquisition_config_path: str = "/etc/role-radar/acquisition.toml"
     worker_id: str | None = None
     worker_poll_interval_seconds: float = Field(default=2.0, gt=0, le=300)
     worker_lease_duration_seconds: float = Field(default=900.0, gt=0, le=86400)

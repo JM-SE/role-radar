@@ -7,6 +7,8 @@ contienen secretos ni ejecutan migraciones al arrancar.
 ```bash
 sudo install -d /etc/role-radar
 sudo install -m 0600 role-radar.env /etc/role-radar/role-radar.env
+# Install acquisition.toml.example as acquisition.toml with owner root/mode 0600.
+# Place the three worker-only credentials under /etc/role-radar/credentials/0600.
 # editar las cuatro units y copiarlas a /etc/systemd/system/
 uv run alembic upgrade head             # paso separado
 sudo systemctl daemon-reload
@@ -20,6 +22,11 @@ Para Telegram, configurar `ROLE_RADAR_TELEGRAM_PROVIDER=http`,
 `ROLE_RADAR_TELEGRAM_BOT_TOKEN` y `ROLE_RADAR_TELEGRAM_CHAT_ID` únicamente en el
 EnvironmentFile con permisos 0600. El provider por defecto es `disabled`; fake
 solo sirve para pruebas. Los estados `unknown` no se reenvían automáticamente.
+
+La adquisición Brave/Tavily solo se compone dentro del worker programado. Las
+credenciales `brave_api_key`, `tavily_api_key` y `query_hmac_key` se inyectan
+mediante `LoadCredential`; API y scheduler no las cargan. Paid Brave permanece
+deshabilitado por defecto y Tavily paid no existe.
 
 Para rollback, detener timer, después worker y finalmente API; conservar DB y
 backups. `systemd-analyze verify` sobre las cuatro units es el smoke estático

@@ -48,6 +48,7 @@ class Pipeline:
         notification_recipient: str | None = None,
         discovery_provider: Any = None,
         discovery_collector_factory: Any = None,
+        discovery_query_key_secret: bytes | str | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._settings = settings or Settings()
@@ -56,16 +57,11 @@ class Pipeline:
             collector_factory=collector_factory,
             settings=self._settings,
         )
-        hmac_key = (
-            self._settings.discovery_query_hmac_key.get_secret_value()
-            if self._settings.discovery_query_hmac_key is not None
-            else None
-        )
         self._discovery = PipelineDiscoveryService(
             session_factory,
             provider=discovery_provider,
             collector_factory=discovery_collector_factory or collector_factory,
-            query_key_secret=hmac_key,
+            query_key_secret=discovery_query_key_secret,
         )
         self._extraction = PipelineExtractionService(session_factory, provider=provider)
         self._scoring = PipelineScoringService(session_factory)

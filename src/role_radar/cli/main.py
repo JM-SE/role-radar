@@ -15,9 +15,14 @@ from role_radar.broker.factory import create_llm_provider
 from role_radar.config import Settings
 from role_radar.db.engine import get_engine
 from role_radar.db.session import get_session_factory
-from role_radar.discovery.contracts import KnownOfficialCandidate, UnknownCandidate
+from role_radar.discovery.contracts import (
+    KnownOfficialCandidate,
+    ProviderIntent,
+    SearchRequest,
+    UnknownCandidate,
+)
 from role_radar.discovery.null_provider import NullSearchProvider
-from role_radar.discovery.protocols import SearchProvider, SearchQuery
+from role_radar.discovery.protocols import SearchProvider
 from role_radar.discovery.url_classifier import classify_url
 from role_radar.domain.enums import DiscoveryMode, SourceType
 from role_radar.scheduler import latest_slot
@@ -152,9 +157,19 @@ async def _run_discover(
     # Deprecated local preview only.  It intentionally does not open a DB,
     # does not fetch a URL, and never turns a result title/snippet into a
     # Source.  F8.5 owns real provider wiring.
-    results = await provider.search(SearchQuery(query=query_text, max_results=max_results))
+    response = await provider.search(
+        SearchRequest(
+            operation_key="local-preview",
+            query=query_text,
+            query_key="local-preview",
+            planner_version="local-preview",
+            query_version="local-preview",
+            max_results=min(max_results, 10),
+            provider_intent=ProviderIntent.EXACT,
+        )
+    )
     known = unknown = rejected = 0
-    for result in results[:max_results]:
+    for result in response.hits[:max_results]:
         classified = classify_url(result.url)
         if isinstance(classified, KnownOfficialCandidate):
             known += 1
@@ -165,7 +180,7 @@ async def _run_discover(
     print(
         json.dumps(
             {
-                "candidates": len(results[:max_results]),
+                "candidates": len(response.hits[:max_results]),
                 "known": known,
                 "unknown": unknown,
                 "rejected": rejected,
@@ -311,6 +326,10 @@ def _parser() -> argparse.ArgumentParser:
     run_retry.add_argument("--run-id", required=True)
     run_retry.add_argument("--idempotency-key")
     subparsers.add_parser("worker", help="procesa runs pending/recoverables")
+    discovery = subparsers.add_parser("discovery", help="estado local de adquisición (read-only)")
+    discovery_commands = discovery.add_subparsers(dest="discovery_command", required=True)
+    discovery_commands.add_parser("status")
+    discovery_commands.add_parser("budget")
     return parser
 
 
@@ -479,6 +498,72 @@ def _run_control(settings: Settings, args: argparse.Namespace) -> int:
         engine.dispose()
 
 
+def _run_discovery_readonly(settings: Settings, command: str) -> int:
+    """Local, sanitized acquisition observability; never triggers a call."""
+    engine, session = _open_session(settings)
+    try:
+        from role_radar.repositories.acquisition import AcquisitionRepository
+
+        repository = AcquisitionRepository(session)
+        now = datetime.now(UTC)
+        periods = repository.list_periods(utc_month=now.strftime("%Y-%m"))
+        if command == "budget":
+            print(
+                json.dumps(
+                    [
+                        {
+                            "provider": row.provider,
+                            "tier": row.tier,
+                            "utc_month": row.utc_month,
+                            "config_version": row.config_version,
+                            "unit_limit": row.unit_limit,
+                            "units_used": row.units_used,
+                            "units_reserved": row.units_reserved,
+                            "micro_usd_limit": row.micro_usd_limit,
+                            "micro_usd_used": row.micro_usd_used,
+                            "micro_usd_reserved": row.micro_usd_reserved,
+                        }
+                        for row in periods
+                    ]
+                )
+            )
+            return 0
+        latest = repository.latest_call()
+        budgets = [
+            {
+                "provider": row.provider,
+                "tier": row.tier,
+                "config_version": row.config_version,
+                "enabled": row.unit_limit > 0 or row.micro_usd_limit > 0,
+                "utc_month": row.utc_month,
+                "unit_limit": row.unit_limit,
+                "units_used": row.units_used,
+                "units_reserved": row.units_reserved,
+                "micro_usd_limit": row.micro_usd_limit,
+                "micro_usd_used": row.micro_usd_used,
+                "micro_usd_reserved": row.micro_usd_reserved,
+            }
+            for row in periods
+        ]
+        print(
+            json.dumps(
+                {
+                    "periods": len(periods),
+                    "budgets": budgets,
+                    "latest_status": latest.status if latest else None,
+                    "latest_error_code": latest.error_code if latest else None,
+                    "freshness": latest.completed_at.isoformat()
+                    if latest and latest.completed_at
+                    else None,
+                }
+            )
+        )
+        return 0
+    finally:
+        session.close()
+        engine.dispose()
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     settings = Settings()
@@ -488,6 +573,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "worker":
             run_worker(settings)
             return 0
+        if args.command == "discovery":
+            return _run_discovery_readonly(settings, args.discovery_command)
         if args.command == "source":
             return _run_source(settings, args)
         direct_commands = {"collect", "extract", "extract-pending", "score", "score-pending"}

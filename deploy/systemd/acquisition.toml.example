@@ -1,0 +1,19 @@
+# Install as /etc/role-radar/acquisition.toml with owner root and mode 0600.
+# This file contains no credentials. Provider origins and request options are
+# owned by the application and cannot be overridden here.
+schema_version = 1
+config_version = "acquisition-v1"
+
+[brave_free]
+enabled = true
+units_limit = 1000
+version = "brave-free-quota-v1"
+
+[tavily_free]
+enabled = true
+units_limit = 1000
+version = "tavily-free-quota-v1"
+
+[brave_paid]
+enabled = false
+# Paid remains fail-closed unless every price/ceiling gate is reviewed.
