@@ -4,6 +4,24 @@
 schema_version = 1
 config_version = "acquisition-v1"
 
+# Worker-only Gmail IMAP descriptor.  Credential values are never stored in
+# this file; the handles below point to root-managed 0600 systemd credentials.
+# The database Source stores only connection_alias and parser_profile.
+[mailboxes.role-radar]
+connection_alias = "role-radar"
+protocol = "imap"
+host = "imap.gmail.com"
+port = 993
+tls = true
+validate_certificate = true
+mailbox = "RoleRadar"
+readonly = true
+auth_mode = "xoauth2"
+username_handle = "gmail-username"
+oauth2_handle = "gmail-xoauth2"
+message_hmac_handle = "mailbox-message-hmac"
+content_hmac_handle = "mailbox-content-hmac"
+
 [brave_free]
 enabled = true
 units_limit = 1000

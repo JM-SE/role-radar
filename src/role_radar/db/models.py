@@ -134,6 +134,10 @@ class Source(Base):
     poll_state: Mapped[SourcePollState | None] = relationship(
         back_populates="source", uselist=False
     )
+    mailbox_state: Mapped[MailboxState | None] = relationship(
+        back_populates="source", uselist=False
+    )
+    receipts: Mapped[list[EmailReceipt]] = relationship(back_populates="source")
 
 
 class SourcePollState(Base):
@@ -173,6 +177,109 @@ class SourcePollState(Base):
     )
 
     source: Mapped[Source] = relationship(back_populates="poll_state")
+
+
+class MailboxState(Base):
+    """Durable per-source UID cursor and scheduled reservation."""
+
+    __tablename__ = "mailbox_states"
+    __table_args__ = (
+        UniqueConstraint("source_id", name="uq_mailbox_states_source_id"),
+        CheckConstraint("highest_terminal_uid >= 0", name="ck_mailbox_states_uid"),
+        CheckConstraint("revision >= 1", name="ck_mailbox_states_revision"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    source_id: Mapped[str] = mapped_column(
+        ForeignKey("sources.id", ondelete="RESTRICT"), nullable=False
+    )
+    uidvalidity: Mapped[int | None] = mapped_column(nullable=True)
+    highest_terminal_uid: Mapped[int] = mapped_column(default=0, nullable=False)
+    next_due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_reserved_slot: Mapped[datetime | None] = mapped_column(nullable=True)
+    reservation_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    operation_id: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    last_request_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    last_success_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    revision: Mapped[int] = mapped_column(default=1, nullable=False)
+    last_error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    source: Mapped[Source] = relationship(back_populates="mailbox_state")
+
+class EmailReceipt(Base):
+    """Terminal, privacy-preserving idempotency record for one IMAP UID."""
+
+    __tablename__ = "email_receipts"
+    __table_args__ = (
+        UniqueConstraint("source_id", "uidvalidity", "uid", name="uq_email_receipts_cursor"),
+        CheckConstraint("uid > 0", name="ck_email_receipts_uid"),
+        CheckConstraint(
+            "status IN ('succeeded','review','quarantine','limit','malformed',"
+            "'unsupported','failed')",
+            name="ck_email_receipts_status",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    source_id: Mapped[str] = mapped_column(
+        ForeignKey("sources.id", ondelete="RESTRICT"), index=True
+    )
+    uidvalidity: Mapped[int] = mapped_column(nullable=False)
+    uid: Mapped[int] = mapped_column(nullable=False)
+    message_id_hmac: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    content_hmac: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    hmac_version: Mapped[str] = mapped_column(String(32), default="hmac-v1")
+    parser_name: Mapped[str] = mapped_column(String(64), default="unknown")
+    parser_version: Mapped[str] = mapped_column(String(64), default="1")
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    sender_domain: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    list_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    auth_evidence: Mapped[str] = mapped_column(String(16), default="missing")
+    template_code: Mapped[str] = mapped_column(String(64), default="unknown")
+    proposal_count: Mapped[int] = mapped_column(default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    source: Mapped[Source] = relationship(back_populates="receipts")
+    proposals: Mapped[list[EmailLinkProposal]] = relationship(back_populates="receipt")
+
+
+class EmailLinkProposal(Base):
+    """Sanitized intake/review output; not a job or a search result."""
+
+    __tablename__ = "email_link_proposals"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('intake','review','quarantine','verified','rejected')",
+            name="ck_email_proposals_status",
+        ),
+        CheckConstraint(
+            "kind IN ('ats_direct','link','message')", name="ck_email_proposals_kind"
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    receipt_id: Mapped[str] = mapped_column(
+        ForeignKey("email_receipts.id", ondelete="RESTRICT"), index=True
+    )
+    url_hmac: Mapped[str] = mapped_column(String(128), nullable=False)
+    normalized_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    parser_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    parser_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    reason: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_id: Mapped[str | None] = mapped_column(
+        ForeignKey("sources.id", ondelete="RESTRICT"), nullable=True
+    )
+    job_source_reference_id: Mapped[str | None] = mapped_column(
+        ForeignKey("job_source_references.id", ondelete="RESTRICT"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    receipt: Mapped[EmailReceipt] = relationship(back_populates="proposals")
 
 
 class Job(Base):

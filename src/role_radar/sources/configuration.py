@@ -9,6 +9,7 @@ from typing import Any, ClassVar, Literal
 from pydantic import BaseModel, ConfigDict, Field, StrictStr, field_validator, model_validator
 
 from role_radar.domain.enums import SourceType
+from role_radar.mailbox.configuration import EmailSourceConfigV1
 
 
 class LeverRegion(StrEnum):
@@ -191,6 +192,7 @@ def validate_configuration(
         (SourceType.GREENHOUSE, GreenhouseSourceConfig.VERSION): GreenhouseSourceConfig,
         (SourceType.LEVER, LeverSourceConfigV1.VERSION): LeverSourceConfigV1,
         (SourceType.JOBICY, JobicySourceConfigV1.VERSION): JobicySourceConfigV1,
+        (SourceType.EMAIL, EmailSourceConfigV1.VERSION): EmailSourceConfigV1,
     }
     model = models.get((SourceType(source_type), version))
     if model is None:

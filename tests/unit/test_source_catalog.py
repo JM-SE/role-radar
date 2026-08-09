@@ -10,5 +10,6 @@ def test_all_source_types_are_visible_and_available_adapters_are_registered() ->
         SourceType.GREENHOUSE,
         SourceType.LEVER,
         SourceType.JOBICY,
+        SourceType.EMAIL,
     ]
     assert set(REGISTRY) == {"greenhouse.v1", "lever.v1", "jobicy.v1"}

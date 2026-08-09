@@ -33,6 +33,7 @@ from role_radar.services.pipeline_deep_evaluation import PipelineDeepEvaluationS
 from role_radar.services.pipeline_discovery import PipelineDiscoveryService
 from role_radar.services.pipeline_extraction import PipelineExtractionService
 from role_radar.services.pipeline_free_sources import PipelineFreeSourcesService
+from role_radar.services.pipeline_mailbox import PipelineMailboxService
 from role_radar.services.pipeline_notifications import PipelineNotificationService
 from role_radar.services.pipeline_scoring import PipelineScoringService
 from role_radar.worker.checkpoints import recompute_stats
@@ -54,6 +55,12 @@ class Pipeline:
         discovery_query_key_secret: bytes | str | None = None,
         free_source_terms: JobicyTermsAcceptance | None = None,
         free_source_collector_factory: Any = None,
+        mailbox_provider_factory: Any = None,
+        mailbox_url_hmac_key: bytes | None = None,
+        mailbox_content_hmac_key: bytes | None = None,
+        mailbox_descriptor_resolver: Any = None,
+        mailbox_credential_resolver: Any = None,
+        mailbox_imap_session_factory: Any = None,
     ) -> None:
         self._session_factory = session_factory
         self._settings = settings or Settings()
@@ -72,6 +79,15 @@ class Pipeline:
             session_factory,
             terms=free_source_terms,
             collector_factory=free_source_collector_factory or collector_factory,
+        )
+        self._mailbox = PipelineMailboxService(
+            session_factory,
+            provider_factory=mailbox_provider_factory,
+            url_hmac_key=mailbox_url_hmac_key,
+            content_hmac_key=mailbox_content_hmac_key,
+            descriptor_resolver=mailbox_descriptor_resolver,
+            credential_resolver=mailbox_credential_resolver,
+            imap_session_factory=mailbox_imap_session_factory,
         )
         self._extraction = PipelineExtractionService(session_factory, provider=provider)
         self._scoring = PipelineScoringService(session_factory)
@@ -150,6 +166,14 @@ class Pipeline:
                         # A Jobicy outage or persistence error must not remove
                         # ATS/search successes from the same collecting run.
                         continue
+            try:
+                mailbox_plan = self._mailbox.prepare(run_id)
+                mailbox_execution = await self._mailbox.execute(mailbox_plan)
+                self._mailbox.finalize(mailbox_execution)
+            except Exception:
+                # Mailbox is an independent, degradable producer.  A missing
+                # worker credential or IMAP outage must not suppress ATS/feed.
+                pass
             for snapshot in snapshots:
                 result = await self._collection.execute(snapshot)
                 self._collection.finalize(run_id, result)

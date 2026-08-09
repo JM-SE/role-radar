@@ -3,6 +3,7 @@
 import asyncio
 import os
 import signal
+from pathlib import Path
 
 from role_radar.broker.factory import create_deep_llm_provider, create_llm_provider
 from role_radar.config import Settings
@@ -11,10 +12,12 @@ from role_radar.db.session import get_session_factory
 from role_radar.discovery.acquisition_config import AcquisitionConfigError, load_acquisition_config
 from role_radar.discovery.credentials import (
     CredentialError,
+    read_worker_secret,
     resolve_worker_credentials,
 )
 from role_radar.discovery.providers.brave import BraveSearchProvider
 from role_radar.discovery.providers.tavily import TavilySearchProvider
+from role_radar.mailbox.configuration import FileCredentialResolver
 from role_radar.notifications.contracts import TelegramGateway
 from role_radar.notifications.fake import FakeTelegramGateway
 from role_radar.notifications.telegram_client import TelegramClient
@@ -34,6 +37,9 @@ def run_worker(settings: Settings | None = None) -> None:
     discovery_provider = None
     discovery_hmac: bytes | None = None
     acquisition_config = None
+    mailbox_descriptor_resolver = None
+    mailbox_credential_resolver = None
+    mailbox_url_hmac_key = mailbox_content_hmac_key = None
     try:
         acquisition_config = load_acquisition_config(current.acquisition_config_path)
         credential_dir = os.environ.get("CREDENTIALS_DIRECTORY")
@@ -70,6 +76,40 @@ def run_worker(settings: Settings | None = None) -> None:
     except (AcquisitionConfigError, CredentialError, OSError, UnicodeError):
         # Credentialed acquisition is fail-closed; the rest of the worker runs.
         discovery_provider = None
+    if acquisition_config is not None and acquisition_config.mailboxes:
+        try:
+            credential_dir = os.environ.get(
+                "CREDENTIALS_DIRECTORY", "/etc/role-radar/credentials"
+            )
+            mailbox_descriptors = {
+                alias: descriptor.descriptor()
+                for alias, descriptor in acquisition_config.mailboxes.items()
+            }
+            mailbox_descriptor_resolver = mailbox_descriptors.__getitem__
+            handles = {
+                handle
+                for descriptor in mailbox_descriptors.values()
+                for handle in (
+                    descriptor.username_handle,
+                    descriptor.oauth2_handle,
+                    descriptor.app_password_handle,
+                )
+                if handle is not None
+            }
+            mailbox_credential_resolver = FileCredentialResolver(
+                {handle: Path(credential_dir) / handle for handle in handles}
+            )
+            first_descriptor = next(iter(mailbox_descriptors.values()))
+            mailbox_url_hmac_key = read_worker_secret(
+                str(Path(credential_dir) / first_descriptor.message_hmac_handle)
+            )
+            mailbox_content_hmac_key = read_worker_secret(
+                str(Path(credential_dir) / first_descriptor.content_hmac_handle)
+            )
+        except (CredentialError, OSError, UnicodeError, ValueError):
+            # Gmail remains disabled without changing the rest of acquisition.
+            mailbox_descriptor_resolver = mailbox_credential_resolver = None
+            mailbox_url_hmac_key = mailbox_content_hmac_key = None
     gateway: TelegramGateway | None = None
     if current.telegram_provider == "fake":
         gateway = FakeTelegramGateway()
@@ -101,6 +141,10 @@ def run_worker(settings: Settings | None = None) -> None:
                 if acquisition_config is not None and acquisition_config.jobicy is not None
                 else None
             ),
+            mailbox_descriptor_resolver=mailbox_descriptor_resolver,
+            mailbox_credential_resolver=mailbox_credential_resolver,
+            mailbox_url_hmac_key=mailbox_url_hmac_key,
+            mailbox_content_hmac_key=mailbox_content_hmac_key,
         ),
         settings=current,
     )

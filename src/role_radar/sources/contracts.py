@@ -85,3 +85,17 @@ class PublicJobicySourceConfiguration:
             "remote_only": self.remote_only,
             "configuration_version": self.configuration_version,
         }
+
+
+@dataclass(frozen=True)
+class PublicEmailSourceConfiguration:
+    connection_alias: str
+    parser_profile: str
+    parser_version: str
+
+    def as_dict(self) -> dict[str, str]:
+        return {
+            "connection_alias": self.connection_alias,
+            "parser_profile": self.parser_profile,
+            "parser_version": self.parser_version,
+        }

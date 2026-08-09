@@ -36,6 +36,17 @@ query ni headers desde ese archivo y nunca hace más de una consulta por hora.
 Los valores reales de aceptación son artefactos locales del homelab; el ejemplo
 solo contiene placeholders.
 
+F8.7 Gmail usa únicamente IMAP TLS implícito en `imap.gmail.com:993`, la label
+exacta `RoleRadar`, `SELECT` read-only y `BODY.PEEK`. XOAUTH2 es preferido y lo
+resuelve el worker desde `LoadCredential`; la app password solo es fallback con
+2FA y acknowledgement explícito del operador. El API y scheduler no reciben
+estos mounts. Crear la label es responsabilidad del operador: RoleRadar no
+ejecuta CREATE/RENAME/DELETE ni hace fallback a INBOX/All Mail.
+
+Los comandos locales son `role-radar mailbox status <source>`, `preflight` y
+`reconcile` (este último exige CAS, `--strategy bounded-lookback` y ack
+explícito). No hay endpoint ni trigger HTTP para mailbox.
+
 Para rollback, detener timer, después worker y finalmente API; conservar DB y
 backups. `systemd-analyze verify` sobre las cuatro units es el smoke estático
 recomendado cuando systemd está disponible.

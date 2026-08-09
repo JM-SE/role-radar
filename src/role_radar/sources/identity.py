@@ -57,4 +57,9 @@ def canonical_source_key(source_type: SourceType | str, configuration: dict[str,
         return lever_source_key(configuration)
     if value is SourceType.JOBICY:
         return jobicy_source_key(configuration)
+    if value is SourceType.EMAIL:
+        from role_radar.mailbox.configuration import EmailSourceConfigV1
+
+        config = EmailSourceConfigV1.model_validate(configuration)
+        return f"email:{config.connection_alias}"
     raise ValueError("source type has no canonicalizer")

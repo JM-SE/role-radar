@@ -28,7 +28,7 @@ def test_fresh_and_f85_upgrade_create_poll_state(tmp_path: Path) -> None:
     _alembic(fresh, "upgrade", "head")
     with sqlite3.connect(fresh) as connection:
         assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            "d8f6a1b2c3d4",
+            "e7a4c9f1b2d3",
         )
         assert connection.execute("SELECT COUNT(*) FROM source_poll_states").fetchone() == (0,)
 

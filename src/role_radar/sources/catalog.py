@@ -34,6 +34,9 @@ _ENTRIES: dict[SourceType, SourceCatalogEntry] = {
         source_type=SourceType.LEVER,
         display_name="Lever Postings",
         docs_url="https://hire.lever.co/developer/documentation",
+        # Mailbox is a worker capability, not a JobCollector factory.  Keeping
+        # this false preserves the collector registry boundary; SourceService
+        # has the separate EMAIL configuration path.
         adapter_available=True,
         configuration_model="LeverSourceConfigV1",
         configuration_version=1,
@@ -76,6 +79,26 @@ _ENTRIES: dict[SourceType, SourceCatalogEntry] = {
         ),
         terms_policy_version="jobicy-terms-v1",
     ),
+    SourceType.EMAIL: SourceCatalogEntry(
+        source_type=SourceType.EMAIL,
+        display_name="RoleRadar Mailbox",
+        docs_url="https://support.google.com/mail/answer/7126229",
+        adapter_available=True,
+        configuration_model="EmailSourceConfigV1",
+        configuration_version=1,
+        factory_ref=None,
+        canonicalizer_ref="email_source_key",
+        auth_mode=AuthMode.FUTURE,
+        allowed_origins=("imap.gmail.com:993",),
+        paging=PagingMode.NONE,
+        notes="Worker-only Gmail IMAP read-only intake on the exact RoleRadar label.",
+        resource_bounds=ResourceBounds(
+            max_items=100,
+            max_bytes=2 * 1024 * 1024,
+            max_duration_seconds=30.0,
+            enforced=True,
+        ),
+    ),
 }
 
 for _source_type in SourceType:
@@ -114,8 +137,8 @@ def validate_catalog_consistency() -> None:
     if any(
         entry.configuration_model is None
         or entry.configuration_version is None
-        or entry.factory_ref is None
         or entry.canonicalizer_ref is None
+        or (entry.factory_ref is None and entry.source_type is not SourceType.EMAIL)
         for entry in available
     ):
         raise AssertionError("available catalog entry is incomplete")

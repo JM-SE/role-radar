@@ -1,0 +1,73 @@
+"""Transcript-only IMAP command and lifecycle tests."""
+
+from __future__ import annotations
+
+import builtins
+
+import pytest
+
+from role_radar.mailbox.contracts import CredentialMaterial, MailboxDescriptor
+from role_radar.mailbox.imap_provider import GmailImapProvider
+
+
+class Transcript:
+    def __init__(self) -> None:
+        self.commands: list[tuple[str, object]] = []
+
+    def authenticate(self, mechanism: str, callback: object) -> tuple[str, list[bytes]]:
+        self.commands.append(("AUTH", mechanism))
+        return "OK", []
+
+    def login(self, user: str, password: str) -> tuple[str, list[bytes]]:
+        self.commands.append(("LOGIN", user))
+        return "OK", []
+
+    def list(self, *args: str) -> tuple[str, builtins.list[bytes]]:
+        self.commands.append(("LIST", args))
+        return "OK", [b'(\\HasNoChildren) "/" "RoleRadar"']
+
+    def select(self, mailbox: str, readonly: bool = False) -> tuple[str, builtins.list[bytes]]:
+        self.commands.append(("SELECT", (mailbox, readonly)))
+        return "OK", [b"[UIDVALIDITY 9] 0"]
+
+    def uid(self, command: str, *args: str) -> tuple[str, builtins.list[bytes]]:
+        self.commands.append((command, args))
+        if command == "SEARCH":
+            return "OK", [b"4 2 3 4"]
+        if args[-1] == "(RFC822.SIZE)":
+            return "OK", [b"4 (RFC822.SIZE 5)"]
+        return "OK", [b"4 (BODY.PEEK[] {5})", b"hello"]
+
+    def logout(self) -> tuple[str, builtins.list[bytes]]:
+        self.commands.append(("LOGOUT", None))
+        return "BYE", []
+
+
+@pytest.mark.asyncio
+async def test_gmail_provider_is_uid_only_readonly_and_peek() -> None:
+    transcript = Transcript()
+    descriptor = MailboxDescriptor(
+        "role-radar",
+        "imap",
+        "imap.gmail.com",
+        993,
+        True,
+        True,
+        "RoleRadar",
+        True,
+        "xoauth2",
+        "u",
+        "o",
+    )
+    provider = GmailImapProvider(
+        descriptor,
+        CredentialMaterial("u", oauth2_token="oauth"),
+        session_factory=lambda _descriptor, _credentials: transcript,
+    )
+    await provider.preflight()
+    refs = await provider.list_uids(uidvalidity=9, after_uid=1, limit=100)
+    assert await provider.fetch(refs[0]) == b"hello"
+    await provider.close()
+    commands = [name for name, _value in transcript.commands]
+    assert commands == ["AUTH", "LIST", "SELECT", "SEARCH", "FETCH", "FETCH", "LOGOUT"]
+    assert all(name not in commands for name in {"STORE", "MOVE", "COPY", "DELETE", "EXPUNGE"})

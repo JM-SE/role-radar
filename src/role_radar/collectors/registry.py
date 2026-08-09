@@ -174,7 +174,11 @@ REGISTRATIONS_BY_TYPE = {
     registration.source_type: registration for registration in FACTORIES.values()
 }
 
-if set(REGISTRY) != {entry.factory_ref for entry in CATALOG.values() if entry.factory_ref}:
+if set(REGISTRY) != {
+    entry.factory_ref
+    for entry in CATALOG.values()
+    if entry.factory_ref is not None and entry.source_type is not SourceType.EMAIL
+}:
     raise AssertionError("catalog and collector factory references diverge")
 
 

@@ -3,6 +3,7 @@
 from typing import Any
 
 from role_radar.domain.enums import SourceType
+from role_radar.mailbox.configuration import EmailSourceConfigV1
 from role_radar.sources.configuration import (
     GreenhouseSourceConfig,
     JobicySourceConfigV1,
@@ -10,6 +11,7 @@ from role_radar.sources.configuration import (
     validate_configuration,
 )
 from role_radar.sources.contracts import (
+    PublicEmailSourceConfiguration,
     PublicJobicySourceConfiguration,
     PublicLeverSourceConfiguration,
     PublicSourceConfiguration,
@@ -22,6 +24,7 @@ def project_public_configuration(
     PublicSourceConfiguration
     | PublicLeverSourceConfiguration
     | PublicJobicySourceConfiguration
+    | PublicEmailSourceConfiguration
     | dict[str, str]
 ):
     """Return a new allowlisted DTO; never return the ORM JSON mapping."""
@@ -32,7 +35,9 @@ def project_public_configuration(
         return {}
     if value is SourceType.JOBICY and version != JobicySourceConfigV1.VERSION:
         return {}
-    if value not in {SourceType.GREENHOUSE, SourceType.LEVER, SourceType.JOBICY}:
+    if value is SourceType.EMAIL and version != EmailSourceConfigV1.VERSION:
+        return {}
+    if value not in {SourceType.GREENHOUSE, SourceType.LEVER, SourceType.JOBICY, SourceType.EMAIL}:
         return {}
     config = validate_configuration(value, version, dict(configuration or {}))
     if isinstance(config, GreenhouseSourceConfig):
@@ -40,6 +45,12 @@ def project_public_configuration(
     if isinstance(config, JobicySourceConfigV1):
         return PublicJobicySourceConfiguration(
             config.region, str(config.remote_only).lower(), f"v{config.VERSION}"
+        )
+    if isinstance(config, EmailSourceConfigV1):
+        return PublicEmailSourceConfiguration(
+            config.connection_alias,
+            config.parser_profile,
+            f"v{config.VERSION}",
         )
     assert isinstance(config, LeverSourceConfigV1)
     return PublicLeverSourceConfiguration(config.site, config.region.value, config.company)

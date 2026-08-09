@@ -12,6 +12,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from role_radar.free_sources.terms import JobicyTermsAcceptance
+from role_radar.mailbox.configuration import ExternalMailboxConfig
 
 DEFAULT_ACQUISITION_CONFIG = Path("/etc/role-radar/acquisition.toml")
 BRAVE_PAID_LOCAL_CAP_MICRO_USD = 5_000_000
@@ -104,6 +105,15 @@ class AcquisitionConfig(BaseModel):
     tavily_free: FreeQuota = FreeQuota()
     brave_paid: BravePaidConfig = BravePaidConfig()
     jobicy: JobicyTermsConfig | None = None
+    mailboxes: dict[str, ExternalMailboxConfig] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_mailbox_aliases(self) -> AcquisitionConfig:
+        if set(self.mailboxes) != {
+            item.connection_alias for item in self.mailboxes.values()
+        }:
+            raise ValueError("mailbox aliases must be unique and match descriptors")
+        return self
 
     @property
     def effective_brave_paid_cap(self) -> int:

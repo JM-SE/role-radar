@@ -3,6 +3,7 @@
 import argparse
 import asyncio
 import json
+import os
 import sys
 from collections.abc import Sequence
 from datetime import UTC, datetime
@@ -25,6 +26,13 @@ from role_radar.discovery.null_provider import NullSearchProvider
 from role_radar.discovery.protocols import SearchProvider
 from role_radar.discovery.url_classifier import classify_url
 from role_radar.domain.enums import DiscoveryMode, SourceType
+from role_radar.mailbox.configuration import (
+    EmailSourceConfigV1,
+    FileCredentialResolver,
+    load_acquisition_configuration,
+)
+from role_radar.mailbox.imap_provider import GmailImapProvider
+from role_radar.repositories.mailbox_states import MailboxStateRepository
 from role_radar.scheduler import latest_slot
 from role_radar.services.collection_service import CollectionService
 from role_radar.services.extraction_service import ExtractionService
@@ -279,13 +287,17 @@ def _parser() -> argparse.ArgumentParser:
     source_show.add_argument("id")
     source_create = source_commands.add_parser("create")
     source_create.add_argument(
-        "--type", required=True, choices=[SourceType.GREENHOUSE.value, SourceType.LEVER.value]
+        "--type",
+        required=True,
+        choices=[SourceType.GREENHOUSE.value, SourceType.LEVER.value, SourceType.EMAIL.value],
     )
     source_create.add_argument("--name", required=True)
     source_create.add_argument("--board-token")
     source_create.add_argument("--site")
     source_create.add_argument("--region", choices=["global", "eu"])
     source_create.add_argument("--company")
+    source_create.add_argument("--connection-alias")
+    source_create.add_argument("--parser-profile")
     source_update = source_commands.add_parser("update")
     source_update.add_argument("id")
     source_update.add_argument("--revision", required=True, type=int)
@@ -294,6 +306,8 @@ def _parser() -> argparse.ArgumentParser:
     source_update.add_argument("--site")
     source_update.add_argument("--region", choices=["global", "eu"])
     source_update.add_argument("--company")
+    source_update.add_argument("--connection-alias")
+    source_update.add_argument("--parser-profile")
     for command in ("enable", "disable", "archive"):
         action = source_commands.add_parser(command)
         action.add_argument("id")
@@ -330,6 +344,19 @@ def _parser() -> argparse.ArgumentParser:
     discovery_commands = discovery.add_subparsers(dest="discovery_command", required=True)
     discovery_commands.add_parser("status")
     discovery_commands.add_parser("budget")
+    mailbox = subparsers.add_parser("mailbox", help="operaciones locales read-only del mailbox")
+    mailbox_commands = mailbox.add_subparsers(dest="mailbox_command", required=True)
+    mailbox_status = mailbox_commands.add_parser("status")
+    mailbox_status.add_argument("source")
+    mailbox_preflight = mailbox_commands.add_parser("preflight")
+    mailbox_preflight.add_argument("source")
+    mailbox_preflight.add_argument("--config", default="/etc/role-radar/acquisition.toml")
+    mailbox_reconcile = mailbox_commands.add_parser("reconcile")
+    mailbox_reconcile.add_argument("source")
+    mailbox_reconcile.add_argument("--revision", required=True, type=int)
+    mailbox_reconcile.add_argument("--uidvalidity", required=True, type=int)
+    mailbox_reconcile.add_argument("--ack", required=True)
+    mailbox_reconcile.add_argument("--strategy", default="bounded-lookback")
     return parser
 
 
@@ -376,6 +403,13 @@ def _run_source(settings: Settings, args: argparse.Namespace) -> int:
                 if args.site is not None or args.region is not None or args.board_token is None:
                     raise SourceServiceError("invalid_source_config")
                 configuration = {"board_token": args.board_token}
+            elif source_type is SourceType.EMAIL:
+                if args.connection_alias is None or args.parser_profile is None:
+                    raise SourceServiceError("invalid_source_config")
+                configuration = {
+                    "connection_alias": args.connection_alias,
+                    "parser_profile": args.parser_profile,
+                }
             else:
                 if (
                     args.board_token is not None
@@ -397,6 +431,8 @@ def _run_source(settings: Settings, args: argparse.Namespace) -> int:
                 and args.site is None
                 and args.region is None
                 and args.company is None
+                and args.connection_alias is None
+                and args.parser_profile is None
             ):
                 raise SourceServiceError("invalid_source_config")
             configuration = dict(current.configuration or {})
@@ -414,9 +450,20 @@ def _run_source(settings: Settings, args: argparse.Namespace) -> int:
                 configuration["region"] = args.region
             if args.company is not None:
                 configuration["company"] = args.company
+            if args.connection_alias is not None:
+                configuration["connection_alias"] = args.connection_alias
+            if args.parser_profile is not None:
+                configuration["parser_profile"] = args.parser_profile
             config_changed = any(
                 value is not None
-                for value in (args.board_token, args.site, args.region, args.company)
+                for value in (
+                    args.board_token,
+                    args.site,
+                    args.region,
+                    args.company,
+                    args.connection_alias,
+                    args.parser_profile,
+                )
             )
             row = service.update(
                 args.id,
@@ -564,6 +611,99 @@ def _run_discovery_readonly(settings: Settings, command: str) -> int:
         engine.dispose()
 
 
+def _run_mailbox(settings: Settings, args: argparse.Namespace) -> int:
+    engine, session = _open_session(settings)
+    try:
+        from role_radar.db.models import Source
+
+        source = session.get(Source, args.source)
+        if source is None or source.type is not SourceType.EMAIL:
+            print("role-radar: source_not_found", file=sys.stderr)
+            return 3
+        if args.mailbox_command == "status":
+            state = MailboxStateRepository(session).get(source.id)
+            print(json.dumps({
+                "source_id": source.id,
+                "source_key": source.source_key,
+                "enabled": source.enabled,
+                "uidvalidity": state.uidvalidity if state else None,
+                "highest_terminal_uid": state.highest_terminal_uid if state else 0,
+                "revision": state.revision if state else None,
+                "last_error_code": state.last_error_code if state else None,
+            }))
+            return 0
+        if args.mailbox_command == "preflight":
+            config = load_acquisition_configuration(args.config)
+            alias = EmailSourceConfigV1.model_validate(
+                dict(source.configuration or {})
+            ).connection_alias
+            descriptor = config.mailboxes.get(alias)
+            if descriptor is None:
+                raise ValueError("mailbox descriptor unavailable")
+            mailbox_descriptor = descriptor.descriptor()
+            credential_dir = Path(
+                os.environ.get("CREDENTIALS_DIRECTORY", "/etc/role-radar/credentials")
+            )
+            handles = {
+                handle
+                for handle in (
+                    mailbox_descriptor.username_handle,
+                    mailbox_descriptor.oauth2_handle,
+                    mailbox_descriptor.app_password_handle,
+                )
+                if handle is not None
+            }
+            resolver = FileCredentialResolver(
+                {handle: credential_dir / handle for handle in handles}
+            )
+            credentials = resolver(mailbox_descriptor)
+            provider = GmailImapProvider(mailbox_descriptor, credentials)
+            session.close()
+            engine.dispose()
+            try:
+                preflight = asyncio.run(provider.preflight())
+            finally:
+                asyncio.run(provider.close())
+            print(
+                json.dumps(
+                    {
+                        "source_id": source.id,
+                        "connection_alias": descriptor.connection_alias,
+                        "uidvalidity": preflight.uidvalidity,
+                        "readonly": preflight.readonly,
+                        "validated": True,
+                    }
+                )
+            )
+            return 0
+        state = MailboxStateRepository(session).reconcile(
+            source.id,
+            expected_revision=args.revision,
+            observed_uidvalidity=args.uidvalidity,
+            acknowledgement=args.ack,
+            strategy=args.strategy,
+            now=datetime.now(UTC),
+        )
+        session.commit()
+        print(
+            json.dumps(
+                {
+                    "source_id": source.id,
+                    "uidvalidity": state.uidvalidity,
+                    "revision": state.revision,
+                }
+            )
+        )
+        return 0
+    except Exception as exc:
+        session.rollback()
+        print(f"role-radar: {exc}", file=sys.stderr)
+        return 2
+    finally:
+        session.close()
+        engine.dispose()
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     settings = Settings()
@@ -575,6 +715,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
         if args.command == "discovery":
             return _run_discovery_readonly(settings, args.discovery_command)
+        if args.command == "mailbox":
+            return _run_mailbox(settings, args)
         if args.command == "source":
             return _run_source(settings, args)
         direct_commands = {"collect", "extract", "extract-pending", "score", "score-pending"}
