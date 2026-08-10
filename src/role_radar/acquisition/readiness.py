@@ -183,6 +183,7 @@ def _capability(
         return CapabilityReadiness(name, "disabled", ("capability_disabled",), 0, 0)
     item = observation or CapabilityMetadata()
     available = min(required, len(item.available_credentials))
+    state = "configured"
     codes = list(item.warnings)
     if item.config_code:
         codes.append(item.config_code)
@@ -194,6 +195,7 @@ def _capability(
         codes.append("config_unavailable")
     if available < required:
         codes.append("credential_missing")
+        state = "blocked"
     elif any(
         code.startswith(("config_", "credential_", "terms_", "oauth_", "app_password_"))
         for code in codes

@@ -141,3 +141,32 @@ def test_dedicated_account_recommendation_does_not_block_ready_mailbox() -> None
     assert mailbox.state == "ready"
     assert "dedicated_account_recommended" in mailbox.codes
     assert "capability_ready" in mailbox.codes
+
+
+def test_missing_mailbox_credentials_is_blocked_without_readiness_crash() -> None:
+    from role_radar.acquisition.configuration import AcquisitionConfig
+    from role_radar.mailbox.configuration import ExternalMailboxConfig
+
+    descriptor = ExternalMailboxConfig(
+        connection_alias="role-radar",
+        protocol="imap",
+        host="imap.gmail.com",
+        port=993,
+        tls=True,
+        validate_certificate=True,
+        mailbox="RoleRadar",
+        readonly=True,
+        auth_mode="app_password",
+        username_handle="gmail-username",
+        app_password_handle="gmail-app-password",
+        app_password_2fa_ack=True,
+        app_password_scope_ack=True,
+        app_password_revocation_ack=True,
+    )
+    report = calculate_readiness(
+        AcquisitionConfig(config_version="test", mailboxes={"role-radar": descriptor})
+    )
+
+    mailbox = next(item for item in report.capabilities if item.capability == "mailbox:role-radar")
+    assert mailbox.state == "blocked"
+    assert "credential_missing" in mailbox.codes
