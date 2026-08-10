@@ -8,10 +8,12 @@ import pytest
 
 from role_radar.cli.main import _run_mailbox
 from role_radar.mailbox.contracts import (
+    MailboxErrorCode,
     MailboxMessageRef,
     MailboxPreflight,
     ParseResult,
 )
+from role_radar.mailbox.imap_provider import ImapProviderError
 from role_radar.services.mailbox_smoke_service import MailboxSmokeService
 
 RAW_MESSAGE = (
@@ -107,6 +109,28 @@ async def test_smoke_sanitizes_parser_failures() -> None:
     assert result.terminal_code == "malformed"
     assert "account@example.test" not in str(result.as_dict())
     assert "secret.test" not in str(result.as_dict())
+
+
+@pytest.mark.asyncio
+async def test_smoke_preserves_selected_count_when_fetch_fails() -> None:
+    class FailingProvider(FakeProvider):
+        async def fetch(self, message: MailboxMessageRef) -> bytes:
+            self.calls.append(("fetch", message.uid))
+            raise ImapProviderError(MailboxErrorCode.MESSAGE_LIMIT.value)
+
+    provider = FailingProvider((MailboxMessageRef(53, 42, -1),))
+    result = await MailboxSmokeService(provider, parser_profile="auto").run()
+
+    assert result.as_dict() == {
+        "validated": False,
+        "messages_selected": 1,
+        "messages_fetched": 0,
+        "parser_name": "unknown",
+        "template_code": "auto-v1",
+        "terminal_code": "message_limit",
+        "output_count": 0,
+        "readonly": True,
+    }
 
 
 def test_smoke_requires_live_ack_before_opening_database() -> None:

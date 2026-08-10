@@ -94,7 +94,7 @@ class MailboxSmokeService:
                 )
             return _result_from_parse(selected, fetched, parsed)
         except Exception as exc:
-            return _failure(_error_code(exc))
+            return _failure(_error_code(exc), selected, fetched)
         finally:
             await self._provider.close()
 
@@ -103,8 +103,16 @@ def _empty_result() -> MailboxSmokeResult:
     return MailboxSmokeResult(True, 0, 0, "unknown", "auto-v1", None, 0)
 
 
-def _failure(code: str) -> MailboxSmokeResult:
-    return MailboxSmokeResult(False, 0, 0, "unknown", "auto-v1", _safe_terminal_code(code), 0)
+def _failure(code: str, selected: int = 0, fetched: int = 0) -> MailboxSmokeResult:
+    return MailboxSmokeResult(
+        False,
+        selected,
+        fetched,
+        "unknown",
+        "auto-v1",
+        _safe_terminal_code(code),
+        0,
+    )
 
 
 def _result_from_parse(selected: int, fetched: int, parsed: ParseResult) -> MailboxSmokeResult:

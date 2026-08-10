@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import builtins
 import imaplib
+from typing import Any
 
 import pytest
 
@@ -35,13 +36,13 @@ class Transcript:
         assert code == "UIDVALIDITY"
         return "UIDVALIDITY", [b"9"]
 
-    def uid(self, command: str, *args: str) -> tuple[str, builtins.list[bytes]]:
+    def uid(self, command: str, *args: str) -> tuple[str, builtins.list[Any]]:
         self.commands.append((command, args))
         if command == "SEARCH":
             return "OK", [b"4 2 3 4"]
         if args[-1] == "(RFC822.SIZE)":
             return "OK", [b"4 (RFC822.SIZE 5)"]
-        return "OK", [b"4 (BODY.PEEK[] {5})", b"hello"]
+        return "OK", [(b"4 (BODY.PEEK[] {5})", b"hello"), b")"]
 
     def logout(self) -> tuple[str, builtins.list[bytes]]:
         self.commands.append(("LOGOUT", None))

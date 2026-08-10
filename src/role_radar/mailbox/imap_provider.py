@@ -43,7 +43,7 @@ class ImapSession(Protocol):
 
     def response(self, code: str) -> tuple[str, builtins.list[bytes]] | None: ...
 
-    def uid(self, command: str, *args: str) -> tuple[str, builtins.list[bytes]]: ...
+    def uid(self, command: str, *args: str) -> tuple[str, builtins.list[Any]]: ...
 
     def logout(self) -> tuple[str, builtins.list[bytes]]: ...
 
@@ -287,9 +287,24 @@ def _fetch_size(data: list[bytes]) -> int | None:
     return None
 
 
-def _fetch_body(data: list[bytes]) -> bytes | None:
-    fallback: bytes | None = None
+def _fetch_body(data: list[Any]) -> bytes | None:
+    """Extract the RFC822 literal from imaplib's FETCH response.
+
+    ``imaplib`` represents a literal response as ``(metadata, payload)`` and
+    appends a separate closing response such as ``b")"``.  Do not treat those
+    protocol fragments as a message body: doing so can make the body length
+    disagree with RFC822.SIZE and incorrectly produce ``message_limit``.
+    """
     for item in data:
+        if (
+            isinstance(item, tuple)
+            and len(item) == 2
+            and isinstance(item[0], bytes)
+            and isinstance(item[1], bytes)
+            and (b"BODY[" in item[0].upper() or b"BODY.PEEK" in item[0].upper())
+            and b"}" in item[0]
+        ):
+            return item[1]
         if (
             isinstance(item, bytes)
             and (b"BODY[" in item.upper() or b"BODY.PEEK" in item.upper())
@@ -298,9 +313,4 @@ def _fetch_body(data: list[bytes]) -> bytes | None:
             body = item.split(b"}", 1)[1].lstrip(b"\r\n")
             if body.strip(b")\r\n "):
                 return body
-            continue
-        if isinstance(item, bytes) and item.startswith(b"From "):
-            return item
-        if isinstance(item, bytes) and b"RFC822" not in item.upper():
-            fallback = item
-    return fallback
+    return None
