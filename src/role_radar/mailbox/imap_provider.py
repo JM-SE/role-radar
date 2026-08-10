@@ -41,6 +41,8 @@ class ImapSession(Protocol):
 
     def select(self, mailbox: str, readonly: bool = False) -> tuple[str, builtins.list[bytes]]: ...
 
+    def response(self, code: str) -> tuple[str, builtins.list[bytes]] | None: ...
+
     def uid(self, command: str, *args: str) -> tuple[str, builtins.list[bytes]]: ...
 
     def logout(self) -> tuple[str, builtins.list[bytes]]: ...
@@ -81,7 +83,7 @@ class GmailImapProvider(MailboxProvider):
 
     async def preflight(self) -> MailboxPreflight:
         session = await self._call(self._open)
-        status, rows = await self._call(session.list, "", self._descriptor.mailbox)
+        status, rows = await self._call(session.list, '""', self._descriptor.mailbox)
         if status != "OK":
             await self.close()
             raise ImapProviderError(MailboxErrorCode.LABEL_NOT_FOUND.value)
@@ -93,7 +95,9 @@ class GmailImapProvider(MailboxProvider):
         if status != "OK":
             await self.close()
             raise ImapProviderError(MailboxErrorCode.PROTOCOL.value)
-        uidvalidity = _uidvalidity(data)
+        response = await self._call(session.response, "UIDVALIDITY")
+        response_data = response[1] if response is not None else []
+        uidvalidity = _uidvalidity(response_data) or _uidvalidity(data)
         if uidvalidity is None:
             await self.close()
             raise ImapProviderError(MailboxErrorCode.PROTOCOL.value)
@@ -220,7 +224,13 @@ class GmailImapProvider(MailboxProvider):
         except TimeoutError as exc:
             await self.close()
             raise ImapProviderError(MailboxErrorCode.TIMEOUT.value) from exc
-        except (imaplib.IMAP4.abort, ConnectionError, OSError) as exc:
+        except imaplib.IMAP4.abort as exc:
+            await self.close()
+            raise ImapProviderError(MailboxErrorCode.CONNECTION.value) from exc
+        except imaplib.IMAP4.error as exc:
+            await self.close()
+            raise ImapProviderError(MailboxErrorCode.PROTOCOL.value) from exc
+        except (ConnectionError, OSError) as exc:
             await self.close()
             raise ImapProviderError(MailboxErrorCode.CONNECTION.value) from exc
 
@@ -261,6 +271,8 @@ def _listed_name(value: str) -> str | None:
 
 def _uidvalidity(data: list[bytes]) -> int | None:
     for item in data:
+        if item.isdigit():
+            return int(item)
         match = re.search(rb"UIDVALIDITY\s+(\d+)", item, re.IGNORECASE)
         if match:
             return int(match.group(1))

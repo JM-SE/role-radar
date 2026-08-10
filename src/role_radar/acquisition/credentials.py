@@ -14,6 +14,8 @@ from role_radar.mailbox.contracts import CredentialMaterial, MailboxDescriptor
 
 HANDLE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 MAX_CREDENTIAL_BYTES = 4096
+_STRICT_CREDENTIAL_MODES = frozenset({0o400, 0o600})
+_SYSTEMD_CREDENTIAL_MODE = 0o440
 
 
 class CredentialError(ValueError):
@@ -95,7 +97,7 @@ class CredentialResolver:
                 raise CredentialError("credential_not_regular")
             if before.st_uid not in {0, os.geteuid()}:
                 raise CredentialError("credential_owner_invalid")
-            if stat.S_IMODE(before.st_mode) not in {0o400, 0o600}:
+            if not _credential_mode_allowed(before):
                 raise CredentialError("credential_mode_invalid")
             if before.st_size > MAX_CREDENTIAL_BYTES:
                 raise CredentialError("credential_too_large")
@@ -141,6 +143,24 @@ class CredentialResolver:
 
     def text(self, handle: str | CredentialHandle) -> str:
         return self.resolve(handle, text=True).get_secret_value().decode("utf-8")
+
+
+def _credential_mode_allowed(metadata: os.stat_result) -> bool:
+    """Accept private files and systemd's root-owned credential projection.
+
+    ``LoadCredential`` may expose a root-owned credential as ``0440``. That
+    mode is accepted only for the exact ``root:root`` ownership; a
+    group-readable file owned by an untrusted account remains rejected.
+    """
+
+    mode = stat.S_IMODE(metadata.st_mode)
+    if mode in _STRICT_CREDENTIAL_MODES:
+        return True
+    return (
+        mode == _SYSTEMD_CREDENTIAL_MODE
+        and metadata.st_uid == 0
+        and metadata.st_gid == 0
+    )
 
 
 def resolve_mailbox_credentials(

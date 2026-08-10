@@ -25,6 +25,10 @@ sanitized.
    `--runtime --require-ready <capability>`. Validation is offline.
 8. Gate B Gmail, if explicitly authorized later, uses `mailbox preflight
    SOURCE --ack-live`; it performs AUTH, LIST, readonly SELECT and LOGOUT only.
+   After preflight PASS, run `mailbox smoke SOURCE --ack-live` exactly once
+   through a systemd credential context. It selects at most the newest message
+   from the 14-day lookback, fetches it with `BODY.PEEK`, parses it, returns
+   only sanitized counters/codes and performs no DB/source/mailbox mutation.
 9. Enable Jobicy with its expected revision. The bundle and manifest are
    revalidated offline immediately before the CAS.
 10. Activate one capability at a time, observe sanitized codes/counters, and

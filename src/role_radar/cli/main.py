@@ -54,6 +54,7 @@ from role_radar.scheduler import latest_slot
 from role_radar.services.acquisition_smoke_service import AcquisitionSmokeService
 from role_radar.services.collection_service import CollectionService
 from role_radar.services.extraction_service import ExtractionService
+from role_radar.services.mailbox_smoke_service import MailboxSmokeService
 from role_radar.services.matching_service import MatchingService
 from role_radar.services.run_service import RunConflict, RunNotFound, RunService
 from role_radar.services.source_service import (
@@ -377,6 +378,10 @@ def _parser() -> argparse.ArgumentParser:
     mailbox_preflight.add_argument("source")
     mailbox_preflight.add_argument("--config", default="/etc/role-radar/acquisition.toml")
     mailbox_preflight.add_argument("--ack-live", action="store_true")
+    mailbox_smoke = mailbox_commands.add_parser("smoke")
+    mailbox_smoke.add_argument("source")
+    mailbox_smoke.add_argument("--config", default="/etc/role-radar/acquisition.toml")
+    mailbox_smoke.add_argument("--ack-live", action="store_true")
     mailbox_reconcile = mailbox_commands.add_parser("reconcile")
     mailbox_reconcile.add_argument("source")
     mailbox_reconcile.add_argument("--revision", required=True, type=int)
@@ -845,6 +850,9 @@ def _run_discovery_readonly(settings: Settings, command: str) -> int:
 
 
 def _run_mailbox(settings: Settings, args: argparse.Namespace) -> int:
+    if args.mailbox_command == "smoke" and not args.ack_live:
+        print("role-radar: live_ack_required", file=sys.stderr)
+        return 4
     engine, session = _open_session(settings)
     try:
         from role_radar.db.models import Source
@@ -853,6 +861,28 @@ def _run_mailbox(settings: Settings, args: argparse.Namespace) -> int:
         if source is None or source.type is not SourceType.EMAIL:
             print("role-radar: source_not_found", file=sys.stderr)
             return 3
+        if args.mailbox_command == "smoke":
+            if source.enabled:
+                print("role-radar: source_must_be_disabled", file=sys.stderr)
+                return 3
+            policy = ProductionAcquisitionFilePolicy()
+            config = load_acquisition_config(args.config, policy=policy)
+            email_config = EmailSourceConfigV1.model_validate(dict(source.configuration or {}))
+            alias = email_config.connection_alias
+            descriptor = config.mailboxes.get(alias)
+            if descriptor is None:
+                raise ValueError("mailbox descriptor unavailable")
+            mailbox_descriptor = descriptor.descriptor()
+            resolver = CredentialResolver()
+            credentials = resolve_mailbox_credentials(mailbox_descriptor, resolver)
+            provider = GmailImapProvider(mailbox_descriptor, credentials)
+            session.close()
+            engine.dispose()
+            result = asyncio.run(
+                MailboxSmokeService(provider, parser_profile=email_config.parser_profile).run()
+            )
+            print(json.dumps(result.as_dict(), sort_keys=True))
+            return 0 if result.validated else 3
         if args.mailbox_command == "status":
             state = MailboxStateRepository(session).get(source.id)
             print(json.dumps({

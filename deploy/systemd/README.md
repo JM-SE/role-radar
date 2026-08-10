@@ -4,10 +4,28 @@ Las units son plantillas deliberadas: sustituir `ROLE_RADAR_USER`,
 `/ROLE_RADAR_APP_DIR` y el `EnvironmentFile` por rutas de la instalación. No
 contienen secretos ni ejecutan migraciones al arrancar.
 
+## Modelo de despliegue F8.8.1
+
+- `/home/jmse/labs/role-radar`: copia de desarrollo y Git.
+- `/opt/role-radar`: copia runtime que usa systemd; desplegar desde un commit
+  dedicado y no copiar `.git`, `.venv`, `.env`, `.codegraph` ni `data/`.
+- `/etc/role-radar`: configuración y credenciales administradas por root.
+- `/opt/role-radar/data/role-radar.db`: DB runtime; nunca sincronizar, borrar,
+  reemplazar ni cambiar ownership recursivamente durante un deploy.
+
+Un deploy reproducible debe copiar solo código/fixtures desde el commit
+seleccionado, recrear o sincronizar el `.venv` en `/opt/role-radar`, conservar
+la DB existente como `role-radar:role-radar 0600`, instalar las units, ejecutar
+`systemd-analyze verify`, `daemon-reload` y registrar el commit desplegado.
+
 ```bash
 sudo install -d /etc/role-radar
 sudo install -m 0600 role-radar.env /etc/role-radar/role-radar.env
 # Install acquisition.toml.example as root:role-radar 0640.
+# For the initial Gmail-only smoke, create these root-owned 0600 source files
+# under /etc/role-radar/credentials/ and put one value in each: gmail-username,
+# gmail-app-password, mailbox-message-hmac and mailbox-content-hmac. Never
+# commit or paste them.
 # Install only target capability credentials as root-owned 0600 source files.
 # editar las cuatro units y copiarlas a /etc/systemd/system/
 uv run alembic upgrade head             # paso separado
@@ -37,15 +55,18 @@ Los valores reales de aceptación son artefactos locales del homelab; el ejemplo
 solo contiene placeholders.
 
 F8.7 Gmail usa únicamente IMAP TLS implícito en `imap.gmail.com:993`, la label
-exacta `RoleRadar`, `SELECT` read-only y `BODY.PEEK`. XOAUTH2 es preferido y lo
-resuelve el worker desde `LoadCredential`; la app password solo es fallback con
-2FA y acknowledgement explícito del operador. El API y scheduler no reciben
+exacta `RoleRadar`, `SELECT` read-only y `BODY.PEEK`. El perfil inicial usa app
+password desde `LoadCredential`; XOAUTH2 queda para una activación posterior.
+La app password requiere 2FA y acknowledgement explícito del operador. El API y scheduler no reciben
 estos mounts. Crear la label es responsabilidad del operador: RoleRadar no
 ejecuta CREATE/RENAME/DELETE ni hace fallback a INBOX/All Mail.
 
-Los comandos locales son `role-radar mailbox status <source>`, `preflight` y
-`reconcile` (este último exige CAS, `--strategy bounded-lookback` y ack
-explícito). No hay endpoint ni trigger HTTP para mailbox.
+Los comandos locales son `role-radar mailbox status <source>`, `preflight`,
+`smoke` y `reconcile` (este último exige CAS, `--strategy bounded-lookback` y
+ack explícito). `mailbox smoke` requiere `--ack-live`, toma como máximo el
+mensaje más reciente de los últimos 14 días, usa `BODY.PEEK`, no persiste nada,
+no habilita la source y devuelve solo códigos/counters sanitizados. No hay
+endpoint ni trigger HTTP para mailbox.
 
 Para rollback, detener timer, después worker y finalmente API; conservar DB y
 backups. `systemd-analyze verify` sobre las cuatro units es el smoke estático

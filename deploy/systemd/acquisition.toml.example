@@ -7,8 +7,12 @@ config_version = "acquisition-v1"
 [discovery]
 query_hmac_handle = "query-hmac"
 
-# Worker-only Gmail IMAP descriptor.  Credential values are never stored in
-# this file; the handles below point to root-managed 0600 systemd credentials.
+# Worker-only Gmail IMAP descriptor. Credential values are never stored in this
+# file; the handles below point to root-managed 0600 systemd credentials.
+#
+# This initial Gate B profile deliberately enables only Gmail. Keep the search
+# capabilities disabled until their credentials and independent smokes are
+# explicitly prepared.
 # The database Source stores only connection_alias and parser_profile.
 [mailboxes.role-radar]
 connection_alias = "role-radar"
@@ -19,24 +23,27 @@ tls = true
 validate_certificate = true
 mailbox = "RoleRadar"
 readonly = true
-auth_mode = "xoauth2"
+auth_mode = "app_password"
 username_handle = "gmail-username"
-oauth2_handle = "gmail-xoauth2"
-oauth2_expiry_handle = "gmail-xoauth2-expiry"
+app_password_handle = "gmail-app-password"
+# These acknowledgements are required because an app password has mailbox-wide
+# scope. Keep them true only while the operator accepts the documented policy.
+app_password_2fa_ack = true
+app_password_scope_ack = true
+app_password_revocation_ack = true
+dedicated_account_ack = false
 message_hmac_handle = "mailbox-message-hmac"
 content_hmac_handle = "mailbox-content-hmac"
 
 [brave_free]
-enabled = true
-units_limit = 1000
-version = "brave-free-quota-v1"
-credential_handle = "brave-free"
+enabled = false
+units_limit = 0
+version = ""
 
 [tavily_free]
-enabled = true
-units_limit = 1000
-version = "tavily-free-quota-v1"
-credential_handle = "tavily-free"
+enabled = false
+units_limit = 0
+version = ""
 
 [brave_paid]
 enabled = false
