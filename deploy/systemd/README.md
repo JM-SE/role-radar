@@ -65,8 +65,12 @@ Los comandos locales son `role-radar mailbox status <source>`, `preflight`,
 `smoke` y `reconcile` (este último exige CAS, `--strategy bounded-lookback` y
 ack explícito). `mailbox smoke` requiere `--ack-live`, toma como máximo el
 mensaje más reciente de los últimos 14 días, usa `BODY.PEEK`, no persiste nada,
-no habilita la source y devuelve solo códigos/counters sanitizados. No hay
-endpoint ni trigger HTTP para mailbox.
+no habilita la source y devuelve solo códigos/counters sanitizados. Para el
+resto de Gate B, `role-radar acquisition gate-b --ack-live --confirmation
+"LIVE GATE-B"` ejecuta Jobicy, Brave Free y Tavily Free secuencialmente, con una
+llamada por capability, sin persistencia y con stop-on-failure. Paid Brave y
+las sources de DB permanecen deshabilitadas. No hay endpoint ni trigger HTTP
+para estos smokes.
 
 Para rollback, detener timer, después worker y finalmente API; conservar DB y
 backups. `systemd-analyze verify` sobre las cuatro units es el smoke estático

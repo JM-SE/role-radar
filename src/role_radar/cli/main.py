@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from role_radar.acquisition.activation import (
     ActivationError,
     parse_xoauth_expiry,
+    require_live_smoke_ack,
     validate_jobicy_activation,
 )
 from role_radar.acquisition.configuration import (
@@ -26,6 +27,12 @@ from role_radar.acquisition.credentials import (
     CredentialError,
     CredentialResolver,
     resolve_mailbox_credentials,
+)
+from role_radar.acquisition.gate_b import (
+    GateBSmokeConfigurationError,
+    build_jobicy_collector,
+    build_search_runtime,
+    validate_jobicy_smoke_config,
 )
 from role_radar.acquisition.jobicy_terms_evidence import (
     JobicyEvidenceError,
@@ -51,6 +58,11 @@ from role_radar.mailbox.configuration import EmailSourceConfigV1
 from role_radar.mailbox.imap_provider import GmailImapProvider
 from role_radar.repositories.mailbox_states import MailboxStateRepository
 from role_radar.scheduler import latest_slot
+from role_radar.services.acquisition_gate_b_smoke import (
+    AcquisitionGateBSmokeService,
+    GateBSmokeReport,
+    GateBSmokeResult,
+)
 from role_radar.services.acquisition_smoke_service import AcquisitionSmokeService
 from role_radar.services.collection_service import CollectionService
 from role_radar.services.extraction_service import ExtractionService
@@ -398,6 +410,10 @@ def _parser() -> argparse.ArgumentParser:
     smoke.add_argument("capability", choices=["jobicy", "brave", "tavily"])
     smoke.add_argument("--ack-live", action="store_true")
     smoke.add_argument("--confirmation")
+    gate_b = acquisition_commands.add_parser("gate-b")
+    gate_b.add_argument("--config", default="/etc/role-radar/acquisition.toml")
+    gate_b.add_argument("--ack-live", action="store_true")
+    gate_b.add_argument("--confirmation")
     return parser
 
 
@@ -574,6 +590,82 @@ def _run_smoke(args: argparse.Namespace) -> int:
     )
     print(json.dumps(result.as_dict(), sort_keys=True))
     return 0 if result.state == "ok" else 4 if result.code == "live_ack_required" else 3
+
+
+def _run_gate_b(args: argparse.Namespace) -> int:
+    try:
+        require_live_smoke_ack(
+            ack_live=args.ack_live,
+            confirmation=args.confirmation,
+            capability="gate-b",
+        )
+        config = load_acquisition_config(
+            args.config,
+            policy=ProductionAcquisitionFilePolicy(),
+        )
+        validate_jobicy_smoke_config(config)
+        resolver = CredentialResolver()
+        brave = build_search_runtime("brave", config, resolver)
+        tavily = build_search_runtime("tavily", config, resolver)
+    except ActivationError as exc:
+        print(
+            json.dumps(
+                {
+                    "schema_version": "acquisition-gate-b-v1",
+                    "state": "blocked",
+                    "code": exc.code,
+                }
+            )
+        )
+        return 4
+    except (GateBSmokeConfigurationError, CredentialError, OSError, ValueError) as exc:
+        code = getattr(exc, "code", "config_invalid")
+        print(
+            json.dumps(
+                {
+                    "schema_version": "acquisition-gate-b-v1",
+                    "state": "blocked",
+                    "code": code,
+                }
+            )
+        )
+        return 3
+
+    async def run() -> GateBSmokeReport:
+        service = AcquisitionGateBSmokeService()
+        jobicy = build_jobicy_collector()
+
+        async def run_brave() -> GateBSmokeResult:
+            async with brave.provider:
+                return await service.run_search("brave", brave.provider, brave.request)
+
+        async def run_tavily() -> GateBSmokeResult:
+            async with tavily.provider:
+                return await service.run_search("tavily", tavily.provider, tavily.request)
+
+        return await service.run_sequence(
+            (
+                ("jobicy", lambda: service.run_jobicy(jobicy)),
+                ("brave", run_brave),
+                ("tavily", run_tavily),
+            )
+        )
+
+    try:
+        report = asyncio.run(run())
+    except Exception:
+        print(
+            json.dumps(
+                {
+                    "schema_version": "acquisition-gate-b-v1",
+                    "state": "failed",
+                    "code": "smoke_failed",
+                }
+            )
+        )
+        return 3
+    print(json.dumps(report.as_dict(), sort_keys=True))
+    return 0 if report.state == "ok" else 3
 
 
 def _run_source(settings: Settings, args: argparse.Namespace) -> int:
@@ -975,6 +1067,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "acquisition":
             if args.acquisition_command == "smoke":
                 return _run_smoke(args)
+            if args.acquisition_command == "gate-b":
+                return _run_gate_b(args)
             return _run_acquisition(settings, args)
         direct_commands = {"collect", "extract", "extract-pending", "score", "score-pending"}
         if args.command in direct_commands and not settings.allow_direct_pipeline_writes:
