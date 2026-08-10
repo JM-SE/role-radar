@@ -101,3 +101,43 @@ def test_readiness_is_sanitized_and_disabled_capabilities_do_not_require_credent
     assert report.state == "disabled"
     assert all(item.required_credentials == 0 for item in report.capabilities)
     assert "/etc" not in repr(report)
+
+
+def test_dedicated_account_recommendation_does_not_block_ready_mailbox() -> None:
+    from role_radar.acquisition.configuration import AcquisitionConfig
+    from role_radar.acquisition.readiness import CapabilityMetadata
+    from role_radar.mailbox.configuration import ExternalMailboxConfig
+
+    descriptor = ExternalMailboxConfig(
+        connection_alias="role-radar",
+        protocol="imap",
+        host="imap.gmail.com",
+        port=993,
+        tls=True,
+        validate_certificate=True,
+        mailbox="RoleRadar",
+        readonly=True,
+        auth_mode="app_password",
+        username_handle="gmail-username",
+        app_password_handle="gmail-app-password",
+        app_password_2fa_ack=True,
+        app_password_scope_ack=True,
+        app_password_revocation_ack=True,
+    )
+    handles = frozenset(
+        {
+            "gmail-username",
+            "gmail-app-password",
+            "mailbox-message-hmac",
+            "mailbox-content-hmac",
+        }
+    )
+    report = calculate_readiness(
+        AcquisitionConfig(config_version="test", mailboxes={"role-radar": descriptor}),
+        metadata={"mailbox:role-radar": CapabilityMetadata(handles)},
+    )
+
+    mailbox = next(item for item in report.capabilities if item.capability == "mailbox:role-radar")
+    assert mailbox.state == "ready"
+    assert "dedicated_account_recommended" in mailbox.codes
+    assert "capability_ready" in mailbox.codes

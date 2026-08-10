@@ -194,14 +194,16 @@ def _capability(
         codes.append("config_unavailable")
     if available < required:
         codes.append("credential_missing")
-    if not codes and available == required:
-        codes.append("capability_ready")
-        state = "ready"
     elif any(
         code.startswith(("config_", "credential_", "terms_", "oauth_", "app_password_"))
         for code in codes
     ):
         state = "blocked"
+    elif available == required:
+        # Warnings such as the dedicated-account recommendation do not block
+        # an explicitly acknowledged app-password rollout.
+        codes.append("capability_ready")
+        state = "ready"
     else:
         codes.append("capability_configured")
         state = "configured"
