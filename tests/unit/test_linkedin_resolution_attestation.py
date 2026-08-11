@@ -7,6 +7,7 @@ import pytest
 
 from role_radar.mailbox.linkedin_resolution.dns import (
     ATTESTATION_SCHEMA,
+    ATTESTED_EGRESS_HOSTS,
     AttestedDNSResolver,
     AttestedEgressGuard,
     DNSResolutionError,
@@ -32,6 +33,7 @@ def payload(*, addresses: object = None, expires_at: str | None = None) -> dict[
         "hosts": addresses
         or {
             "ar.linkedin.com": ["8.8.8.8"],
+            "imap.gmail.com": ["1.1.1.1"],
             "www.linkedin.com": ["8.8.4.4"],
         },
     }
@@ -54,6 +56,7 @@ def test_attestation_rejects_expired_or_private_values() -> None:
     private = payload(
         addresses={
             "ar.linkedin.com": ["10.0.0.1"],
+            "imap.gmail.com": ["1.1.1.1"],
             "www.linkedin.com": ["8.8.4.4"],
         }
     )
@@ -67,3 +70,20 @@ async def test_attested_egress_rejects_ip_not_in_attestation() -> None:
 
     with pytest.raises(DNSResolutionError, match="dns_rebinding"):
         await AttestedEgressGuard(store).assert_allowed("www.linkedin.com", "8.8.8.8")
+
+
+def test_attestation_requires_fixed_gmail_and_linkedin_egress_hosts() -> None:
+    assert {
+        "ar.linkedin.com",
+        "imap.gmail.com",
+        "www.linkedin.com",
+    } == ATTESTED_EGRESS_HOSTS
+    missing_gmail = payload(
+        addresses={
+            "ar.linkedin.com": ["8.8.8.8"],
+            "www.linkedin.com": ["8.8.4.4"],
+        }
+    )
+
+    with pytest.raises(DNSResolutionError, match="internal"):
+        SystemdAttestationStore(FakeCredentialResolver(missing_gmail)).load()

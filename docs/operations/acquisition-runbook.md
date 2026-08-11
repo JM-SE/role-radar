@@ -43,7 +43,9 @@ sanitized.
     `external_requests=0`. For a later live gate, generate the short-lived
     root-owned attestation first with `f91-egress-attest.py`, then use only
     `f91-run-head-resolution.py`, which derives `IPAddressAllow` from that
-    attestation and mounts it through `LoadCredential`.
+    attestation and mounts it through `LoadCredential`. The attestation contains
+    only the fixed Gmail IMAP origin required to read the alert plus the two
+    audited LinkedIn origins; this does not expand the LinkedIn URL allowlist.
 12. Prepare the Jobicy evidence bundle and the Brave/Tavily free credentials and
    config handles. Keep all database sources disabled; no source CAS is needed
    for this report-only smoke.

@@ -13,7 +13,11 @@ import socket
 import sys
 from datetime import UTC, datetime, timedelta
 
-HOSTS = ("ar.linkedin.com", "www.linkedin.com")
+# The transient unit reads the alert from Gmail before resolving one LinkedIn
+# URL. Infrastructure egress therefore needs the fixed IMAP origin as well as
+# the two audited LinkedIn origins. The application resolver still accepts only
+# the LinkedIn hosts.
+HOSTS = ("ar.linkedin.com", "imap.gmail.com", "www.linkedin.com")
 SCHEMA_VERSION = "role-radar-f91-egress-v1"
 POLICY_VERSION = "linkedin-head-resolution-v1"
 TTL_SECONDS = 60

@@ -16,6 +16,8 @@ from role_radar.mailbox.linkedin_resolution.policy import LINKEDIN_HOSTS, POLICY
 
 ATTESTATION_SCHEMA = "role-radar-f91-egress-v1"
 ATTESTATION_HANDLE = "f91-egress-attestation"
+MAILBOX_EGRESS_HOSTS = frozenset({"imap.gmail.com"})
+ATTESTED_EGRESS_HOSTS = LINKEDIN_HOSTS | MAILBOX_EGRESS_HOSTS
 
 class DNSResolutionError(RuntimeError):
     def __init__(self, code: str) -> None:
@@ -71,11 +73,11 @@ class SystemdAttestationStore:
         if expires_at <= self._clock().astimezone(UTC):
             raise DNSResolutionError("internal")
         raw_hosts = payload.get("hosts")
-        if not isinstance(raw_hosts, dict) or set(raw_hosts) != LINKEDIN_HOSTS:
+        if not isinstance(raw_hosts, dict) or set(raw_hosts) != ATTESTED_EGRESS_HOSTS:
             raise DNSResolutionError("internal")
         hosts: dict[str, tuple[str, ...]] = {}
         for host, values in raw_hosts.items():
-            if not isinstance(host, str) or host not in LINKEDIN_HOSTS:
+            if not isinstance(host, str) or host not in ATTESTED_EGRESS_HOSTS:
                 raise DNSResolutionError("internal")
             if not isinstance(values, list) or not values:
                 raise DNSResolutionError("internal")

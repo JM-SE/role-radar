@@ -13,6 +13,7 @@ from pathlib import Path
 ATTESTATION = Path("/run/role-radar/f91-egress-attestation.json")
 SCHEMA_VERSION = "role-radar-f91-egress-v1"
 POLICY_VERSION = "linkedin-head-resolution-v1"
+ATTESTED_HOSTS = frozenset({"ar.linkedin.com", "imap.gmail.com", "www.linkedin.com"})
 
 
 def main(argv: list[str]) -> int:
@@ -59,7 +60,10 @@ def _read_allowlist() -> tuple[str, ...] | None:
         expiry = datetime.fromisoformat(payload["expires_at"].replace("Z", "+00:00"))
         if expiry <= datetime.now(UTC):
             return None
-        values = payload["hosts"].values()
+        hosts = payload["hosts"]
+        if not isinstance(hosts, dict) or set(hosts) != ATTESTED_HOSTS:
+            return None
+        values = hosts.values()
         addresses = sorted({str(item) for items in values for item in items})
         if not addresses or any(not _is_public(item) for item in addresses):
             return None
