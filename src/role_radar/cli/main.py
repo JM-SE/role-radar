@@ -61,6 +61,7 @@ from role_radar.mailbox.linkedin_resolution.dns import (
     AttestedEgressGuard,
     SystemdAttestationStore,
 )
+from role_radar.mailbox.linkedin_resolution.pinned_imap import pinned_gmail_session_factory
 from role_radar.mailbox.linkedin_resolution.resolver import LinkedInHeadResolver
 from role_radar.mailbox.linkedin_resolution.transport import PinnedHeadTransport
 from role_radar.repositories.mailbox_states import MailboxStateRepository
@@ -1147,6 +1148,7 @@ def _run_linkedin_head_resolution(settings: Settings, args: argparse.Namespace) 
         return 3
     provider: GmailImapProvider | None = None
     email_config: EmailSourceConfigV1 | None = None
+    attestation_store: SystemdAttestationStore | None = None
     try:
         source = session.get(Source, args.source)
         if source is None:
@@ -1173,7 +1175,15 @@ def _run_linkedin_head_resolution(settings: Settings, args: argparse.Namespace) 
                 raise ValueError("mailbox descriptor unavailable")
             mailbox_descriptor = descriptor.descriptor()
             credentials = resolve_mailbox_credentials(mailbox_descriptor, CredentialResolver())
-            provider = GmailImapProvider(mailbox_descriptor, credentials)
+            attestation_store = SystemdAttestationStore()
+            attestation = attestation_store.load()
+            provider = GmailImapProvider(
+                mailbox_descriptor,
+                credentials,
+                session_factory=pinned_gmail_session_factory(
+                    attestation.hosts.get("imap.gmail.com", ())
+                ),
+            )
         except CredentialError:
             print(json.dumps(_resolution_failure("config"), sort_keys=True))
             return 3
@@ -1185,8 +1195,8 @@ def _run_linkedin_head_resolution(settings: Settings, args: argparse.Namespace) 
         engine.dispose()
     assert provider is not None
     assert email_config is not None
+    assert attestation_store is not None
     try:
-        attestation_store = SystemdAttestationStore()
         resolver = LinkedInHeadResolver(
             PinnedHeadTransport(),
             AttestedDNSResolver(attestation_store),
