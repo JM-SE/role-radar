@@ -359,7 +359,12 @@ def _safe_ats_url(value: str | None) -> str | None:
     if parsed.scheme != "https" or parsed.username or parsed.fragment or parsed.query:
         return None
     host = (parsed.hostname or "").lower()
-    if host not in {"boards.greenhouse.io", "jobs.lever.co", "jobs.eu.lever.co"}:
+    if host not in {
+        "boards.greenhouse.io",
+        "job-boards.greenhouse.io",
+        "jobs.lever.co",
+        "jobs.eu.lever.co",
+    }:
         return None
     if not isinstance(classify_url(value), KnownOfficialCandidate):
         return None

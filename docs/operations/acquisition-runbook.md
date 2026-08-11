@@ -34,18 +34,28 @@ sanitized.
     DNS against discovered links, follows no redirects, writes no DB state,
     and requires the email source to remain disabled. It is not a LinkedIn
     resolver and does not authorize Gmail rollout.
-10. Prepare the Jobicy evidence bundle and the Brave/Tavily free credentials and
+10. F9.1 `mailbox linkedin-head-resolution SOURCE --config <path> --ack-live`
+    remains fail-closed until the runtime proves application DNS/IP pinning and
+    infrastructure egress defense separately. Its report-only path must use
+    `HEAD` only, never request the final ATS, and never write DB state.
+11. For the F9.1 canary, run the local-only script under a transient scope with
+    `IPAddressDeny=any` and loopback-only `IPAddressAllow`; it must report
+    `external_requests=0`. For a later live gate, generate the short-lived
+    root-owned attestation first with `f91-egress-attest.py`, then use only
+    `f91-run-head-resolution.py`, which derives `IPAddressAllow` from that
+    attestation and mounts it through `LoadCredential`.
+12. Prepare the Jobicy evidence bundle and the Brave/Tavily free credentials and
    config handles. Keep all database sources disabled; no source CAS is needed
    for this report-only smoke.
-11. After offline validation, run `role-radar acquisition gate-b --ack-live
+13. After offline validation, run `role-radar acquisition gate-b --ack-live
     --confirmation "LIVE GATE-B"` exactly once through a systemd credential
     context. It calls Jobicy once, Brave Free once, then Tavily Free once, stops
     on failure, and writes no DB/source/budget state. Paid Brave remains off.
-12. Observe only sanitized codes/counters. Stop for any warning or failure.
-13. Roll back only the affected capability: disable its free config, remove its drop-in,
+14. Observe only sanitized codes/counters. Stop for any warning or failure.
+15. Roll back only the affected capability: disable its free config, remove its drop-in,
      rotate/revoke credentials where applicable, daemon-reload, and restart the
      worker. Preserve receipts, ledgers, cursor and evidence history.
-14. Consult `discovery status`, `discovery budget`, `mailbox status`, source
+16. Consult `discovery status`, `discovery budget`, `mailbox status`, source
     state, worker journal codes, and DB integrity. Never print credentials,
     paths, URLs, digests, terms, queries, addresses, payloads, or exceptions.
 
