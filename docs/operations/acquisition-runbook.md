@@ -29,18 +29,23 @@ sanitized.
    through a systemd credential context. It selects at most the newest message
    from the 14-day lookback, fetches it with `BODY.PEEK`, parses it, returns
    only sanitized counters/codes and performs no DB/source/mailbox mutation.
-9. Prepare the Jobicy evidence bundle and the Brave/Tavily free credentials and
+9. F9.0 `mailbox linkedin-host-audit SOURCE --config <path> --ack-live` is a
+    separate report-only audit of that newest message. It performs no HTTP or
+    DNS against discovered links, follows no redirects, writes no DB state,
+    and requires the email source to remain disabled. It is not a LinkedIn
+    resolver and does not authorize Gmail rollout.
+10. Prepare the Jobicy evidence bundle and the Brave/Tavily free credentials and
    config handles. Keep all database sources disabled; no source CAS is needed
    for this report-only smoke.
-10. After offline validation, run `role-radar acquisition gate-b --ack-live
+11. After offline validation, run `role-radar acquisition gate-b --ack-live
     --confirmation "LIVE GATE-B"` exactly once through a systemd credential
     context. It calls Jobicy once, Brave Free once, then Tavily Free once, stops
     on failure, and writes no DB/source/budget state. Paid Brave remains off.
-11. Observe only sanitized codes/counters. Stop for any warning or failure.
-12. Roll back only the affected capability: disable its free config, remove its drop-in,
+12. Observe only sanitized codes/counters. Stop for any warning or failure.
+13. Roll back only the affected capability: disable its free config, remove its drop-in,
      rotate/revoke credentials where applicable, daemon-reload, and restart the
      worker. Preserve receipts, ledgers, cursor and evidence history.
-13. Consult `discovery status`, `discovery budget`, `mailbox status`, source
+14. Consult `discovery status`, `discovery budget`, `mailbox status`, source
     state, worker journal codes, and DB integrity. Never print credentials,
     paths, URLs, digests, terms, queries, addresses, payloads, or exceptions.
 

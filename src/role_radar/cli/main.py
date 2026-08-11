@@ -66,6 +66,10 @@ from role_radar.services.acquisition_gate_b_smoke import (
 from role_radar.services.acquisition_smoke_service import AcquisitionSmokeService
 from role_radar.services.collection_service import CollectionService
 from role_radar.services.extraction_service import ExtractionService
+from role_radar.services.linkedin_link_host_audit_service import (
+    LinkedInLinkHostAuditReport,
+    LinkedInLinkHostAuditService,
+)
 from role_radar.services.mailbox_smoke_service import MailboxSmokeService
 from role_radar.services.matching_service import MatchingService
 from role_radar.services.run_service import RunConflict, RunNotFound, RunService
@@ -394,6 +398,10 @@ def _parser() -> argparse.ArgumentParser:
     mailbox_smoke.add_argument("source")
     mailbox_smoke.add_argument("--config", default="/etc/role-radar/acquisition.toml")
     mailbox_smoke.add_argument("--ack-live", action="store_true")
+    mailbox_audit = mailbox_commands.add_parser("linkedin-host-audit")
+    mailbox_audit.add_argument("source")
+    mailbox_audit.add_argument("--config", default="/etc/role-radar/acquisition.toml")
+    mailbox_audit.add_argument("--ack-live", action="store_true")
     mailbox_reconcile = mailbox_commands.add_parser("reconcile")
     mailbox_reconcile.add_argument("source")
     mailbox_reconcile.add_argument("--revision", required=True, type=int)
@@ -942,6 +950,8 @@ def _run_discovery_readonly(settings: Settings, command: str) -> int:
 
 
 def _run_mailbox(settings: Settings, args: argparse.Namespace) -> int:
+    if args.mailbox_command == "linkedin-host-audit":
+        return _run_linkedin_host_audit(settings, args)
     if args.mailbox_command == "smoke" and not args.ack_live:
         print("role-radar: live_ack_required", file=sys.stderr)
         return 4
@@ -1049,9 +1059,88 @@ def _run_mailbox(settings: Settings, args: argparse.Namespace) -> int:
         engine.dispose()
 
 
+def _run_linkedin_host_audit(settings: Settings, args: argparse.Namespace) -> int:
+    try:
+        engine, session = _open_session(settings)
+    except Exception:
+        report = _audit_failure_report("config")
+        print(json.dumps(report.as_dict(), sort_keys=True))
+        return 3
+    provider: GmailImapProvider | None = None
+    email_config: EmailSourceConfigV1 | None = None
+    try:
+        source = session.get(Source, args.source)
+        if source is None or source.type is not SourceType.EMAIL:
+            report = _audit_failure_report("source_not_found")
+            print(json.dumps(report.as_dict(), sort_keys=True))
+            return 3
+        if source.enabled:
+            report = _audit_failure_report("source_must_be_disabled")
+            print(json.dumps(report.as_dict(), sort_keys=True))
+            return 3
+        try:
+            email_config = EmailSourceConfigV1.model_validate(dict(source.configuration or {}))
+            config = load_acquisition_config(
+                args.config,
+                policy=ProductionAcquisitionFilePolicy(),
+            )
+            descriptor = config.mailboxes.get(email_config.connection_alias)
+            if descriptor is None:
+                raise ValueError("mailbox descriptor unavailable")
+            mailbox_descriptor = descriptor.descriptor()
+            credentials = resolve_mailbox_credentials(mailbox_descriptor, CredentialResolver())
+            provider = GmailImapProvider(mailbox_descriptor, credentials)
+        except CredentialError:
+            report = _audit_failure_report("credentials")
+            print(json.dumps(report.as_dict(), sort_keys=True))
+            return 3
+        except (OSError, ValueError):
+            report = _audit_failure_report("config")
+            print(json.dumps(report.as_dict(), sort_keys=True))
+            return 3
+    except Exception:
+        report = _audit_failure_report("protocol")
+        print(json.dumps(report.as_dict(), sort_keys=True))
+        return 3
+    finally:
+        session.close()
+        engine.dispose()
+
+    assert provider is not None
+    assert email_config is not None
+    try:
+        report = asyncio.run(
+            LinkedInLinkHostAuditService(
+                provider,
+                parser_profile=email_config.parser_profile,
+            ).run()
+        )
+    except Exception:
+        report = _audit_failure_report("protocol")
+    print(json.dumps(report.as_dict(), sort_keys=True))
+    return 0 if report.validated else 3
+
+
+def _audit_failure_report(code: str) -> LinkedInLinkHostAuditReport:
+    return LinkedInLinkHostAuditReport(False, 0, 0, "unknown", "unknown", 0, 0, (), code)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    settings = Settings()
+    if (
+        args.command == "mailbox"
+        and args.mailbox_command == "linkedin-host-audit"
+        and not args.ack_live
+    ):
+        print(json.dumps(_audit_failure_report("live_ack_required").as_dict(), sort_keys=True))
+        return 4
+    try:
+        settings = Settings()
+    except Exception:
+        if args.command == "mailbox" and args.mailbox_command == "linkedin-host-audit":
+            print(json.dumps(_audit_failure_report("config").as_dict(), sort_keys=True))
+            return 3
+        raise
     try:
         if args.command == "run":
             return _run_control(settings, args)
