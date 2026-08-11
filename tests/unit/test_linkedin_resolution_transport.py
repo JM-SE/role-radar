@@ -67,3 +67,21 @@ async def test_transport_sends_head_only_and_does_not_read_body(monkeypatch) -> 
     assert b"GET " not in writer.payload
     assert not reader.body_read
     assert writer.closed
+
+
+@pytest.mark.asyncio
+async def test_transport_sanitizes_socket_argument_errors(monkeypatch) -> None:
+    async def open_connection(**_kwargs: object) -> tuple[FakeReader, FakeWriter]:
+        raise ValueError("raw socket details must not escape")
+
+    monkeypatch.setattr(asyncio, "open_connection", open_connection)
+
+    from role_radar.mailbox.linkedin_resolution.transport import HeadTransportError
+
+    with pytest.raises(HeadTransportError, match="response_protocol"):
+        await PinnedHeadTransport().head(
+            "https://www.linkedin.com/jobs/1",
+            host="www.linkedin.com",
+            address="8.8.8.8",
+            deadline=asyncio.get_running_loop().time() + 2,
+        )

@@ -76,6 +76,10 @@ class PinnedHeadTransport:
         except (OSError, ssl.SSLError) as exc:
             code = "tls_failure" if isinstance(exc, ssl.SSLError) else "response_protocol"
             raise HeadTransportError(code) from exc
+        except (TypeError, ValueError) as exc:
+            # asyncio/socket validation failures must not escape as an
+            # unclassified internal error at the report-only boundary.
+            raise HeadTransportError("response_protocol") from exc
         finally:
             if writer is not None:
                 writer.close()
