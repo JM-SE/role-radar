@@ -43,10 +43,15 @@ uv run role-radar worker
 ## Health check
 
 ```bash
-uv run uvicorn role_radar.main:app
-curl -s localhost:8000/health
+export ROLE_RADAR_API_PORT=8010
+uv run uvicorn role_radar.main:app --host 127.0.0.1 --port "$ROLE_RADAR_API_PORT"
+curl -s localhost:8010/health
 # -> {"status": "ok", "version": "0.1.0", "environment": "dev"}
 ```
+
+En el despliegue systemd, `ROLE_RADAR_API_PORT` es obligatorio en el
+`EnvironmentFile`; el ejemplo operativo usa `8010`. El puerto `8000` pertenece a
+otra aplicación y no forma parte de RoleRadar.
 
 ## API (Fase 1–2)
 

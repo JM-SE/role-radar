@@ -3,11 +3,11 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.exc import IntegrityError
 
-from role_radar.api.deps import get_profile_repository
+from role_radar.api.deps import get_profile_repository, get_profile_service
 from role_radar.api.schemas.profiles import ProfileCreate, ProfileResponse, ProfileUpdate
 from role_radar.repositories.profiles import ProfileRepository
+from role_radar.services.profile_service import ProfileService
 
 router = APIRouter(prefix="/profiles", tags=["profiles"])
 
@@ -30,16 +30,14 @@ def create_profile(
 def update_profile(
     profile_id: str,
     payload: ProfileUpdate,
-    repo: Annotated[ProfileRepository, Depends(get_profile_repository)],
+    service: Annotated[ProfileService, Depends(get_profile_service)],
 ) -> ProfileResponse:
     try:
-        profile = repo.create_version(profile_id, payload.profile_json.model_dump(mode="json"))
+        profile = service.create_version(profile_id, payload.profile_json.model_dump(mode="json"))
     except LookupError as exc:
         raise HTTPException(status_code=404, detail="Profile not found") from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    except IntegrityError as exc:
-        raise HTTPException(status_code=409, detail="Profile version already exists") from exc
     return ProfileResponse.model_validate(profile)
 
 

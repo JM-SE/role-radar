@@ -13,6 +13,13 @@ contienen secretos ni ejecutan migraciones al arrancar.
 - `/opt/role-radar/data/role-radar.db`: DB runtime; nunca sincronizar, borrar,
   reemplazar ni cambiar ownership recursivamente durante un deploy.
 
+La API de RoleRadar escucha en el puerto operativo configurado por
+`ROLE_RADAR_API_PORT` en `/etc/role-radar/role-radar.env`. El ejemplo usa `8010`.
+La variable es obligatoria y debe ser un entero entre `1` y `65535`; uvicorn
+rechaza valores ausentes, no numéricos o fuera de rango antes de servir tráfico.
+El puerto `8000` pertenece a otra aplicación y no debe detenerse, recargarse ni
+modificarse durante el despliegue de RoleRadar.
+
 Un deploy reproducible debe copiar solo código/fixtures desde el commit
 seleccionado, recrear o sincronizar el `.venv` en `/opt/role-radar`, conservar
 la DB existente como `role-radar:role-radar 0600`, instalar las units, ejecutar
@@ -32,9 +39,14 @@ uv run alembic upgrade head             # paso separado
 sudo systemctl daemon-reload
 sudo systemctl enable --now role-radar-api.service role-radar-worker.service
 sudo systemctl enable --now role-radar-scheduler.timer
-curl -f http://127.0.0.1:8000/health
+curl -f http://127.0.0.1:8010/health
 sudo journalctl -u role-radar-worker.service -f
 ```
+
+Antes de cualquier escritura de perfil, verificar la identidad de RoleRadar (no
+basta con recibir HTTP 200): `/health` debe devolver exactamente `status`,
+`version` y `environment`, y `/openapi.json` debe incluir `/profiles`, `/jobs`,
+`/runs` y `/sources`. Un mismatch bloquea el write.
 
 Para Telegram, configurar `ROLE_RADAR_TELEGRAM_PROVIDER=http`,
 `ROLE_RADAR_TELEGRAM_BOT_TOKEN` y `ROLE_RADAR_TELEGRAM_CHAT_ID` únicamente en el

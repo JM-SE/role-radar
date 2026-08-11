@@ -85,3 +85,34 @@ async def test_put_creates_new_active_version(client: httpx.AsyncClient) -> None
     assert response.json()["is_active"] is True
     predecessor = await client.get(f"/profiles/{created['id']}")
     assert predecessor.json()["is_active"] is False
+
+
+async def test_repeating_put_on_inactive_predecessor_is_conflict_without_v3(
+    client: httpx.AsyncClient,
+) -> None:
+    created = (await client.post("/profiles", json={"name": "A", "profile_json": PROFILE})).json()
+    updated = {**PROFILE, "target_roles": ["platform"]}
+    first = await client.put(f"/profiles/{created['id']}", json={"profile_json": updated})
+    assert first.status_code == 200
+
+    repeated = await client.put(f"/profiles/{created['id']}", json={"profile_json": PROFILE})
+    assert repeated.status_code == 409
+
+    history = await client.get("/profiles")
+    assert len(history.json()) == 1
+    all_versions = [
+        (await client.get(f"/profiles/{profile_id}"))
+        for profile_id in (created["id"], first.json()["id"])
+    ]
+    assert {response.json()["version"] for response in all_versions} == {1, 2}
+
+
+async def test_profile_identity_contract(client: httpx.AsyncClient) -> None:
+    health = await client.get("/health")
+    assert health.status_code == 200
+    assert set(health.json()) == {"status", "version", "environment"}
+    assert health.json()["status"] == "ok"
+
+    openapi = await client.get("/openapi.json")
+    assert openapi.status_code == 200
+    assert {"/profiles", "/jobs", "/runs", "/sources"} <= set(openapi.json()["paths"])

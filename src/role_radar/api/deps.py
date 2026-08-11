@@ -15,6 +15,7 @@ from role_radar.repositories.jobs import JobRepository
 from role_radar.repositories.profiles import ProfileRepository
 from role_radar.repositories.runs import RunRepository
 from role_radar.repositories.sources import SourceRepository
+from role_radar.services.profile_service import ProfileService
 from role_radar.services.run_service import RunService
 from role_radar.services.source_service import SourceService
 
@@ -22,6 +23,7 @@ __all__ = [
     "Settings",
     "get_job_repository",
     "get_profile_repository",
+    "get_profile_service",
     "get_run_repository",
     "get_run_service",
     "get_session",
@@ -49,6 +51,10 @@ SessionDep = Annotated[Session, Depends(get_session)]
 
 def get_profile_repository(session: SessionDep) -> ProfileRepository:
     return ProfileRepository(session)
+
+
+def get_profile_service(session: SessionDep) -> ProfileService:
+    return ProfileService(session)
 
 
 def get_job_repository(session: SessionDep) -> JobRepository:

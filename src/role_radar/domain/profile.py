@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 import unicodedata
 from collections.abc import Callable
@@ -170,3 +172,19 @@ class CandidateProfileV1(BaseModel):
 def canonical_profile_payload(payload: dict[str, Any]) -> dict[str, Any]:
     """Return a JSON-compatible canonical v1 payload."""
     return CandidateProfileV1.model_validate(payload).model_dump(mode="json")
+
+
+def canonical_profile_bytes(payload: dict[str, Any]) -> bytes:
+    """Serialize a canonical v1 payload deterministically for evidence hashes."""
+    canonical = canonical_profile_payload(payload)
+    return json.dumps(
+        canonical,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+
+def canonical_profile_sha256(payload: dict[str, Any]) -> str:
+    """Return the SHA-256 fingerprint of the canonical v1 payload."""
+    return hashlib.sha256(canonical_profile_bytes(payload)).hexdigest()
