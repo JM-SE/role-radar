@@ -450,6 +450,9 @@ class LeverCollector:
                 "hostedUrl",
                 "applyUrl",
                 "allLocations",
+                "createdAt",
+                "state",
+                "expiresAt",
             )
             if key in item
         }

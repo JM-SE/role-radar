@@ -54,6 +54,12 @@ from role_radar.discovery.null_provider import NullSearchProvider
 from role_radar.discovery.protocols import SearchProvider
 from role_radar.discovery.url_classifier import classify_url
 from role_radar.domain.enums import DiscoveryMode, SourceType
+from role_radar.evaluation.controlled_acquisition.configuration import (
+    ConfigurationError,
+    ControlledAcquisitionConfig,
+)
+from role_radar.evaluation.controlled_acquisition.snapshot import SnapshotStore
+from role_radar.evaluation.controlled_acquisition.source_plan import PlanError, load_plan
 from role_radar.mailbox.configuration import EmailSourceConfigV1
 from role_radar.mailbox.imap_provider import GmailImapProvider
 from role_radar.mailbox.linkedin_resolution.dns import (
@@ -435,7 +441,76 @@ def _parser() -> argparse.ArgumentParser:
     gate_b.add_argument("--config", default="/etc/role-radar/acquisition.toml")
     gate_b.add_argument("--ack-live", action="store_true")
     gate_b.add_argument("--confirmation")
+    evaluation = subparsers.add_parser(
+        "evaluation", help="operaciones offline/controladas de evaluación"
+    )
+    evaluation_commands = evaluation.add_subparsers(
+        dest="evaluation_command", required=True
+    )
+    f10_1 = evaluation_commands.add_parser("f10-1")
+    f10_1_commands = f10_1.add_subparsers(dest="f10_1_command", required=True)
+    f10_1_commands.add_parser("preflight")
+    plan = f10_1_commands.add_parser("plan")
+    plan.add_argument("--file", required=True)
+    f10_1_commands.add_parser("status")
+    verify = f10_1_commands.add_parser("verify")
+    verify.add_argument("--dataset-id", required=True)
+    f10_1_commands.add_parser("abort")
+    acquire = f10_1_commands.add_parser("acquire")
+    acquire.add_argument("--plan-sha256", required=True)
+    acquire.add_argument("--acknowledgement", required=True)
     return parser
+
+
+def _run_evaluation(args: argparse.Namespace) -> int:
+    """Gate-A CLI surface; live acquisition is deliberately fail-closed here."""
+    if args.evaluation_command != "f10-1":
+        return 2
+    command = args.f10_1_command
+    if command == "preflight":
+        try:
+            config = ControlledAcquisitionConfig.from_env()
+            config.require_approved_run()
+            print(
+                json.dumps(
+                    {
+                        "schema_version": "f10.1-preflight-v1",
+                        "result": "ready_for_plan",
+                        "lookback_days": config.lookback_days,
+                        "live_acquisition": "not_authorized",
+                    },
+                    sort_keys=True,
+                )
+            )
+            return 0
+        except ConfigurationError as exc:
+            print(json.dumps({"result": "blocked", "code": exc.code}, sort_keys=True))
+            return 2
+    if command == "plan":
+        try:
+            payload = json.loads(Path(args.file).read_text(encoding="utf-8"))
+            plan = load_plan(payload)
+            print(json.dumps({"result": "valid", "plan_sha256": plan.sha256}, sort_keys=True))
+            return 0
+        except (OSError, json.JSONDecodeError, PlanError, TypeError, ValueError):
+            print(json.dumps({"result": "invalid", "code": "plan_invalid"}, sort_keys=True))
+            return 2
+    if command == "verify":
+        result = SnapshotStore(Path("/opt/role-radar/data/evaluation/f10.1")).verify(
+            args.dataset_id
+        )
+        print(json.dumps({"result": "verified" if result else "failed"}, sort_keys=True))
+        return 0 if result else 3
+    if command == "status":
+        print(json.dumps({"result": "offline_status", "live_acquisition": "not_authorized"}))
+        return 0
+    if command == "abort":
+        print(json.dumps({"result": "offline_abort_requires_operator_recovery"}))
+        return 3
+    if command == "acquire":
+        print(json.dumps({"result": "blocked", "code": "gate_b_requires_user_authorization"}))
+        return 3
+    return 2
 
 
 def _source_payload(source: object) -> dict[str, object]:
@@ -1241,6 +1316,8 @@ def _resolution_failure(code: str) -> dict[str, object]:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.command == "evaluation":
+        return _run_evaluation(args)
     if (
         args.command == "mailbox"
         and args.mailbox_command in {"linkedin-host-audit", "linkedin-head-resolution"}
