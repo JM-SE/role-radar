@@ -121,6 +121,29 @@ class OperationPlan:
 
 
 @dataclass(frozen=True, slots=True)
+class SourceCheckpoint:
+    source_id: str
+    source_type: str
+    source_key: str
+    name: str
+    revision: int
+    configuration_version: int
+    configuration: Mapping[str, Any]
+    enabled: bool
+    archived: bool
+
+
+@dataclass(frozen=True, slots=True)
+class LiveRunResult:
+    operation_id: str
+    state: OperationState
+    observations: tuple[Observation, ...] = ()
+    dataset_result: DatasetResult | None = None
+    error_code: str | None = None
+    dataset_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class DatasetItem:
     ordinal: int
     opaque_id: str

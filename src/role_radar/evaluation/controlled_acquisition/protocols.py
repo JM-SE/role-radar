@@ -9,6 +9,12 @@ JOURNAL_VERSION = "f10.1-journal-v1"
 
 TARGETS: dict[str, int] = {"jobicy": 20, "greenhouse": 15, "lever": 15}
 ALLOWED_FAMILIES = frozenset(TARGETS)
+ALLOWED_ORIGINS = (
+    "https://jobicy.com",
+    "https://boards-api.greenhouse.io",
+    "https://api.lever.co",
+    "https://api.eu.lever.co",
+)
 MAX_WIRE_ATTEMPTS = 100
 FUTURE_TOLERANCE_SECONDS = 5 * 60
 LOOKBACK_DAYS = 14

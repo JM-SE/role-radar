@@ -5,6 +5,13 @@ from pathlib import Path
 
 import pytest
 
+from role_radar.collectors.outcomes import CollectionMetrics, CollectionSuccess
+from role_radar.collectors.policy import CollectionRunBudget
+from role_radar.collectors.protocols import CollectorRuntime, SourceSnapshot
+from role_radar.domain.dto import RawJob
+from role_radar.evaluation.controlled_acquisition.acquisition import (
+    CollectorTask,
+)
 from role_radar.evaluation.controlled_acquisition.configuration import (
     ConfigurationError,
     ControlledAcquisitionConfig,
@@ -13,6 +20,7 @@ from role_radar.evaluation.controlled_acquisition.configuration import (
 from role_radar.evaluation.controlled_acquisition.contracts import (
     HistoricalIdentity,
     Observation,
+    SourceCheckpoint,
 )
 from role_radar.evaluation.controlled_acquisition.deduplication import (
     build_inventory_index,
@@ -24,7 +32,17 @@ from role_radar.evaluation.controlled_acquisition.journal import (
     JournalEvent,
     validate_transition,
 )
+from role_radar.evaluation.controlled_acquisition.live import (
+    LiveAcquisition,
+    LiveAdapters,
+    acknowledgement_challenge,
+)
+from role_radar.evaluation.controlled_acquisition.protocols import ALLOWED_ORIGINS
 from role_radar.evaluation.controlled_acquisition.recency import eligibility
+from role_radar.evaluation.controlled_acquisition.runtime import (
+    SystemdServiceGuard,
+    verify_deployment_provenance,
+)
 from role_radar.evaluation.controlled_acquisition.selection import (
     blind_order,
     select_clusters,
@@ -40,6 +58,8 @@ from role_radar.evaluation.controlled_acquisition.source_plan import (
 )
 
 AS_OF = datetime(2026, 8, 11, 12, tzinfo=UTC)
+TEST_COMMIT = "f" * 40
+EMPTY_SHA = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 
 
 def observation(
@@ -160,7 +180,16 @@ def test_source_plan_is_canonical_and_rejects_secret_or_wrong_window() -> None:
     plan = SourcePlan(
         "f10.1-plan-v1",
         14,
-        ({"family": "jobicy", "source_id": "source", "revision": 1},),
+        (
+            {
+                "family": "jobicy",
+                "source_id": "source",
+                "source_key": "jobicy:latam",
+                "revision": 1,
+                "configuration_version": 1,
+                "configuration": {"region": "latam", "remote_only": True},
+            },
+        ),
     )
     assert len(plan.sha256) == 64
     assert load_plan(plan.as_dict()).sha256 == plan.sha256
@@ -238,3 +267,272 @@ def test_label_view_has_no_source_or_selection_metadata() -> None:
     assert "application_url" not in payload
     assert "selection_family" not in payload
     assert "selection_reason" not in payload
+    assert "provider_recency_at" not in payload
+    assert "recency_semantic" not in payload
+
+
+def test_live_acknowledgement_is_bound_to_plan_and_window() -> None:
+    challenge = acknowledgement_challenge(
+        plan_sha256="a" * 64,
+        lookback_days=14,
+        selection_as_of_utc=AS_OF,
+    )
+    assert challenge == (
+        "I ACKNOWLEDGE F10.1 LIVE ACQUISITION PLAN "
+        + "a" * 64
+        + " LOOKBACK 14 AS_OF 2026-08-11T12:00:00Z"
+    )
+
+
+def test_journal_detects_indeterminate_request(tmp_path: Path) -> None:
+    journal = Journal(tmp_path / "events.json")
+    journal.record_request_intent(operation_id="op", request_id="req")
+    assert journal.has_pending_request("op")
+    journal.record_request_result(operation_id="op", request_id="req")
+    assert not journal.has_pending_request("op")
+
+
+def test_deployment_provenance_is_exact_and_rejects_dirty_state(tmp_path: Path) -> None:
+    for name, value in (
+        (".deployed-commit", TEST_COMMIT),
+        (".deployed-diff-sha256", EMPTY_SHA),
+        (".deployed-status-sha256", EMPTY_SHA),
+        (".deployed-alembic-head", "e7a4c9f1b2d3"),
+    ):
+        (tmp_path / name).write_text(value + "\n", encoding="ascii")
+    plan = SourcePlan(
+        "f10.1-plan-v1",
+        14,
+        (),
+        profile_sha256="a" * 64,
+        profile_id="profile",
+        profile_version=2,
+        profile_schema_version=1,
+        selection_as_of_utc=AS_OF.isoformat().replace("+00:00", "Z"),
+        source_commit=TEST_COMMIT,
+        source_diff_sha256=EMPTY_SHA,
+        source_status_sha256=EMPTY_SHA,
+        alembic_head="e7a4c9f1b2d3",
+    )
+    # The plan itself must still contain a source for a live run; provenance
+    # verification is exercised directly against its immutable fields.
+    verify_deployment_provenance(plan, app_root=tmp_path)
+    (tmp_path / ".deployed-status-sha256").write_text("dirty\n", encoding="ascii")
+    with pytest.raises(ValueError, match="deployment_provenance_mismatch"):
+        verify_deployment_provenance(plan, app_root=tmp_path)
+
+
+def test_systemd_guard_restores_only_previously_active_services() -> None:
+    calls: list[tuple[str, ...]] = []
+
+    class Result:
+        def __init__(self, returncode: int) -> None:
+            self.returncode = returncode
+
+    def runner(command: tuple[str, ...], **_kwargs: object) -> Result:
+        calls.append(command)
+        if command[1] == "is-active":
+            return Result(0 if command[-1].endswith("worker.service") else 3)
+        return Result(0)
+
+    guard = SystemdServiceGuard(runner=runner)  # type: ignore[arg-type]
+    guard.prepare()
+    guard.restore()
+    assert calls == [
+        ("systemctl", "is-active", "--quiet", "role-radar-worker.service"),
+        ("systemctl", "is-active", "--quiet", "role-radar-scheduler.timer"),
+        ("systemctl", "stop", "role-radar-worker.service"),
+        ("systemctl", "start", "role-radar-worker.service"),
+    ]
+
+
+class FakeSourceState:
+    def __init__(self) -> None:
+        self.checkpoint_value = (
+            SourceCheckpoint(
+                "source", "greenhouse", "greenhouse:board", "Board", 1, 1, {}, False, False
+            ),
+        )
+
+    def checkpoint(self, source_ids: tuple[str, ...]) -> tuple[SourceCheckpoint, ...]:
+        assert source_ids == ("source",)
+        return self.checkpoint_value
+
+    def assert_unchanged(self, checkpoint: tuple[SourceCheckpoint, ...]) -> None:
+        assert checkpoint == self.checkpoint_value
+
+    def assert_all_disabled(self, checkpoint: tuple[SourceCheckpoint, ...]) -> None:
+        assert not any(item.enabled for item in checkpoint)
+
+    def assert_global_disabled(self) -> None:
+        return None
+
+
+class FakeInventory:
+    def capture_before_requests(self) -> None:
+        return None
+
+    def strong_keys(self) -> frozenset[str]:
+        return frozenset()
+
+
+async def fake_collector(
+    _snapshot: SourceSnapshot, _runtime: CollectorRuntime
+) -> CollectionSuccess:
+    jobs = tuple(
+        RawJob(
+            source="greenhouse",
+            external_id=str(index),
+            source_url=f"https://jobs.example.com/{index}",
+            application_url=f"https://apply.example.com/{index}",
+            title=f"Engineer {index}",
+            company=f"Company {index}",
+            location="Remote",
+            description=f"Description {index}",
+            published_at=AS_OF - timedelta(days=1),
+            structured_data={"updated_at": (AS_OF - timedelta(days=1)).isoformat()},
+            collected_at=AS_OF,
+        )
+        for index in range(50)
+    )
+    return CollectionSuccess(
+        "ok",
+        jobs,
+        CollectionMetrics(provider_items=50, accepted_items=50),
+    )
+
+
+@pytest.mark.asyncio
+async def test_live_workflow_with_fake_collectors_publishes_only_private_snapshot(
+    tmp_path: Path,
+) -> None:
+    plan = SourcePlan(
+        "f10.1-plan-v1",
+        14,
+        (
+            {
+                "family": "greenhouse",
+                "source_id": "source",
+                "source_key": "greenhouse:board",
+                "revision": 1,
+                "configuration_version": 1,
+                "configuration": {"board_token": "board"},
+            },
+        ),
+        profile_sha256="b" * 64,
+        profile_id="profile",
+        profile_version=2,
+        profile_schema_version=1,
+        selection_as_of_utc=AS_OF.isoformat().replace("+00:00", "Z"),
+        allowed_origins=ALLOWED_ORIGINS,
+        source_commit=TEST_COMMIT,
+        source_diff_sha256=EMPTY_SHA,
+        source_status_sha256=EMPTY_SHA,
+        alembic_head="e7a4c9f1b2d3",
+    )
+    source_state = FakeSourceState()
+    restored: list[bool] = []
+    task = CollectorTask(
+        SourceSnapshot("source", "greenhouse", "Board", {}, "greenhouse:board", 1),
+        1,
+        fake_collector,
+    )
+    adapters = LiveAdapters(
+        source_state=source_state,
+        inventory=FakeInventory(),
+        tasks=lambda _plan: (task,),
+        runtime=CollectorRuntime(budget=CollectionRunBudget(100)),
+        snapshot_store=SnapshotStore(tmp_path / "snapshots"),
+        journal=Journal(tmp_path / "journal" / "events.json"),
+        prepare_services=lambda: None,
+        restore_services=lambda: restored.append(True),
+    )
+    result = await LiveAcquisition(
+        config=ControlledAcquisitionConfig.from_env(
+            {"ROLE_RADAR_F10_1_LOOKBACK_DAYS": "14"},
+            snapshot_root=str(tmp_path / "snapshots"),
+        ),
+        adapters=adapters,
+    ).run(
+        plan=plan,
+        profile_sha256="b" * 64,
+        acknowledgement=acknowledgement_challenge(
+            plan_sha256=plan.sha256,
+            lookback_days=14,
+            selection_as_of_utc=AS_OF,
+        ),
+        source_ids=("source",),
+        selection_as_of_utc=AS_OF,
+    )
+    assert result.state.value == "completed"
+    assert result.dataset_result is not None
+    assert len(result.dataset_result.selected) == 50
+    assert restored == [True]
+
+
+@pytest.mark.asyncio
+async def test_live_workflow_rejects_bad_ack_without_collecting(tmp_path: Path) -> None:
+    called = False
+
+    async def forbidden_collector(
+        _snapshot: SourceSnapshot, _runtime: CollectorRuntime
+    ) -> CollectionSuccess:
+        nonlocal called
+        called = True
+        raise AssertionError("collector must not run")
+
+    plan = SourcePlan(
+        "f10.1-plan-v1",
+        14,
+        (
+            {
+                "family": "greenhouse",
+                "source_id": "source",
+                "source_key": "greenhouse:board",
+                "revision": 1,
+                "configuration_version": 1,
+                "configuration": {"board_token": "board"},
+            },
+        ),
+        profile_sha256="c" * 64,
+        profile_id="profile",
+        profile_version=2,
+        profile_schema_version=1,
+        selection_as_of_utc=AS_OF.isoformat().replace("+00:00", "Z"),
+        allowed_origins=ALLOWED_ORIGINS,
+        source_commit=TEST_COMMIT,
+        source_diff_sha256=EMPTY_SHA,
+        source_status_sha256=EMPTY_SHA,
+        alembic_head="e7a4c9f1b2d3",
+    )
+    adapters = LiveAdapters(
+        source_state=FakeSourceState(),
+        inventory=FakeInventory(),
+        tasks=lambda _plan: (
+            CollectorTask(
+                SourceSnapshot("source", "greenhouse", "Board", {}, "greenhouse:board", 1),
+                1,
+                forbidden_collector,
+            ),
+        ),
+        runtime=CollectorRuntime(budget=CollectionRunBudget(100)),
+        snapshot_store=SnapshotStore(tmp_path / "snapshots"),
+        journal=Journal(tmp_path / "journal" / "events.json"),
+        prepare_services=lambda: None,
+        restore_services=lambda: None,
+    )
+    result = await LiveAcquisition(
+        config=ControlledAcquisitionConfig.from_env(
+            {"ROLE_RADAR_F10_1_LOOKBACK_DAYS": "14"},
+            snapshot_root=str(tmp_path / "snapshots"),
+        ),
+        adapters=adapters,
+    ).run(
+        plan=plan,
+        profile_sha256="c" * 64,
+        acknowledgement="wrong",
+        source_ids=("source",),
+        selection_as_of_utc=AS_OF,
+    )
+    assert result.error_code == "live_acknowledgement_mismatch"
+    assert not called

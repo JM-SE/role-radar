@@ -60,6 +60,42 @@ class Journal:
             if os.path.exists(temporary):
                 os.unlink(temporary)
 
+    def has_pending_request(self, operation_id: str) -> bool:
+        events = self.read().get("events", [])
+        intents = {
+            event.get("details", {}).get("request_id")
+            for event in events
+            if event.get("kind") == "request_intent"
+            and event.get("details", {}).get("operation_id") == operation_id
+        }
+        results = {
+            event.get("details", {}).get("request_id")
+            for event in events
+            if event.get("kind") == "request_result"
+            and event.get("details", {}).get("operation_id") == operation_id
+        }
+        return bool(intents - results)
+
+    def record_request_intent(self, *, operation_id: str, request_id: str) -> None:
+        self.append(
+            JournalEvent(
+                "request_intent",
+                "collector_request",
+                OperationState.ACQUIRING.value,
+                {"operation_id": operation_id, "request_id": request_id},
+            )
+        )
+
+    def record_request_result(self, *, operation_id: str, request_id: str) -> None:
+        self.append(
+            JournalEvent(
+                "request_result",
+                "collector_completed",
+                OperationState.ACQUIRING.value,
+                {"operation_id": operation_id, "request_id": request_id},
+            )
+        )
+
 
 VALID_TRANSITIONS: dict[str, frozenset[str]] = {
     OperationState.PLANNED: frozenset({OperationState.PLAN_APPROVED, OperationState.ABORTED}),

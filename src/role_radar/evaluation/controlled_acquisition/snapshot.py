@@ -279,6 +279,12 @@ class SnapshotStore:
             return False
         if any(stat.S_IMODE(item.stat().st_mode) != 0o600 for item in children):
             return False
+        if stat.S_IMODE(target.stat().st_mode) != 0o700:
+            return False
+        for name in ("dataset.jsonl", "provenance.jsonl", "label-view.jsonl"):
+            with (target / name).open("rb") as stream:
+                if sum(1 for _ in stream) != 50:
+                    return False
         checksums = (target / "checksums.sha256").read_text(encoding="ascii").splitlines()
         for entry in checksums:
             digest, _, name = entry.partition("  ")
@@ -296,8 +302,6 @@ def label_view_item(item: DatasetItem) -> dict[str, Any]:
         "company": item.company,
         "location": item.location,
         "description": item.description,
-        "provider_recency_at": item.provider_recency_at,
-        "recency_semantic": item.recency_semantic,
     }
 
 

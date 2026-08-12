@@ -21,6 +21,27 @@ class HistoricalInventory:
         return f"source:{source_family}:{source_key}:{external_id}" in self.keys
 
 
+def identities_from_readonly_rows(rows: Iterable[Any]) -> tuple[HistoricalIdentity, ...]:
+    """Convert preloaded ORM rows without retaining ORM/session references."""
+    identities: list[HistoricalIdentity] = []
+    for row in rows:
+        source = getattr(row, "source", None)
+        source_type = getattr(source, "type", "")
+        family = getattr(source_type, "value", source_type)
+        identities.append(
+            HistoricalIdentity(
+                source_family=str(family),
+                source_key=str(getattr(source, "source_key", "")),
+                external_id=getattr(row, "external_id", None),
+                official_url=normalize_identity_url(getattr(row, "source_url", None)),
+                application_url=normalize_identity_url(
+                    getattr(row, "application_url", None)
+                ),
+            )
+        )
+    return tuple(identities)
+
+
 def inventory_from_rows(rows: Iterable[Any]) -> HistoricalInventory:
     """Build an inventory from read-only row-like objects supplied by the caller.
 

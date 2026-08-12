@@ -40,6 +40,9 @@ from role_radar.acquisition.jobicy_terms_evidence import (
 )
 from role_radar.acquisition.readiness import CapabilityMetadata, calculate_readiness
 from role_radar.broker.factory import create_llm_provider
+from role_radar.collectors.policy import CollectionRunBudget
+from role_radar.collectors.protocols import CollectorRuntime
+from role_radar.collectors.registry import CollectorContext
 from role_radar.config import Settings
 from role_radar.db.engine import get_engine
 from role_radar.db.models import Source
@@ -58,8 +61,28 @@ from role_radar.evaluation.controlled_acquisition.configuration import (
     ConfigurationError,
     ControlledAcquisitionConfig,
 )
+from role_radar.evaluation.controlled_acquisition.journal import Journal
+from role_radar.evaluation.controlled_acquisition.live import (
+    LiveAcquisition,
+    LiveAdapters,
+)
+from role_radar.evaluation.controlled_acquisition.runtime import (
+    CollectorTaskFactory,
+    SqlAlchemyHistoricalInventory,
+    SqlAlchemyRuntimeSafety,
+    SqlAlchemySourceState,
+    SystemdServiceGuard,
+    open_readonly_engine,
+    verify_deployment_provenance,
+    verify_jobicy_plan_terms,
+    verify_profile_identity,
+)
 from role_radar.evaluation.controlled_acquisition.snapshot import SnapshotStore
-from role_radar.evaluation.controlled_acquisition.source_plan import PlanError, load_plan
+from role_radar.evaluation.controlled_acquisition.source_plan import (
+    PlanError,
+    load_plan,
+    validate_live_plan,
+)
 from role_radar.mailbox.configuration import EmailSourceConfigV1
 from role_radar.mailbox.imap_provider import GmailImapProvider
 from role_radar.mailbox.linkedin_resolution.dns import (
@@ -95,7 +118,6 @@ from role_radar.services.source_service import (
     SourceServiceError,
 )
 from role_radar.sources.public import project_public_configuration
-from role_radar.worker.main import run_worker
 
 DISCOVERY_QUERY = "greenhouse job board software engineer"
 
@@ -457,6 +479,7 @@ def _parser() -> argparse.ArgumentParser:
     verify.add_argument("--dataset-id", required=True)
     f10_1_commands.add_parser("abort")
     acquire = f10_1_commands.add_parser("acquire")
+    acquire.add_argument("--file", required=True)
     acquire.add_argument("--plan-sha256", required=True)
     acquire.add_argument("--acknowledgement", required=True)
     return parser
@@ -508,8 +531,86 @@ def _run_evaluation(args: argparse.Namespace) -> int:
         print(json.dumps({"result": "offline_abort_requires_operator_recovery"}))
         return 3
     if command == "acquire":
-        print(json.dumps({"result": "blocked", "code": "gate_b_requires_user_authorization"}))
-        return 3
+        try:
+            config = ControlledAcquisitionConfig.from_env()
+            config.require_approved_run()
+            plan_payload = json.loads(Path(args.file).read_text(encoding="utf-8"))
+            plan = load_plan(plan_payload)
+            if plan.sha256 != args.plan_sha256:
+                raise PlanError("plan_hash_mismatch")
+            selection_as_of = validate_live_plan(plan)
+            verify_jobicy_plan_terms(plan)
+            settings = Settings()
+            verify_deployment_provenance(plan)
+            engine = open_readonly_engine(settings.database_url)
+            session = get_session_factory(engine)()
+            guard = SystemdServiceGuard()
+            inventory = SqlAlchemyHistoricalInventory(session)
+            source_state = SqlAlchemySourceState(session)
+            task_factory = CollectorTaskFactory(session, context=CollectorContext())
+            guard.prepare()
+            try:
+                verify_profile_identity(
+                    session,
+                    profile_id=plan.profile_id or "",
+                    profile_version=plan.profile_version or 0,
+                    profile_schema_version=plan.profile_schema_version or 0,
+                    profile_sha256=plan.profile_sha256 or "",
+                )
+                run_result = asyncio.run(
+                    LiveAcquisition(
+                        config=config,
+                        adapters=LiveAdapters(
+                            source_state=source_state,
+                            inventory=inventory,
+                            tasks=task_factory.build,
+                            runtime=CollectorRuntime(
+                                budget=CollectionRunBudget(config.max_wire_attempts),
+                            ),
+                            snapshot_store=SnapshotStore(Path(config.snapshot_root)),
+                            journal=Journal(
+                                Path(config.snapshot_root) / "operation-journal.json"
+                            ),
+                            prepare_services=lambda: None,
+                            restore_services=lambda: None,
+                            assert_runtime_safe=lambda: SqlAlchemyRuntimeSafety(
+                                session
+                            ).assert_no_active_normal_runs(),
+                            assert_profile=lambda approved_plan: verify_profile_identity(
+                                session,
+                                profile_id=approved_plan.profile_id or "",
+                                profile_version=approved_plan.profile_version or 0,
+                                profile_schema_version=approved_plan.profile_schema_version or 0,
+                                profile_sha256=approved_plan.profile_sha256 or "",
+                            ),
+                            assert_deployment=lambda approved_plan: verify_deployment_provenance(
+                                approved_plan
+                            ),
+                        ),
+                    ).run(
+                        plan=plan,
+                        profile_sha256=plan.profile_sha256 or "",
+                        acknowledgement=args.acknowledgement,
+                        source_ids=tuple(
+                            str(item["source_id"]) for item in plan.source_configs
+                        ),
+                        selection_as_of_utc=selection_as_of,
+                    )
+                )
+                print(json.dumps({"result": run_result.state.value}, sort_keys=True))
+                return 0 if run_result.state.value == "completed" else 3
+            finally:
+                guard.restore()
+                session.close()
+                engine.dispose()
+        except (OSError, json.JSONDecodeError, ConfigurationError, PlanError, ValueError) as exc:
+            print(
+                json.dumps(
+                    {"result": "blocked", "code": getattr(exc, "code", "gate_b_blocked")},
+                    sort_keys=True,
+                )
+            )
+            return 3
     return 2
 
 
@@ -1347,6 +1448,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "run":
             return _run_control(settings, args)
         if args.command == "worker":
+            from role_radar.worker.main import run_worker
+
             run_worker(settings)
             return 0
         if args.command == "discovery":
