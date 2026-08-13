@@ -57,22 +57,39 @@ from role_radar.discovery.null_provider import NullSearchProvider
 from role_radar.discovery.protocols import SearchProvider
 from role_radar.discovery.url_classifier import classify_url
 from role_radar.domain.enums import DiscoveryMode, SourceType
+from role_radar.evaluation.controlled_acquisition.acquisition import (
+    EphemeralCollectorTaskFactory,
+)
 from role_radar.evaluation.controlled_acquisition.configuration import (
     ConfigurationError,
     ControlledAcquisitionConfig,
+)
+from role_radar.evaluation.controlled_acquisition.discovery import (
+    DiscoveryOrchestrator,
+    DiscoveryReport,
+    LazyDiscoverySearchProvider,
+    OfficialBoardVerifier,
+    require_discovery_confirmation,
+    write_discovery_artifacts,
 )
 from role_radar.evaluation.controlled_acquisition.journal import Journal
 from role_radar.evaluation.controlled_acquisition.live import (
     LiveAcquisition,
     LiveAdapters,
 )
+from role_radar.evaluation.controlled_acquisition.protocols import (
+    BASELINE_PROFILE_ID,
+    BASELINE_PROFILE_SCHEMA_VERSION,
+    BASELINE_PROFILE_SHA256,
+    BASELINE_PROFILE_VERSION,
+)
 from role_radar.evaluation.controlled_acquisition.runtime import (
-    CollectorTaskFactory,
     SqlAlchemyHistoricalInventory,
     SqlAlchemyRuntimeSafety,
-    SqlAlchemySourceState,
     SystemdServiceGuard,
+    active_profile_identity,
     open_readonly_engine,
+    read_deployment_identity,
     verify_deployment_provenance,
     verify_jobicy_plan_terms,
     verify_profile_identity,
@@ -80,8 +97,9 @@ from role_radar.evaluation.controlled_acquisition.runtime import (
 from role_radar.evaluation.controlled_acquisition.snapshot import SnapshotStore
 from role_radar.evaluation.controlled_acquisition.source_plan import (
     PlanError,
+    SourcePlan,
     load_plan,
-    validate_live_plan,
+    validate_live_plan_v2,
 )
 from role_radar.mailbox.configuration import EmailSourceConfigV1
 from role_radar.mailbox.imap_provider import GmailImapProvider
@@ -472,6 +490,8 @@ def _parser() -> argparse.ArgumentParser:
     f10_1 = evaluation_commands.add_parser("f10-1")
     f10_1_commands = f10_1.add_subparsers(dest="f10_1_command", required=True)
     f10_1_commands.add_parser("preflight")
+    discover = f10_1_commands.add_parser("discover")
+    discover.add_argument("--confirmation", required=True)
     plan = f10_1_commands.add_parser("plan")
     plan.add_argument("--file", required=True)
     f10_1_commands.add_parser("status")
@@ -509,6 +529,97 @@ def _run_evaluation(args: argparse.Namespace) -> int:
         except ConfigurationError as exc:
             print(json.dumps({"result": "blocked", "code": exc.code}, sort_keys=True))
             return 2
+    if command == "discover":
+        try:
+            require_discovery_confirmation(args.confirmation)
+            config = ControlledAcquisitionConfig.from_env()
+            config.require_approved_run()
+            settings = Settings()
+            engine = open_readonly_engine(settings.database_url)
+            session = get_session_factory(engine)()
+            guard = SystemdServiceGuard()
+            guard.assert_inactive()
+            SqlAlchemyRuntimeSafety(session).assert_no_active_normal_runs()
+            inventory = SqlAlchemyHistoricalInventory(session)
+            inventory.capture_before_requests()
+            profile_id, profile_version, profile_schema, profile_sha = active_profile_identity(
+                session
+            )
+            if (
+                profile_id != BASELINE_PROFILE_ID
+                or profile_version != BASELINE_PROFILE_VERSION
+                or profile_schema != BASELINE_PROFILE_SCHEMA_VERSION
+                or profile_sha != BASELINE_PROFILE_SHA256
+            ):
+                raise ValueError("profile_baseline_mismatch")
+            markers = read_deployment_identity()
+            if (
+                markers[".deployed-diff-sha256"]
+                != "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                or markers[".deployed-status-sha256"]
+                != "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                or markers[".deployed-alembic-head"] != "e7a4c9f1b2d3"
+            ):
+                raise ValueError("deployment_provenance_invalid")
+            acquisition = load_acquisition_config(
+                policy=ProductionAcquisitionFilePolicy()
+            )
+            if acquisition.discovery is None:
+                raise ValueError("query_hmac_config_missing")
+            resolver = CredentialResolver()
+            query_hmac = resolver.resolve(
+                acquisition.discovery.query_hmac_handle, text=False
+            ).get_secret_value()
+            brave_runtime = build_search_runtime("brave", acquisition, resolver)
+            tavily_runtime = LazyDiscoverySearchProvider(
+                lambda: build_search_runtime("tavily", acquisition, resolver).provider,
+                provider="tavily",
+            )
+            as_of = datetime.now(UTC).replace(microsecond=0)
+            discovery_journal = Journal(Path(config.snapshot_root) / "discovery-journal.json")
+            try:
+                async def run_discovery() -> tuple[DiscoveryReport, SourcePlan]:
+                    async with brave_runtime.provider as brave:
+                        try:
+                            return await DiscoveryOrchestrator(
+                                query_hmac=query_hmac,
+                                verifier=OfficialBoardVerifier(journal=discovery_journal),
+                                journal=discovery_journal,
+                            ).run(
+                                brave=brave,
+                                tavily=tavily_runtime,
+                                selection_as_of_utc=as_of,
+                                profile_sha256=profile_sha,
+                                profile_id=profile_id,
+                                profile_version=profile_version,
+                                profile_schema_version=profile_schema,
+                                source_commit=markers[".deployed-commit"],
+                                source_diff_sha256=markers[".deployed-diff-sha256"],
+                                source_status_sha256=markers[".deployed-status-sha256"],
+                                alembic_head=markers[".deployed-alembic-head"],
+                            )
+                        finally:
+                            await tavily_runtime.aclose()
+
+                report, plan = asyncio.run(run_discovery())
+                write_discovery_artifacts(config.snapshot_root, report, plan)
+                print(
+                    json.dumps(
+                        report.sanitized_dict() | {"plan_sha256": plan.sha256}, sort_keys=True
+                    )
+                )
+                return 0
+            finally:
+                session.close()
+                engine.dispose()
+        except (OSError, ConfigurationError, ValueError, JobicyEvidenceError) as exc:
+            print(
+                json.dumps(
+                    {"result": "blocked", "code": getattr(exc, "code", "discovery_failed")},
+                    sort_keys=True,
+                )
+            )
+            return 3
     if command == "plan":
         try:
             payload = json.loads(Path(args.file).read_text(encoding="utf-8"))
@@ -538,7 +649,7 @@ def _run_evaluation(args: argparse.Namespace) -> int:
             plan = load_plan(plan_payload)
             if plan.sha256 != args.plan_sha256:
                 raise PlanError("plan_hash_mismatch")
-            selection_as_of = validate_live_plan(plan)
+            selection_as_of = validate_live_plan_v2(plan)
             verify_jobicy_plan_terms(plan)
             settings = Settings()
             verify_deployment_provenance(plan)
@@ -546,9 +657,8 @@ def _run_evaluation(args: argparse.Namespace) -> int:
             session = get_session_factory(engine)()
             guard = SystemdServiceGuard()
             inventory = SqlAlchemyHistoricalInventory(session)
-            source_state = SqlAlchemySourceState(session)
-            task_factory = CollectorTaskFactory(session, context=CollectorContext())
-            guard.prepare()
+            task_factory = EphemeralCollectorTaskFactory(context=CollectorContext())
+            guard.assert_inactive()
             try:
                 verify_profile_identity(
                     session,
@@ -561,7 +671,7 @@ def _run_evaluation(args: argparse.Namespace) -> int:
                     LiveAcquisition(
                         config=config,
                         adapters=LiveAdapters(
-                            source_state=source_state,
+                            source_state=None,
                             inventory=inventory,
                             tasks=task_factory.build,
                             runtime=CollectorRuntime(
@@ -591,9 +701,7 @@ def _run_evaluation(args: argparse.Namespace) -> int:
                         plan=plan,
                         profile_sha256=plan.profile_sha256 or "",
                         acknowledgement=args.acknowledgement,
-                        source_ids=tuple(
-                            str(item["source_id"]) for item in plan.source_configs
-                        ),
+                        source_ids=(),
                         selection_as_of_utc=selection_as_of,
                     )
                 )

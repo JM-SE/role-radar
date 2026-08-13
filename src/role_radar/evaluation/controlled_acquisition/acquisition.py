@@ -11,11 +11,20 @@ import httpx
 
 from role_radar.collectors.outcomes import CollectionFailure, CollectionOutcome, CollectionSuccess
 from role_radar.collectors.protocols import CollectorRuntime, SourceSnapshot
+from role_radar.collectors.registry import (
+    CollectorContext,
+    create_collector,
+    validate_snapshot,
+)
 from role_radar.domain.dto import RawJob
 from role_radar.evaluation.controlled_acquisition.contracts import Observation
+from role_radar.evaluation.controlled_acquisition.protocols import PLAN_VERSION_V2
 from role_radar.evaluation.controlled_acquisition.recency import (
     parse_timestamp,
     provider_recency,
+)
+from role_radar.evaluation.controlled_acquisition.source_plan import (
+    SourcePlan,
 )
 from role_radar.normalization.text import html_to_text
 
@@ -84,6 +93,49 @@ class CollectorTask:
     snapshot: SourceSnapshot
     source_revision: int
     collector: CollectorAdapter
+
+
+@dataclass(frozen=True, slots=True)
+class EphemeralCollectorTaskFactory:
+    """Build collectors from verified plan-v2 configs without ORM source rows."""
+
+    context: CollectorContext
+
+    def build(self, plan: SourcePlan) -> tuple[CollectorTask, ...]:
+        if plan.plan_version != PLAN_VERSION_V2:
+            raise ValueError("plan_version_unsupported")
+        tasks: list[CollectorTask] = []
+        for item in plan.source_configs:
+            family = str(item["family"])
+            source_key = str(item["source_key"])
+            source_id = f"ephemeral:{hashlib.sha256(source_key.encode()).hexdigest()[:32]}"
+            snapshot = validate_snapshot(
+                SourceSnapshot(
+                    source_id=source_id,
+                    source_type=family,
+                    name=source_key,
+                    configuration=dict(item["configuration"]),
+                    source_key=source_key,
+                    configuration_version=int(item["configuration_version"]),
+                )
+            )
+            tasks.append(
+                CollectorTask(
+                    snapshot=snapshot,
+                    source_revision=0,
+                    collector=lambda current, runtime, context=self.context: _collect_direct(
+                        current, runtime, context
+                    ),
+                )
+            )
+        return tuple(tasks)
+
+
+async def _collect_direct(
+    snapshot: SourceSnapshot, runtime: CollectorRuntime, context: CollectorContext
+) -> CollectionOutcome:
+    collector = create_collector(snapshot, context)
+    return await collector.collect(snapshot, runtime)
 
 
 def observation_from_raw(

@@ -69,9 +69,20 @@ def _matching(
 def select_clusters(
     clusters: Iterable[CandidateCluster], *, seed: str, targets: dict[str, int] | None = None
 ) -> DatasetResult:
+    """Select the required total with soft family preferences.
+
+    Matching first fills as many preferred family slots as possible.  Any
+    remaining records are selected from the same deterministic order and are
+    assigned to the family with the largest remaining deficit.  Therefore a
+    family target is never a hard eligibility gate, while the resulting
+    deficit/fallback accounting remains meaningful for multi-source clusters.
+    """
     requested = dict(targets or TARGETS)
+    if any(count < 0 for count in requested.values()):
+        raise ValueError("selection targets must be non-negative")
     ordered = tuple(sorted(clusters, key=lambda item: _order(seed, item)))
-    if len(ordered) < sum(requested.values()):
+    required_count = sum(requested.values())
+    if len(ordered) < required_count:
         return DatasetResult(
             status="failed_insufficient",
             selected=(),
@@ -89,12 +100,19 @@ def select_clusters(
     ]
     selected_ids = {item.cluster.cluster_id for item in chosen}
     remaining = [cluster for cluster in ordered if cluster.cluster_id not in selected_ids]
-    for cluster in remaining:
-        if len(chosen) >= sum(requested.values()):
-            break
-        family = sorted(cluster.families)[0]
-        chosen.append(SelectedCandidate(cluster, family, "fallback"))
     actual = Counter(item.selection_family for item in chosen)
+    for cluster in remaining:
+        if len(chosen) >= required_count:
+            break
+        family = min(
+            cluster.families,
+            key=lambda candidate_family: (
+                -(requested.get(candidate_family, 0) - actual.get(candidate_family, 0)),
+                candidate_family,
+            ),
+        )
+        chosen.append(SelectedCandidate(cluster, family, "fallback"))
+        actual[family] += 1
     deficits = {family: max(0, requested[family] - actual.get(family, 0)) for family in requested}
     if len(chosen) < sum(requested.values()):
         return DatasetResult(

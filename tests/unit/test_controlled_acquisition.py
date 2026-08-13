@@ -176,6 +176,30 @@ def test_selection_is_permutation_stable_and_fails_below_fifty() -> None:
     assert blind_order("seed", ["a", "b"]) == blind_order("seed", ["b", "a"])
 
 
+def test_selection_uses_soft_family_targets_and_deterministic_fallback() -> None:
+    observations = tuple(
+        observation(index, "greenhouse" if index < 50 else "jobicy")
+        for index in range(50)
+    )
+    clusters = cluster_observations(observations).clusters
+    result = select_clusters(
+        clusters,
+        seed="soft-seed",
+        targets={"jobicy": 20, "greenhouse": 15, "lever": 15},
+    )
+    assert result.status == "selected"
+    assert len(result.selected) == 50
+    assert result.actual_counts["greenhouse"] == 50
+    assert result.deficit_counts == {"jobicy": 20, "greenhouse": 0, "lever": 15}
+    assert result.fallback_count == 35
+
+
+def test_selection_rejects_negative_targets() -> None:
+    clusters = cluster_observations((observation(1),)).clusters
+    with pytest.raises(ValueError, match="non-negative"):
+        select_clusters(clusters, seed="seed", targets={"jobicy": -1})
+
+
 def test_source_plan_is_canonical_and_rejects_secret_or_wrong_window() -> None:
     plan = SourcePlan(
         "f10.1-plan-v1",

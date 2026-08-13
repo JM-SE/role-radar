@@ -235,6 +235,24 @@ def verify_profile_identity(
         raise ValueError("profile_identity_mismatch")
 
 
+def active_profile_identity(session: Session) -> tuple[str, int, int, str]:
+    """Return only the active profile identity; never expose profile payload."""
+    from role_radar.db.models import CandidateProfile
+
+    rows = list(
+        session.scalars(select(CandidateProfile).where(CandidateProfile.is_active.is_(True)))
+    )
+    if len(rows) != 1:
+        raise ValueError("active_profile_count_invalid")
+    profile = rows[0]
+    return (
+        profile.id,
+        profile.version,
+        profile.schema_version,
+        canonical_profile_sha256(profile.profile_json),
+    )
+
+
 def verify_jobicy_plan_terms(plan: SourcePlan) -> None:
     if not any(item.get("family") == "jobicy" for item in plan.source_configs):
         return
@@ -278,6 +296,26 @@ def verify_deployment_provenance(
             raise ValueError("deployment_provenance_mismatch")
     if plan.source_diff_sha256 != expected_empty or plan.source_status_sha256 != expected_empty:
         raise ValueError("deployment_dirty")
+
+
+def read_deployment_identity(*, app_root: Path = Path("/opt/role-radar")) -> dict[str, str]:
+    """Read clean deployment markers without accepting symlinks or extra lines."""
+    names = (
+        ".deployed-commit",
+        ".deployed-diff-sha256",
+        ".deployed-status-sha256",
+        ".deployed-alembic-head",
+    )
+    result: dict[str, str] = {}
+    for name in names:
+        path = app_root / name
+        if path.is_symlink() or not path.is_file():
+            raise ValueError("deployment_provenance_missing")
+        lines = path.read_text(encoding="ascii").splitlines()
+        if len(lines) != 1:
+            raise ValueError("deployment_provenance_invalid")
+        result[name] = lines[0]
+    return result
 
 
 def open_readonly_engine(database_url: str) -> Engine:
@@ -325,6 +363,12 @@ class SystemdServiceGuard:
         except Exception:
             self._restore(states)
             raise
+
+    def assert_inactive(self) -> None:
+        """Fail closed without changing services before a live discovery run."""
+        for service in self.services:
+            if self._is_active(service):
+                raise ValueError("normal_service_active")
 
     def restore(self) -> None:
         self._restore(getattr(self, "_states", ()))

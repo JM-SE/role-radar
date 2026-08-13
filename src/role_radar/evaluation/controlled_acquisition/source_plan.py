@@ -6,15 +6,26 @@ import hashlib
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from role_radar.domain.enums import SourceType
 from role_radar.evaluation.controlled_acquisition.protocols import (
     ALLOWED_FAMILIES,
     ALLOWED_ORIGINS,
+    BASELINE_PROFILE_ID,
+    BASELINE_PROFILE_SCHEMA_VERSION,
+    BASELINE_PROFILE_SHA256,
+    BASELINE_PROFILE_VERSION,
+    DISCOVERY_QUERY_TEMPLATE_VERSION,
+    DISCOVERY_VERIFICATION_VERSION,
     MAX_WIRE_ATTEMPTS,
     PLAN_VERSION,
+    PLAN_VERSION_V2,
+    PROTOCOL_VERSION,
 )
+from role_radar.sources.configuration import validate_configuration
+from role_radar.sources.identity import canonical_source_key
 
 
 class PlanError(ValueError):
@@ -57,9 +68,14 @@ class SourcePlan:
     source_diff_sha256: str | None = None
     source_status_sha256: str | None = None
     alembic_head: str | None = None
+    protocol_version: str | None = None
+    query_planner_version: str | None = None
+    verification_policy_version: str | None = None
+    discovery_report_sha256: str | None = None
+    cutoff_utc: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        value = {
             "plan_version": self.plan_version,
             "lookback_days": self.lookback_days,
             "source_configs": [dict(item) for item in self.source_configs],
@@ -81,6 +97,17 @@ class SourcePlan:
             "source_status_sha256": self.source_status_sha256,
             "alembic_head": self.alembic_head,
         }
+        if self.plan_version == PLAN_VERSION_V2:
+            value.update(
+                {
+                    "protocol_version": self.protocol_version,
+                    "query_planner_version": self.query_planner_version,
+                    "verification_policy_version": self.verification_policy_version,
+                    "discovery_report_sha256": self.discovery_report_sha256,
+                    "cutoff_utc": self.cutoff_utc,
+                }
+            )
+        return value
 
     @property
     def sha256(self) -> str:
@@ -121,22 +148,32 @@ _SOURCE_KEYS = frozenset(
         "configuration",
     }
 )
+_V2_PLAN_KEYS = _PLAN_KEYS | frozenset(
+    {
+        "protocol_version",
+        "query_planner_version",
+        "verification_policy_version",
+        "discovery_report_sha256",
+        "cutoff_utc",
+    }
+)
+_V2_SOURCE_KEYS = frozenset(
+    {"family", "source_key", "configuration_version", "configuration", "verification"}
+)
+_VERIFICATION_KEYS = frozenset({"policy_version", "eligible_count"})
 
 
 def load_plan(value: Mapping[str, Any]) -> SourcePlan:
-    if set(value) != _PLAN_KEYS:
+    keys = set(value)
+    if keys not in {_PLAN_KEYS, _V2_PLAN_KEYS}:
         raise PlanError("plan_fields_invalid")
+    is_v2 = keys == _V2_PLAN_KEYS
     source_configs = value.get("source_configs")
     if not isinstance(source_configs, (list, tuple)):
         raise PlanError("source_configs_invalid")
+    expected_source_keys = _V2_SOURCE_KEYS if is_v2 else _SOURCE_KEYS
     if any(
-        not isinstance(item, Mapping)
-        or any(
-            key not in _SOURCE_KEYS
-            for key in item
-            if key.lower().replace("-", "_").endswith(("token", "secret", "password"))
-        )
-        or set(item) != _SOURCE_KEYS
+        not isinstance(item, Mapping) or set(item) != expected_source_keys
         for item in source_configs
     ):
         if any(
@@ -170,13 +207,18 @@ def load_plan(value: Mapping[str, Any]) -> SourcePlan:
         source_diff_sha256=value.get("source_diff_sha256"),
         source_status_sha256=value.get("source_status_sha256"),
         alembic_head=value.get("alembic_head"),
+        protocol_version=value.get("protocol_version"),
+        query_planner_version=value.get("query_planner_version"),
+        verification_policy_version=value.get("verification_policy_version"),
+        discovery_report_sha256=value.get("discovery_report_sha256"),
+        cutoff_utc=value.get("cutoff_utc"),
     )
     validate_plan(plan)
     return plan
 
 
 def validate_plan(plan: SourcePlan) -> None:
-    if plan.plan_version != PLAN_VERSION:
+    if plan.plan_version not in {PLAN_VERSION, PLAN_VERSION_V2}:
         raise PlanError("plan_version_invalid")
     if plan.lookback_days != 14:
         raise PlanError("lookback_must_be_14")
@@ -194,7 +236,7 @@ def validate_plan(plan: SourcePlan) -> None:
         family_counts[family] = family_counts.get(family, 0) + 1
         if family_counts[family] > 10:
             raise PlanError("source_family_config_limit")
-        if (
+        if plan.plan_version == PLAN_VERSION and (
             not isinstance(source.get("source_id"), str)
             or not source["source_id"]
             or not isinstance(source.get("revision"), int)
@@ -221,11 +263,46 @@ def validate_plan(plan: SourcePlan) -> None:
             for key in source
         ):
             raise PlanError("source_plan_secret_field")
+        if plan.plan_version == PLAN_VERSION_V2:
+            if (
+                not isinstance(source.get("source_key"), str)
+                or not source["source_key"]
+                or source["source_key"] == "greenhouse:example"
+                or source.get("configuration_version") != 1
+                or not isinstance(source.get("configuration"), Mapping)
+                or not isinstance(source.get("verification"), Mapping)
+                or set(source["verification"]) != _VERIFICATION_KEYS
+            ):
+                raise PlanError("ephemeral_source_invalid")
+            verification = source["verification"]
+            if (
+                verification.get("policy_version") != DISCOVERY_VERIFICATION_VERSION
+                or not isinstance(verification.get("eligible_count"), int)
+                or verification["eligible_count"] < 1
+            ):
+                raise PlanError("verification_count_invalid")
+            try:
+                source_type = SourceType(family)
+                config = validate_configuration(
+                    source_type,
+                    int(source["configuration_version"]),
+                    dict(source["configuration"]),
+                )
+                if canonical_source_key(source_type, config.model_dump()) != source["source_key"]:
+                    raise PlanError("source_key_invalid")
+            except (PlanError, ValueError) as exc:
+                if isinstance(exc, PlanError):
+                    raise
+                raise PlanError("source_configuration_invalid") from exc
     if any(
-        not isinstance(value, str) or len(value) != 64
+        not isinstance(value, str)
+        or len(value) != 64
+        or any(char not in "0123456789abcdef" for char in value)
         for value in plan.query_template_hashes
     ):
         raise PlanError("query_template_hash_invalid")
+    if plan.plan_version == PLAN_VERSION_V2 and len(plan.query_template_hashes) != 4:
+        raise PlanError("query_template_count_invalid")
 
 
 def validate_live_plan(plan: SourcePlan) -> datetime:
@@ -281,10 +358,53 @@ def validate_live_plan(plan: SourcePlan) -> datetime:
     if set(plan.allowed_origins) != set(ALLOWED_ORIGINS):
         raise PlanError("origins_incomplete")
     for source in plan.source_configs:
-        if not isinstance(source.get("source_key"), str) or not source["source_key"]:
-            raise PlanError("source_key_required")
-        if source.get("configuration_version") != 1:
-            raise PlanError("configuration_version_required")
-        if not isinstance(source.get("configuration"), Mapping):
-            raise PlanError("source_configuration_required")
+        if plan.plan_version == PLAN_VERSION:
+            if not isinstance(source.get("source_key"), str) or not source["source_key"]:
+                raise PlanError("source_key_required")
+            if source.get("configuration_version") != 1:
+                raise PlanError("configuration_version_required")
+            if not isinstance(source.get("configuration"), Mapping):
+                raise PlanError("source_configuration_required")
+        else:
+            if not isinstance(source.get("source_key"), str) or not source["source_key"]:
+                raise PlanError("source_key_required")
+            if source.get("configuration_version") != 1:
+                raise PlanError("configuration_version_required")
+            if not isinstance(source.get("configuration"), Mapping):
+                raise PlanError("source_configuration_required")
     return as_of.astimezone(UTC)
+
+
+def validate_live_plan_v2(plan: SourcePlan) -> datetime:
+    """Validate the amended discovery-first plan; v1 is never live-compatible."""
+    if plan.plan_version != PLAN_VERSION_V2:
+        raise PlanError("plan_version_unsupported")
+    as_of = validate_live_plan(plan)
+    if (
+        plan.profile_id != BASELINE_PROFILE_ID
+        or plan.profile_version != BASELINE_PROFILE_VERSION
+        or plan.profile_schema_version != BASELINE_PROFILE_SCHEMA_VERSION
+        or plan.profile_sha256 != BASELINE_PROFILE_SHA256
+    ):
+        raise PlanError("profile_baseline_mismatch")
+    if (
+        plan.protocol_version != PROTOCOL_VERSION
+        or plan.query_planner_version != DISCOVERY_QUERY_TEMPLATE_VERSION
+        or plan.verification_policy_version != DISCOVERY_VERIFICATION_VERSION
+        or plan.cutoff_utc is None
+        or plan.discovery_report_sha256 is None
+    ):
+        raise PlanError("plan_protocol_identity_required")
+    if any(len(value) != 64 or any(char not in "0123456789abcdef" for char in value)
+           for value in (plan.discovery_report_sha256,)):
+        raise PlanError("discovery_report_hash_invalid")
+    if plan.selection_as_of_utc is None or plan.cutoff_utc is None:
+        raise PlanError("window_required")
+    expected_cutoff = as_of.replace(microsecond=0) - timedelta(days=plan.lookback_days)
+    try:
+        actual_cutoff = datetime.fromisoformat(plan.cutoff_utc.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise PlanError("cutoff_invalid") from exc
+    if actual_cutoff.astimezone(UTC) != expected_cutoff:
+        raise PlanError("cutoff_mismatch")
+    return as_of

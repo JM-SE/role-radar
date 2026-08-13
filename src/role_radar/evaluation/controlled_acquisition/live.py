@@ -34,6 +34,7 @@ from role_radar.evaluation.controlled_acquisition.journal import (
     JournalEvent,
     validate_transition,
 )
+from role_radar.evaluation.controlled_acquisition.protocols import PLAN_VERSION_V2
 from role_radar.evaluation.controlled_acquisition.snapshot import (
     SnapshotStore,
     materialize_selection,
@@ -42,6 +43,7 @@ from role_radar.evaluation.controlled_acquisition.snapshot import (
 from role_radar.evaluation.controlled_acquisition.source_plan import (
     SourcePlan,
     validate_live_plan,
+    validate_live_plan_v2,
 )
 from role_radar.evaluation.controlled_acquisition.workflow import seal_and_select
 
@@ -98,7 +100,7 @@ def require_acknowledgement(
 
 @dataclass(frozen=True, slots=True)
 class LiveAdapters:
-    source_state: SourceStateAdapter
+    source_state: SourceStateAdapter | None
     inventory: HistoricalInventoryAdapter
     tasks: Callable[[SourcePlan], Iterable[CollectorTask]]
     runtime: CollectorRuntime
@@ -135,7 +137,11 @@ class LiveAcquisition:
         services_prepared = False
         try:
             self.config.require_approved_run()
-            approved_as_of = validate_live_plan(plan)
+            approved_as_of = (
+                validate_live_plan_v2(plan)
+                if plan.plan_version == PLAN_VERSION_V2
+                else validate_live_plan(plan)
+            )
             if approved_as_of != selection_as_of_utc.astimezone(UTC):
                 raise ValueError("selection_as_of_mismatch")
             if profile_sha256 != plan.profile_sha256:
@@ -156,11 +162,12 @@ class LiveAcquisition:
             services_prepared = True
             if self.adapters.assert_runtime_safe is not None:
                 self.adapters.assert_runtime_safe()
-            checkpoint = self.adapters.source_state.checkpoint(source_ids)
-            self.adapters.source_state.assert_all_disabled(checkpoint)
-            self.adapters.source_state.assert_global_disabled()
-            if any(item.enabled for item in checkpoint):
-                raise ValueError("source_must_be_disabled")
+            if self.adapters.source_state is not None:
+                checkpoint = self.adapters.source_state.checkpoint(source_ids)
+                self.adapters.source_state.assert_all_disabled(checkpoint)
+                self.adapters.source_state.assert_global_disabled()
+                if any(item.enabled for item in checkpoint):
+                    raise ValueError("source_must_be_disabled")
             self._transition(state, OperationState.PLAN_APPROVED, operation_id)
             state = OperationState.PLAN_APPROVED
             self._transition(state, OperationState.ACQUIRING, operation_id)
@@ -243,7 +250,7 @@ class LiveAcquisition:
         finally:
             if services_prepared:
                 try:
-                    if checkpoint:
+                    if checkpoint and self.adapters.source_state is not None:
                         self.adapters.source_state.assert_unchanged(checkpoint)
                 finally:
                     self.adapters.restore_services()
