@@ -147,6 +147,8 @@ def observation_from_raw(
     configuration_version: int,
 ) -> Observation:
     family = raw.source.lower()
+    if raw.external_id is None:
+        raise ValueError("external_id is required for controlled observations")
     recency, semantic = provider_recency(family, raw.structured_data, raw.published_at)
     return Observation(
         source_family=family,

@@ -21,7 +21,7 @@ def _alembic(database: Path, *arguments: str) -> None:
 
 def test_fresh_and_f7_upgrade_downgrade_smoke(tmp_path: Path) -> None:
     fresh = tmp_path / "fresh.db"
-    _alembic(fresh, "upgrade", "head")
+    _alembic(fresh, "upgrade", "e7a4c9f1b2d3")
     with sqlite3.connect(fresh) as connection:
         assert connection.execute("PRAGMA user_version").fetchone() == (0,)
         assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
@@ -38,7 +38,7 @@ def test_fresh_and_f7_upgrade_downgrade_smoke(tmp_path: Path) -> None:
             ('{"board_token":" Acme "}',),
         )
         connection.commit()
-    _alembic(upgraded, "upgrade", "head")
+    _alembic(upgraded, "upgrade", "e7a4c9f1b2d3")
     with sqlite3.connect(upgraded) as connection:
         assert connection.execute(
             "SELECT source_key, configuration_version, enabled FROM sources"

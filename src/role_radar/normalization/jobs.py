@@ -13,6 +13,8 @@ from role_radar.normalization.urls import clean_url
 
 def normalize_raw_job(raw: RawJob) -> NormalizedJob:
     """Aplica las transformaciones de URL, texto y hash a una oferta raw."""
+    if raw.external_id is None:
+        raise ValueError("external_id is required for normalized jobs")
     description = None if raw.description is None else html_to_text(raw.description)
     description = description or None
     location, normalized_location = normalize_location(raw.location)

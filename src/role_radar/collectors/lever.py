@@ -356,6 +356,8 @@ class LeverCollector:
                     max_depth=LEVER_POLICY.json_max_depth,
                 )
                 external_id = raw.external_id
+                if external_id is None:
+                    raise ValueError("missing external id")
                 if external_id in seen:
                     if seen[external_id] == canonical_json_bytes(
                         raw.model_dump(mode="json", exclude={"collected_at"})

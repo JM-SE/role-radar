@@ -1,0 +1,16 @@
+[Unit]
+Description=RoleRadar continuous source discovery (disabled by default)
+# Disabled by default: install/enable explicitly after configuring credentials.
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/env role-radar continuous-discovery run
+LoadCredential=query-hmac:/etc/role-radar/credentials/query-hmac
+LoadCredential=brave-free:/etc/role-radar/credentials/brave-free
+LoadCredential=tavily-free:/etc/role-radar/credentials/tavily-free
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/role-radar

@@ -976,3 +976,16 @@ class NotificationItem(Base):
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     batch: Mapped[NotificationBatch] = relationship(back_populates="items")
+
+
+# Register the independent F10.1B tables in Base.metadata without coupling
+# historical models to the new bounded context.
+from role_radar.continuous_acquisition.orm import (  # noqa: E402,F401
+    ContinuousAcquisitionRun,
+    ContinuousAcquisitionRunJob,
+    ContinuousAcquisitionSourceOperation,
+    JobIdentityKey,
+    SourceDiscoveryOperation,
+    SourceDiscoveryRegistration,
+    SourceDiscoveryRun,
+)

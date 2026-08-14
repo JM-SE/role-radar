@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily RoleRadar continuous source discovery (disabled by default)
+
+[Timer]
+OnCalendar=*-*-* 07:00:00 America/Argentina/Buenos_Aires
+Persistent=true
+Unit=role-radar-continuous-discovery.service
+
+[Install]
+WantedBy=timers.target

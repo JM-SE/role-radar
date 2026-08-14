@@ -233,6 +233,8 @@ class GreenhouseCollector:
                     raw.model_dump(mode="json", exclude={"collected_at"})
                 )
                 external_id = raw.external_id
+                if external_id is None:
+                    raise ValueError("missing external id")
                 if external_id in seen:
                     if seen[external_id] == duplicate_key:
                         rejection = RejectionCounts(

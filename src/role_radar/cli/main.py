@@ -481,6 +481,13 @@ def _parser() -> argparse.ArgumentParser:
     gate_b.add_argument("--config", default="/etc/role-radar/acquisition.toml")
     gate_b.add_argument("--ack-live", action="store_true")
     gate_b.add_argument("--confirmation")
+    for command_name in ("continuous-discovery", "continuous-acquisition"):
+        continuous = subparsers.add_parser(
+            command_name, help="continuous acquisition Gate A (offline)"
+        )
+        continuous_commands = continuous.add_subparsers(dest="continuous_command", required=True)
+        for action_name in ("run", "status", "recover"):
+            continuous_commands.add_parser(action_name)
     evaluation = subparsers.add_parser(
         "evaluation", help="operaciones offline/controladas de evaluación"
     )
@@ -1527,6 +1534,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.command == "evaluation":
         return _run_evaluation(args)
+    if args.command in {"continuous-discovery", "continuous-acquisition"}:
+        return _run_continuous_gate_a(args)
     if (
         args.command == "mailbox"
         and args.mailbox_command in {"linkedin-host-audit", "linkedin-head-resolution"}
@@ -1604,6 +1613,51 @@ def main(argv: Sequence[str] | None = None) -> int:
     except Exception as exc:
         print(f"role-radar: {exc}", file=sys.stderr)
         return 1
+    return 2
+
+
+def _run_continuous_gate_a(args: argparse.Namespace) -> int:
+    """Run/status/recover are offline-safe and never create provider clients."""
+    if args.continuous_command == "status":
+        print(
+            json.dumps(
+                {"command": args.command, "action": "status", "state": "offline_only"},
+                sort_keys=True,
+            )
+        )
+        return 0
+    if args.continuous_command == "recover":
+        try:
+            settings = Settings()
+            engine, session = _open_session(settings)
+            try:
+                from role_radar.continuous_acquisition.recovery import RecoveryService
+
+                count = RecoveryService(session).recover_expired()
+                print(json.dumps({"action": "recover", "recovered": count}, sort_keys=True))
+                return 0
+            finally:
+                session.close()
+                engine.dispose()
+        except Exception as exc:
+            print(
+                json.dumps(
+                    {"action": "recover", "result": "blocked", "code": type(exc).__name__},
+                    sort_keys=True,
+                )
+            )
+            return 3
+    print(
+        json.dumps(
+            {
+                "command": args.command,
+                "action": args.continuous_command,
+                "result": "offline_only",
+                "live_execution": "not_authorized",
+            },
+            sort_keys=True,
+        )
+    )
     return 2
 
 

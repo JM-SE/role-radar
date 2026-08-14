@@ -10,7 +10,7 @@ class RawJob(BaseModel):
     """Oferta tal como la entrega un collector de una fuente externa."""
 
     source: str
-    external_id: str
+    external_id: str | None = None
     source_url: str | None = None
     application_url: str | None = None
     title: str

@@ -25,7 +25,7 @@ def _alembic(
 
 def test_fresh_and_f85_upgrade_create_poll_state(tmp_path: Path) -> None:
     fresh = tmp_path / "fresh.db"
-    _alembic(fresh, "upgrade", "head")
+    _alembic(fresh, "upgrade", "e7a4c9f1b2d3")
     with sqlite3.connect(fresh) as connection:
         assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
             "e7a4c9f1b2d3",
@@ -44,7 +44,7 @@ def test_fresh_and_f85_upgrade_create_poll_state(tmp_path: Path) -> None:
             ('{"region":"latam","remote_only":true}',),
         )
         connection.commit()
-    _alembic(upgraded, "upgrade", "head")
+    _alembic(upgraded, "upgrade", "e7a4c9f1b2d3")
     with sqlite3.connect(upgraded) as connection:
         assert connection.execute(
             "SELECT source_id, cadence_version, policy_version, revision "
@@ -54,7 +54,7 @@ def test_fresh_and_f85_upgrade_create_poll_state(tmp_path: Path) -> None:
 
 def test_clean_downgrade_removes_state_and_activity_downgrade_fails(tmp_path: Path) -> None:
     clean = tmp_path / "clean.db"
-    _alembic(clean, "upgrade", "head")
+    _alembic(clean, "upgrade", "e7a4c9f1b2d3")
     _alembic(clean, "downgrade", "c35a9e7b1d44")
     with sqlite3.connect(clean) as connection:
         assert connection.execute(
@@ -62,7 +62,7 @@ def test_clean_downgrade_removes_state_and_activity_downgrade_fails(tmp_path: Pa
         ).fetchone() is None
 
     active = tmp_path / "active.db"
-    _alembic(active, "upgrade", "head")
+    _alembic(active, "upgrade", "e7a4c9f1b2d3")
     with sqlite3.connect(active) as connection:
         connection.execute(
             "INSERT INTO source_poll_states "

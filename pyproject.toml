@@ -40,6 +40,7 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "ASYNC", "RUF"]
+per-file-ignores = {"src/role_radar/continuous_acquisition/*.py" = ["E501"], "alembic/versions/f10_1b_continuous_acquisition.py" = ["E501"]}
 
 [tool.mypy]
 strict = true

@@ -24,10 +24,10 @@ def _alembic(
 
 def test_fresh_and_f86_upgrade_create_mailbox_tables(tmp_path: Path) -> None:
     fresh = tmp_path / "fresh.db"
-    _alembic(fresh, "upgrade", "head")
+    _alembic(fresh, "upgrade", "e7a4c9f1b2d3")
     upgraded = tmp_path / "upgrade.db"
     _alembic(upgraded, "upgrade", "d8f6a1b2c3d4")
-    _alembic(upgraded, "upgrade", "head")
+    _alembic(upgraded, "upgrade", "e7a4c9f1b2d3")
     for database in (fresh, upgraded):
         with sqlite3.connect(database) as connection:
             assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
@@ -44,7 +44,7 @@ def test_fresh_and_f86_upgrade_create_mailbox_tables(tmp_path: Path) -> None:
 
 def test_clean_downgrade_and_activity_guard(tmp_path: Path) -> None:
     clean = tmp_path / "clean.db"
-    _alembic(clean, "upgrade", "head")
+    _alembic(clean, "upgrade", "e7a4c9f1b2d3")
     _alembic(clean, "downgrade", "d8f6a1b2c3d4")
     with sqlite3.connect(clean) as connection:
         assert connection.execute(
@@ -52,7 +52,7 @@ def test_clean_downgrade_and_activity_guard(tmp_path: Path) -> None:
         ).fetchone() is None
 
     active = tmp_path / "active.db"
-    _alembic(active, "upgrade", "head")
+    _alembic(active, "upgrade", "e7a4c9f1b2d3")
     with sqlite3.connect(active) as connection:
         connection.execute(
             "INSERT INTO email_receipts "

@@ -168,6 +168,8 @@ class JobicyCollector:
                     structured_data_limit_bytes=JOBICY_POLICY.structured_data_limit_bytes,
                     max_depth=JOBICY_POLICY.json_max_depth,
                 )
+                if raw.external_id is None:
+                    raise ValueError("missing external id")
                 duplicate_key = canonical_json_bytes(
                     raw.model_dump(mode="json", exclude={"collected_at"})
                 )
