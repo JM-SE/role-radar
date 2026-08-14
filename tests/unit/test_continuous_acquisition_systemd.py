@@ -26,7 +26,11 @@ def test_continuous_services_are_disabled_by_default_and_do_not_receive_credenti
         content = unit(name)
         assert "disabled by default" in content
         assert "ConditionPathExists=/etc/role-radar/disabled" not in content
-        assert "EnvironmentFile=" not in content
+        assert "User=ROLE_RADAR_USER" in content
+        assert "WorkingDirectory=/ROLE_RADAR_APP_DIR" in content
+        assert "EnvironmentFile=/etc/role-radar/role-radar.env" in content
+        assert "ExecStart=/usr/bin/env role-radar" in content
+        assert "ReadWritePaths=/ROLE_RADAR_APP_DIR/data" in content
         assert "NoNewPrivileges=true" in content
         assert "ProtectHome=true" in content
     discovery = unit("role-radar-continuous-discovery.service")

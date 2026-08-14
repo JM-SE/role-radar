@@ -1,9 +1,15 @@
 [Unit]
 Description=RoleRadar continuous acquisition (disabled by default)
 # Disabled by default: this unit is not enabled by any target.
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=oneshot
+User=ROLE_RADAR_USER
+WorkingDirectory=/ROLE_RADAR_APP_DIR
+EnvironmentFile=/etc/role-radar/role-radar.env
+Environment=PATH=/ROLE_RADAR_APP_DIR/.venv/bin:/usr/bin
 ExecStart=/usr/bin/env role-radar continuous-acquisition run
 # Acquisition has no search credentials. Jobicy is conditional and uses no secret.
 UMask=0077
@@ -11,4 +17,5 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/lib/role-radar
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+ReadWritePaths=/ROLE_RADAR_APP_DIR/data
