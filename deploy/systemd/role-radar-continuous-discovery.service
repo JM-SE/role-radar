@@ -10,7 +10,7 @@ User=ROLE_RADAR_USER
 WorkingDirectory=/ROLE_RADAR_APP_DIR
 EnvironmentFile=/etc/role-radar/role-radar.env
 Environment=PATH=/ROLE_RADAR_APP_DIR/.venv/bin:/usr/bin
-ExecStart=/usr/bin/env role-radar continuous-discovery run
+ExecStart=/usr/bin/env role-radar continuous-discovery run --scheduled
 LoadCredential=query-hmac:/etc/role-radar/credentials/query-hmac
 LoadCredential=brave-free:/etc/role-radar/credentials/brave-free
 LoadCredential=tavily-free:/etc/role-radar/credentials/tavily-free

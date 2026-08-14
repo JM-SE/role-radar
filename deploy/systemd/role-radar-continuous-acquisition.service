@@ -10,7 +10,7 @@ User=ROLE_RADAR_USER
 WorkingDirectory=/ROLE_RADAR_APP_DIR
 EnvironmentFile=/etc/role-radar/role-radar.env
 Environment=PATH=/ROLE_RADAR_APP_DIR/.venv/bin:/usr/bin
-ExecStart=/usr/bin/env role-radar continuous-acquisition run
+ExecStart=/usr/bin/env role-radar continuous-acquisition run --scheduled
 # Acquisition has no search credentials. Jobicy is conditional and uses no secret.
 UMask=0077
 NoNewPrivileges=true

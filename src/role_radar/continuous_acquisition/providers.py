@@ -151,10 +151,12 @@ class BoundedSearchRuntime:
     planner_version: str = "continuous-discovery-v1"
     query_version: str = "continuous-discovery-v1"
     queries: tuple[PlannedQuery, ...] = field(default_factory=_broad_queries)
+    last_status: str = field(default="unknown", init=False)
 
     async def run(self) -> tuple[DiscoveryCandidate, ...]:
         key_factory = QueryKeyFactory(self.query_secret)
         found: dict[str, DiscoveryCandidate] = {}
+        observed_statuses: list[str] = []
         brave_calls = 0
         tavily_calls = 0
         for query in self.queries[:MAX_DISCOVERY_QUERIES]:
@@ -182,8 +184,18 @@ class BoundedSearchRuntime:
                 tavily_calls += 1
                 response = await self.tavily.search(request)
             if response is None or response.status not in {"succeeded", "empty"}:
+                if response is not None:
+                    observed_statuses.append(response.status)
                 continue
+            observed_statuses.append(response.status)
             self._add_hits(found, response.hits[:MAX_DISCOVERY_HITS], response.provider)
+        self.last_status = (
+            "succeeded"
+            if any(status in {"succeeded", "empty"} for status in observed_statuses)
+            else "failed"
+            if observed_statuses
+            else "empty"
+        )
         return tuple(sorted(found.values(), key=lambda item: (item.rank, item.url)))
 
     async def candidates_async(self) -> tuple[DiscoveryCandidate, ...]:

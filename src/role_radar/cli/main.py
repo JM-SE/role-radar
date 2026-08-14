@@ -483,11 +483,15 @@ def _parser() -> argparse.ArgumentParser:
     gate_b.add_argument("--confirmation")
     for command_name in ("continuous-discovery", "continuous-acquisition"):
         continuous = subparsers.add_parser(
-            command_name, help="continuous acquisition Gate A (offline)"
+            command_name, help="continuous daily discovery/acquisition"
         )
         continuous_commands = continuous.add_subparsers(dest="continuous_command", required=True)
-        for action_name in ("run", "status", "recover"):
-            continuous_commands.add_parser(action_name)
+        run_continuous = continuous_commands.add_parser("run")
+        run_continuous.add_argument("--manual-canary", action="store_true")
+        run_continuous.add_argument("--scheduled", action="store_true")
+        run_continuous.add_argument("--acknowledgement")
+        continuous_commands.add_parser("status")
+        continuous_commands.add_parser("recover")
     evaluation = subparsers.add_parser(
         "evaluation", help="operaciones offline/controladas de evaluación"
     )
@@ -1617,48 +1621,65 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def _run_continuous_gate_a(args: argparse.Namespace) -> int:
-    """Run/status/recover are offline-safe and never create provider clients."""
-    if args.continuous_command == "status":
-        print(
-            json.dumps(
-                {"command": args.command, "action": "status", "state": "offline_only"},
-                sort_keys=True,
-            )
-        )
-        return 0
-    if args.continuous_command == "recover":
-        try:
-            settings = Settings()
-            engine, session = _open_session(settings)
-            try:
-                from role_radar.continuous_acquisition.recovery import RecoveryService
-
-                count = RecoveryService(session).recover_expired()
-                print(json.dumps({"action": "recover", "recovered": count}, sort_keys=True))
-                return 0
-            finally:
-                session.close()
-                engine.dispose()
-        except Exception as exc:
-            print(
-                json.dumps(
-                    {"action": "recover", "result": "blocked", "code": type(exc).__name__},
-                    sort_keys=True,
-                )
-            )
-            return 3
-    print(
-        json.dumps(
-            {
-                "command": args.command,
-                "action": args.continuous_command,
-                "result": "offline_only",
-                "live_execution": "not_authorized",
-            },
-            sort_keys=True,
-        )
+    """Thin dispatch for the bounded continuous runtime composition."""
+    from role_radar.continuous_acquisition.runtime import (
+        EXIT_INTERNAL,
+        RuntimeCompositionError,
+        load_runtime_config,
+        open_runtime,
+        provider_summary,
+        recover,
+        require_mode_authorization,
+        run_acquisition_once,
+        run_discovery_once,
+        status,
     )
-    return 2
+
+    workflow = "discovery" if args.command == "continuous-discovery" else "acquisition"
+    try:
+        settings = Settings()
+        if args.continuous_command == "status":
+            result = status(settings, workflow=workflow)
+            print(json.dumps(result.payload, sort_keys=True))
+            return result.exit_code
+        if args.continuous_command == "recover":
+            result = recover(settings)
+            print(json.dumps(result.payload, sort_keys=True))
+            return result.exit_code
+
+        mode = "manual-canary" if args.manual_canary else "scheduled" if args.scheduled else ""
+        config = load_runtime_config(settings)
+        print(json.dumps(provider_summary(config, workflow), sort_keys=True))
+        require_mode_authorization(
+            mode=mode,
+            acknowledgement=args.acknowledgement,
+        )
+        engine, session = open_runtime(settings)
+        try:
+            if workflow == "discovery":
+                result = run_discovery_once(
+                    session,
+                    settings=settings,
+                    config=config,
+                    owner=settings.worker_id,
+                )
+            else:
+                result = run_acquisition_once(
+                    session,
+                    settings=settings,
+                    owner=settings.worker_id,
+                )
+            print(json.dumps(result.payload, sort_keys=True))
+            return result.exit_code
+        finally:
+            session.close()
+            engine.dispose()
+    except RuntimeCompositionError as exc:
+        print(json.dumps({"result": "blocked", "code": exc.code}, sort_keys=True))
+        return exc.exit_code
+    except Exception:
+        print(json.dumps({"result": "failed", "code": "internal_error"}, sort_keys=True))
+        return EXIT_INTERNAL
 
 
 if __name__ == "__main__":

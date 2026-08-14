@@ -135,6 +135,7 @@ class RunRepository:
             update(ContinuousAcquisitionRun)
             .where(ContinuousAcquisitionRun.id == run_id, ContinuousAcquisitionRun.lease_owner == owner, ContinuousAcquisitionRun.fencing_generation == generation, ContinuousAcquisitionRun.state.in_(("planned", "running")), ContinuousAcquisitionRun.lease_expires_at.is_not(None), ContinuousAcquisitionRun.lease_expires_at > now)
             .values(heartbeat_at=now)
+            .execution_options(synchronize_session=False)
         )
         if getattr(result, "rowcount", 0) != 1:
             raise FenceLostError("fence_lost")
@@ -182,6 +183,7 @@ class RunRepository:
                 exists(lease),
             )
             .values(**values)
+            .execution_options(synchronize_session=False)
         )
         if getattr(result, "rowcount", 0) != 1:
             raise FenceLostError("fence_lost")
@@ -201,6 +203,7 @@ class RunRepository:
                 ContinuousAcquisitionRun.lease_expires_at > now,
             )
             .values(**values)
+            .execution_options(synchronize_session=False)
         )
         if getattr(result, "rowcount", 0) != 1:
             raise FenceLostError("fence_lost")
@@ -253,7 +256,7 @@ class DiscoveryRepository:
 
     def fence(self, run_id: str, *, owner: str, generation: int) -> None:
         now = datetime.now(UTC)
-        result = self.session.execute(update(SourceDiscoveryRun).where(SourceDiscoveryRun.id == run_id, SourceDiscoveryRun.lease_owner == owner, SourceDiscoveryRun.fencing_generation == generation, SourceDiscoveryRun.state.in_(("planned", "running")), SourceDiscoveryRun.lease_expires_at.is_not(None), SourceDiscoveryRun.lease_expires_at > now).values(heartbeat_at=now))
+        result = self.session.execute(update(SourceDiscoveryRun).where(SourceDiscoveryRun.id == run_id, SourceDiscoveryRun.lease_owner == owner, SourceDiscoveryRun.fencing_generation == generation, SourceDiscoveryRun.state.in_(("planned", "running")), SourceDiscoveryRun.lease_expires_at.is_not(None), SourceDiscoveryRun.lease_expires_at > now).values(heartbeat_at=now).execution_options(synchronize_session=False))
         if getattr(result, "rowcount", 0) != 1:
             raise FenceLostError("fence_lost")
 
@@ -267,6 +270,54 @@ class DiscoveryRepository:
         self.session.add(row)
         self.session.flush()
         return row
+
+    def finalize_operation(
+        self, operation_id: str, *, owner: str, generation: int, **values: Any
+    ) -> None:
+        operation = self.session.get(SourceDiscoveryOperation, operation_id)
+        if operation is None:
+            raise ValueError("operation_not_found")
+        values["finished_at"] = datetime.now(UTC)
+        now = datetime.now(UTC)
+        lease = select(SourceDiscoveryRun.id).where(
+            SourceDiscoveryRun.id == operation.run_id,
+            SourceDiscoveryRun.lease_owner == owner,
+            SourceDiscoveryRun.fencing_generation == generation,
+            SourceDiscoveryRun.state.in_(("planned", "running")),
+            SourceDiscoveryRun.lease_expires_at.is_not(None),
+            SourceDiscoveryRun.lease_expires_at > now,
+        )
+        result = self.session.execute(
+            update(SourceDiscoveryOperation)
+            .where(
+                SourceDiscoveryOperation.id == operation_id,
+                SourceDiscoveryOperation.run_id == operation.run_id,
+                exists(lease),
+            )
+            .values(**values)
+            .execution_options(synchronize_session=False)
+        )
+        if getattr(result, "rowcount", 0) != 1:
+            raise FenceLostError("fence_lost")
+
+    def finalize_run(self, run_id: str, *, owner: str, generation: int, **values: Any) -> None:
+        values["finished_at"] = datetime.now(UTC)
+        now = datetime.now(UTC)
+        result = self.session.execute(
+            update(SourceDiscoveryRun)
+            .where(
+                SourceDiscoveryRun.id == run_id,
+                SourceDiscoveryRun.lease_owner == owner,
+                SourceDiscoveryRun.fencing_generation == generation,
+                SourceDiscoveryRun.state.in_(("planned", "running")),
+                SourceDiscoveryRun.lease_expires_at.is_not(None),
+                SourceDiscoveryRun.lease_expires_at > now,
+            )
+            .values(**values)
+            .execution_options(synchronize_session=False)
+        )
+        if getattr(result, "rowcount", 0) != 1:
+            raise FenceLostError("fence_lost")
 
 
 class IdentityRepository:
