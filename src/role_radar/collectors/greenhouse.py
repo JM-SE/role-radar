@@ -35,7 +35,7 @@ from role_radar.domain.dto import RawJob
 from role_radar.sources.configuration import GreenhouseSourceConfig
 
 GREENHOUSE_BOARDS_API_BASE = "https://boards-api.greenhouse.io/v1/boards"
-_GREENHOUSE_HOSTS = frozenset({"boards.greenhouse.io"})
+_GREENHOUSE_HOSTS = frozenset({"boards.greenhouse.io", "job-boards.greenhouse.io"})
 Clock = Callable[[], float]
 Sleeper = Callable[[float], Awaitable[None]]
 

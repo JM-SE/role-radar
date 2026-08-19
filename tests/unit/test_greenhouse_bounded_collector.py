@@ -51,6 +51,31 @@ def test_greenhouse_has_one_content_true_request_and_no_details() -> None:
     asyncio.run(run())
 
 
+def test_greenhouse_accepts_job_boards_host_for_posting_and_application_urls() -> None:
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "jobs": [
+                    {
+                        **_item(1),
+                        "absolute_url": "https://job-boards.greenhouse.io/acme/jobs/1",
+                        "application_url": "https://job-boards.greenhouse.io/acme/jobs/1",
+                    }
+                ]
+            },
+        )
+
+    async def run() -> None:
+        outcome = await GreenhouseCollector(
+            transport=httpx.MockTransport(handler)
+        ).collect(_snapshot(), CollectorRuntime())
+        assert isinstance(outcome, CollectionSuccess)
+        assert len(outcome.jobs) == 1
+
+    asyncio.run(run())
+
+
 def test_greenhouse_empty_mixed_duplicates_and_all_invalid() -> None:
     payloads: list[dict[str, object]] = [
         {"jobs": []},
