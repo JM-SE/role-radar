@@ -489,6 +489,7 @@ def _parser() -> argparse.ArgumentParser:
         run_continuous = continuous_commands.add_parser("run")
         run_continuous.add_argument("--manual-canary", action="store_true")
         run_continuous.add_argument("--scheduled", action="store_true")
+        run_continuous.add_argument("--canary-id")
         run_continuous.add_argument("--acknowledgement")
         continuous_commands.add_parser("status")
         continuous_commands.add_parser("recover")
@@ -1653,6 +1654,7 @@ def _run_continuous_gate_a(args: argparse.Namespace) -> int:
         require_mode_authorization(
             mode=mode,
             acknowledgement=args.acknowledgement,
+            canary_id=args.canary_id,
         )
         engine, session = open_runtime(settings)
         try:
@@ -1662,12 +1664,14 @@ def _run_continuous_gate_a(args: argparse.Namespace) -> int:
                     settings=settings,
                     config=config,
                     owner=settings.worker_id,
+                    canary_id=args.canary_id,
                 )
             else:
                 result = run_acquisition_once(
                     session,
                     settings=settings,
                     owner=settings.worker_id,
+                    canary_id=args.canary_id,
                 )
             print(json.dumps(result.payload, sort_keys=True))
             return result.exit_code

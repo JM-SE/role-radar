@@ -64,11 +64,12 @@ def run_discovery_once(
     config: AcquisitionConfig,
     now: datetime | None = None,
     owner: str | None = None,
+    canary_id: str | None = None,
     search: BoundedSearchRuntime | None = None,
     verifier: OfficialATSVerifier | None = None,
 ) -> RuntimeResult:
     as_of = as_utc(now)
-    slot_key = discovery_slot(as_of)
+    slot_key = discovery_slot(as_of, canary_id=canary_id)
     worker = owner_for(settings, owner)
     active_search = search or build_search_runtime(config)
     collector = create_bounded_collector_provider()

@@ -34,6 +34,12 @@ def test_authorization_is_exact_and_scheduled_activation_is_strict() -> None:
         require_mode_authorization(mode="manual-canary", acknowledgement="--yes")
     assert missing.value.code == "live_ack_required"
 
+    with pytest.raises(RuntimeCompositionError) as missing_id:
+        require_mode_authorization(
+            mode="manual-canary", acknowledgement=LIVE_ACKNOWLEDGEMENT
+        )
+    assert missing_id.value.code == "canary_id_required"
+
     with pytest.raises(RuntimeCompositionError) as disabled:
         require_mode_authorization(
             mode="scheduled",
@@ -43,8 +49,19 @@ def test_authorization_is_exact_and_scheduled_activation_is_strict() -> None:
     assert disabled.value.code == "continuous_activation_required"
 
     require_mode_authorization(
-        mode="manual-canary", acknowledgement=LIVE_ACKNOWLEDGEMENT, environment={}
+        mode="manual-canary",
+        acknowledgement=LIVE_ACKNOWLEDGEMENT,
+        canary_id="greenhouse-fix-01",
+        environment={},
     )
+    with pytest.raises(RuntimeCompositionError) as scheduled_id:
+        require_mode_authorization(
+            mode="scheduled",
+            acknowledgement=None,
+            canary_id="greenhouse-fix-01",
+            environment={"ROLE_RADAR_CONTINUOUS_ENABLED": "true"},
+        )
+    assert scheduled_id.value.code == "canary_id_not_allowed"
     require_mode_authorization(
         mode="scheduled",
         acknowledgement=None,
@@ -114,6 +131,7 @@ def test_acquisition_runtime_accepts_zero_jobs_and_replays(
         settings=settings,
         now=AS_OF,
         owner="runtime-test",
+        canary_id="zero-jobs",
         collector=collector,
     )
     replay = run_acquisition_once(
@@ -121,6 +139,7 @@ def test_acquisition_runtime_accepts_zero_jobs_and_replays(
         settings=settings,
         now=AS_OF,
         owner="runtime-test",
+        canary_id="zero-jobs",
         collector=collector,
     )
 

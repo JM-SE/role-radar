@@ -77,11 +77,12 @@ def run_acquisition_once(
     settings: Settings,
     now: datetime | None = None,
     owner: str | None = None,
+    canary_id: str | None = None,
     collector: BoundedCollectorProvider | None = None,
 ) -> RuntimeResult:
     as_of = as_utc(now)
     snapshots = SourceSnapshotRepository(session).enabled_ats_snapshot()
-    slot_key = acquisition_slot(as_of)
+    slot_key = acquisition_slot(as_of, canary_id=canary_id)
     worker = owner_for(settings, owner)
     repository = RunRepository(session)
     try:

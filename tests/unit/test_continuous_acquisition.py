@@ -38,6 +38,7 @@ from role_radar.continuous_acquisition.repositories import (
 )
 from role_radar.continuous_acquisition.scheduling import (
     acquisition_slot,
+    discovery_slot,
     rotate_sources,
 )
 from role_radar.db.base import Base
@@ -154,6 +155,13 @@ def test_strong_identity_keeps_official_urls_and_excludes_weak_urls() -> None:
 
 def test_slots_and_rotation_are_stable() -> None:
     assert acquisition_slot(AS_OF) == acquisition_slot(AS_OF + timedelta(hours=1))
+    assert acquisition_slot(AS_OF, canary_id="fix-01") == acquisition_slot(
+        AS_OF + timedelta(hours=1), canary_id="fix-01"
+    )
+    assert acquisition_slot(AS_OF, canary_id="fix-01") != acquisition_slot(AS_OF)
+    assert discovery_slot(AS_OF, canary_id="fix-01").endswith(":fix-01")
+    with pytest.raises(ValueError, match="canary_id_invalid"):
+        acquisition_slot(AS_OF, canary_id="invalid/id")
     assert rotate_sources(("a", "b", "c"), day=AS_OF) == rotate_sources(
         ("c", "a", "b"), day=AS_OF
     )

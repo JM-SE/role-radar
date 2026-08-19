@@ -20,6 +20,7 @@ from role_radar.config import Settings
 from role_radar.continuous_acquisition.providers import (
     BoundedSearchRuntime,
 )
+from role_radar.continuous_acquisition.scheduling import daily_canary_slot
 from role_radar.db.engine import get_engine
 from role_radar.db.session import get_session_factory
 from role_radar.discovery.providers.brave import BraveSearchProvider
@@ -91,16 +92,28 @@ def provider_summary(config: AcquisitionConfig, workflow: str) -> dict[str, Any]
 
 
 def require_mode_authorization(
-    *, mode: str, acknowledgement: str | None, environment: dict[str, str] | None = None
+    *,
+    mode: str,
+    acknowledgement: str | None,
+    canary_id: str | None = None,
+    environment: dict[str, str] | None = None,
 ) -> None:
     if mode not in {"manual-canary", "scheduled"}:
         raise RuntimeCompositionError("mode_required", exit_code=EXIT_PRECONDITION)
     if mode == "manual-canary":
         if acknowledgement != LIVE_ACKNOWLEDGEMENT:
             raise RuntimeCompositionError("live_ack_required", exit_code=EXIT_PRECONDITION)
+        if canary_id is None:
+            raise RuntimeCompositionError("canary_id_required", exit_code=EXIT_PRECONDITION)
+        try:
+            daily_canary_slot(datetime.now(UTC), namespace="continuous", canary_id=canary_id)
+        except ValueError as exc:
+            raise RuntimeCompositionError("canary_id_invalid", exit_code=EXIT_PRECONDITION) from exc
         return
     if acknowledgement is not None:
         raise RuntimeCompositionError("ack_not_allowed_for_scheduled", exit_code=EXIT_PRECONDITION)
+    if canary_id is not None:
+        raise RuntimeCompositionError("canary_id_not_allowed", exit_code=EXIT_PRECONDITION)
     values = os.environ if environment is None else environment
     if values.get(CONTINUOUS_ENABLED_ENV) != "true":
         raise RuntimeCompositionError("continuous_activation_required", exit_code=EXIT_PRECONDITION)
