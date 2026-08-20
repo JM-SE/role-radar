@@ -514,11 +514,23 @@ def _parser() -> argparse.ArgumentParser:
     acquire.add_argument("--file", required=True)
     acquire.add_argument("--plan-sha256", required=True)
     acquire.add_argument("--acknowledgement", required=True)
+    f10_1c = evaluation_commands.add_parser("f10-1c")
+    f10_1c_commands = f10_1c.add_subparsers(dest="f10_1c_command", required=True)
+    f10_1c_commands.add_parser("status")
+    f10_1c_commands.add_parser("preview")
+    freeze_f10_1c = f10_1c_commands.add_parser("freeze")
+    freeze_f10_1c.add_argument("--acknowledgement", required=True)
+    verify_f10_1c = f10_1c_commands.add_parser("verify")
+    verify_f10_1c.add_argument("--dataset-id", required=True)
     return parser
 
 
 def _run_evaluation(args: argparse.Namespace) -> int:
     """Gate-A CLI surface; live acquisition is deliberately fail-closed here."""
+    if args.evaluation_command == "f10-1c":
+        from role_radar.cli.evaluation_f10_1c import run
+
+        return run(args)
     if args.evaluation_command != "f10-1":
         return 2
     command = args.f10_1_command
