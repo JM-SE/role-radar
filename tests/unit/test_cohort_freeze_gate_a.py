@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import sqlite3
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -28,6 +30,7 @@ from role_radar.evaluation.cohort_freeze.policy import (
     BOUNDARY_RUN_ID,
     canonical_hash,
 )
+from role_radar.evaluation.cohort_freeze.repository import SQLiteSnapshotRepository
 from role_radar.evaluation.cohort_freeze.runtime import CohortFreezeRuntime, acknowledgement
 from role_radar.evaluation.cohort_freeze.selection import select_candidates
 from role_radar.evaluation.snapshot_store import SnapshotStore
@@ -178,3 +181,139 @@ def test_cli_shape_rejects_generic_confirmation() -> None:
     assert args.f10_1c_command == "freeze"
     with pytest.raises(SystemExit):
         _parser().parse_args(("evaluation", "f10-1c", "freeze", "--yes"))
+
+
+def test_repository_ignores_existing_downstream_tables(tmp_path: Path) -> None:
+    database = tmp_path / "role-radar.db"
+    source = {
+        "source_id": "source-1",
+        "source_key": "greenhouse:caylent",
+        "type": "greenhouse",
+        "revision": 1,
+    }
+    source_json = json.dumps([source], separators=(",", ":"))
+    source_hash = canonical_hash([source])
+    identity_value = "greenhouse:external:1"
+    identity_digest = hashlib.sha256(identity_value.encode()).hexdigest()
+    connection = sqlite3.connect(database)
+    try:
+        connection.executescript(
+            """
+            CREATE TABLE continuous_acquisition_runs (
+                id TEXT PRIMARY KEY, slot_key TEXT, state TEXT, snapshot_hash TEXT,
+                snapshot_json TEXT, policy_version TEXT, started_at TEXT,
+                finished_at TEXT, created_count INTEGER, observed_count INTEGER
+            );
+            CREATE TABLE continuous_acquisition_source_operations (
+                id TEXT PRIMARY KEY, run_id TEXT, source_id TEXT,
+                source_snapshot_json TEXT, intent_state TEXT, result_state TEXT,
+                observed_count INTEGER, created_count INTEGER, started_at TEXT,
+                finished_at TEXT
+            );
+            CREATE TABLE continuous_acquisition_run_jobs (
+                id TEXT PRIMARY KEY, run_id TEXT, operation_id TEXT, job_id TEXT,
+                disposition TEXT, provider_recency_at TEXT, recency_semantic TEXT,
+                freshness_policy_version TEXT, identity_policy_version TEXT,
+                provenance_hash TEXT, created_at TEXT
+            );
+            CREATE TABLE jobs (
+                id TEXT PRIMARY KEY, title TEXT, company TEXT, location TEXT,
+                description TEXT, application_url TEXT
+            );
+            CREATE TABLE job_identity_keys (
+                id TEXT PRIMARY KEY, job_id TEXT, identity_kind TEXT,
+                identity_version TEXT, identity_value TEXT, value_digest TEXT
+            );
+            CREATE TABLE candidate_profiles (
+                id TEXT PRIMARY KEY, name TEXT, version INTEGER,
+                schema_version INTEGER, profile_json TEXT, is_active INTEGER
+            );
+            CREATE TABLE alembic_version (version_num TEXT);
+            CREATE TABLE job_source_references (id TEXT);
+            CREATE TABLE job_extractions (id TEXT);
+            CREATE TABLE job_scores (id TEXT);
+            CREATE TABLE job_deep_evaluations (id TEXT);
+            """
+        )
+        connection.execute(
+            "INSERT INTO continuous_acquisition_runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                BOUNDARY_RUN_ID,
+                "continuous-acquisition:daily-slot-v1:2026-08-01",
+                "completed",
+                source_hash,
+                source_json,
+                "continuous-acquisition-v1",
+                "2026-08-01T00:00:00Z",
+                "2026-08-01T00:01:00Z",
+                1,
+                1,
+            ),
+        )
+        connection.execute(
+            "INSERT INTO continuous_acquisition_source_operations "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "operation-1",
+                BOUNDARY_RUN_ID,
+                "source-1",
+                json.dumps(source, separators=(",", ":")),
+                "succeeded",
+                "succeeded",
+                1,
+                1,
+                "2026-08-01T00:00:00Z",
+                "2026-08-01T00:01:00Z",
+            ),
+        )
+        connection.execute(
+            "INSERT INTO continuous_acquisition_run_jobs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "link-1",
+                BOUNDARY_RUN_ID,
+                "operation-1",
+                "job-1",
+                "created",
+                "2026-07-25T00:00:00Z",
+                "provider_updated_at_proxy",
+                "freshness-v1",
+                "strong-identity-v1",
+                "a" * 64,
+                "2026-08-01T00:00:30Z",
+            ),
+        )
+        connection.execute(
+            "INSERT INTO jobs VALUES (?, ?, ?, ?, ?, ?)",
+            ("job-1", "Senior Frontend Engineer", "Company", "Remote", "Description", None),
+        )
+        connection.execute(
+            "INSERT INTO job_identity_keys VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                "identity-1",
+                "job-1",
+                "source_external_id",
+                "strong-identity-v1",
+                identity_value,
+                identity_digest,
+            ),
+        )
+        connection.execute(
+            "INSERT INTO candidate_profiles VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                BASELINE_PROFILE_ID,
+                "Perfil Semilla",
+                BASELINE_PROFILE_VERSION,
+                BASELINE_PROFILE_SCHEMA,
+                "{}",
+                1,
+            ),
+        )
+        connection.execute("INSERT INTO alembic_version VALUES (?)", (ALEMBIC_HEAD,))
+        connection.commit()
+    finally:
+        connection.close()
+
+    snapshot = SQLiteSnapshotRepository(database).load()
+
+    assert len(snapshot.candidates) == 1
+    assert snapshot.candidates[0].job_id == "job-1"

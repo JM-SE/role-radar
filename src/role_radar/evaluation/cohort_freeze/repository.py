@@ -53,6 +53,12 @@ def _read_only_authorizer(
     }
     if action in denied:
         return sqlite3.SQLITE_DENY
+    if action == sqlite3.SQLITE_READ and arg1 not in {
+        *ALLOWED_TABLES,
+        "sqlite_master",
+        "sqlite_schema",
+    }:
+        return sqlite3.SQLITE_DENY
     if action == sqlite3.SQLITE_PRAGMA and arg1 != "query_only":
         return sqlite3.SQLITE_DENY
     return sqlite3.SQLITE_OK
@@ -105,7 +111,9 @@ class SQLiteSnapshotRepository:
         self.boundary_run_id = boundary_run_id
 
     @contextmanager
-    def _snapshot_connection(self) -> Iterator[sqlite3.Connection]:
+    def _snapshot_connection_with_fingerprint(
+        self,
+    ) -> Iterator[tuple[sqlite3.Connection, str]]:
         source_uri = f"file:{self.database}?mode=ro"
         source = sqlite3.connect(source_uri, uri=True)
         source.row_factory = sqlite3.Row
@@ -120,34 +128,34 @@ class SQLiteSnapshotRepository:
             memory.execute("PRAGMA query_only=ON")
             if memory.execute("PRAGMA query_only").fetchone()[0] != 1:
                 raise RepositoryError("query_only_not_enabled")
+            # Serialize before installing the table-read authorizer. SQLite's
+            # serialize API snapshots all pages, including product tables that
+            # F10.1C is intentionally forbidden to query.
+            fingerprint = sha256_bytes(memory.serialize())
             memory.set_authorizer(_read_only_authorizer)
-            yield memory
+            yield memory, fingerprint
         finally:
             memory.close()
             source.close()
 
+    @contextmanager
+    def _snapshot_connection(self) -> Iterator[sqlite3.Connection]:
+        with self._snapshot_connection_with_fingerprint() as (connection, _):
+            yield connection
+
     @staticmethod
     def _tables(connection: sqlite3.Connection) -> set[str]:
+        placeholders = ",".join("?" for _ in ALLOWED_TABLES)
         rows = connection.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+            "SELECT name FROM sqlite_master "
+            f"WHERE type='table' AND name IN ({placeholders})",
+            tuple(ALLOWED_TABLES),
         )
         return {str(row[0]) for row in rows}
 
     def load(self) -> RepositorySnapshot:
-        with self._snapshot_connection() as connection:
+        with self._snapshot_connection_with_fingerprint() as (connection, fingerprint):
             tables = self._tables(connection)
-            forbidden = tables - ALLOWED_TABLES
-            # Downstream tables must not even be inspected.  A synthetic DB may
-            # contain unrelated SQLite metadata, but product tables are blocked.
-            if forbidden & {
-                "job_source_references",
-                "job_extractions",
-                "job_scores",
-                "deep_evaluation_queue",
-                "job_deep_evaluations",
-                "labels",
-            }:
-                raise RepositoryError("downstream_table_access_blocked")
             required = {
                 "continuous_acquisition_runs",
                 "continuous_acquisition_source_operations",
@@ -208,8 +216,6 @@ class SQLiteSnapshotRepository:
                 _row_dict(row)
                 for row in connection.execute("SELECT version_num FROM alembic_version")
             )
-            fingerprint = sha256_bytes(connection.serialize())
-
         boundary_rows = [row for row in runs if str(row["id"]) == self.boundary_run_id]
         if len(boundary_rows) != 1:
             raise RepositoryError("boundary_missing_or_duplicate")
