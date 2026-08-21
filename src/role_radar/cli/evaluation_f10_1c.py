@@ -7,11 +7,14 @@ import os
 from pathlib import Path
 from typing import Any
 
+from role_radar.evaluation.cohort_freeze.bundle_store import V2BundleStore
 from role_radar.evaluation.cohort_freeze.contracts import DeploymentIdentity
 from role_radar.evaluation.cohort_freeze.policy import SNAPSHOT_ROOT
-from role_radar.evaluation.cohort_freeze.repository import RepositoryError, SQLiteSnapshotRepository
-from role_radar.evaluation.cohort_freeze.runtime import CohortFreezeRuntime, RuntimeErrorCode
-from role_radar.evaluation.snapshot_store import SnapshotStore
+from role_radar.evaluation.cohort_freeze.repository import (
+    BoundedSQLiteSnapshotRepository,
+    RepositoryError,
+)
+from role_radar.evaluation.cohort_freeze.runtime import CohortFreezeRuntimeV2, RuntimeErrorCode
 
 
 def _payload(value: Any) -> str:
@@ -26,11 +29,17 @@ def run(args: Any) -> int:
         print(_payload({"result": "blocked", "code": "database_missing"}))
         return 2
     try:
-        repository = SQLiteSnapshotRepository(database)
+        repository = BoundedSQLiteSnapshotRepository(
+            database,
+            deployment={
+                "code_commit": os.environ.get("ROLE_RADAR_CODE_COMMIT", "unknown"),
+                "clean": os.environ.get("ROLE_RADAR_DEPLOYMENT_CLEAN", "0"),
+            },
+        )
         root = Path(os.environ.get("ROLE_RADAR_F10_1C_ROOT", SNAPSHOT_ROOT))
-        runtime = CohortFreezeRuntime(
+        runtime = CohortFreezeRuntimeV2(
             repository,
-            SnapshotStore(root),
+            V2BundleStore(root),
             deployment=DeploymentIdentity(
                 code_commit=os.environ.get("ROLE_RADAR_CODE_COMMIT", "unknown"),
                 clean=os.environ.get("ROLE_RADAR_DEPLOYMENT_CLEAN", "0") == "1",
@@ -51,7 +60,10 @@ def run(args: Any) -> int:
     except RuntimeErrorCode as exc:
         print(_payload({"result": "blocked", "code": exc.code}))
         return 2
-    except (RepositoryError, ValueError, OSError):
+    except RepositoryError as exc:
+        print(_payload({"result": "blocked", "code": exc.code}))
+        return 2
+    except (ValueError, OSError):
         print(_payload({"result": "blocked", "code": "internal_error"}))
         return 2
 

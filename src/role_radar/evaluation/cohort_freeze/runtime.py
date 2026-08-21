@@ -12,30 +12,48 @@ from typing import Any, Protocol
 from role_radar.evaluation.cohort_freeze.contracts import (
     DeploymentIdentity,
     FrozenBundle,
+    FrozenBundleV2,
     PreviewResult,
+    PreviewV2,
     RepositorySnapshot,
 )
 from role_radar.evaluation.cohort_freeze.manifest import (
     build_external_manifest,
+    build_external_manifest_v2,
     validate_external_manifest,
+    validate_external_manifest_v2,
 )
-from role_radar.evaluation.cohort_freeze.materialization import _blind_key, _opaque_id, materialize
+from role_radar.evaluation.cohort_freeze.materialization import (
+    _blind_key,
+    _opaque_id,
+    materialize,
+    materialize_v2,
+)
+from role_radar.evaluation.cohort_freeze.partition import partition_corpus
 from role_radar.evaluation.cohort_freeze.policy import (
     ALEMBIC_HEAD,
     BASELINE_PROFILE_ID,
     BASELINE_PROFILE_SCHEMA,
     BASELINE_PROFILE_SHA256,
     BASELINE_PROFILE_VERSION,
+    CORPUS_COUNT,
+    CORPUS_PROTOCOL,
     EXTERNAL_MANIFEST_SCHEMA,
+    EXTERNAL_MANIFEST_SCHEMA_V2,
+    HOLDOUT_COUNT,
+    INTERNAL_MANIFEST_SCHEMA_V2,
     MATERIALIZATION_PROTOCOL,
+    MATERIALIZATION_PROTOCOL_V2,
+    PARTITION_PROTOCOL,
     PREVIEW_SCHEMA,
     SELECTION_PROTOCOL,
     TARGET_COUNT,
     acknowledgement,
+    acknowledgement_v2,
     canonical_hash,
     profile_sha256,
 )
-from role_radar.evaluation.cohort_freeze.selection import select_candidates
+from role_radar.evaluation.cohort_freeze.selection import build_bounded_corpus, select_candidates
 from role_radar.evaluation.snapshot_store import SnapshotStore, canonical_line, sha256_bytes
 
 ACK_PATTERN = re.compile(
@@ -285,6 +303,191 @@ class CohortFreezeRuntime:
         return {"schema_version": EXTERNAL_MANIFEST_SCHEMA, **external}
 
 
-Runtime = CohortFreezeRuntime
+class CohortFreezeRuntimeV2:
+    """Thin v2 coordinator; policy, partition, materialization and storage stay separate."""
 
-__all__ = ["CohortFreezeRuntime", "Runtime", "RuntimeErrorCode", "acknowledgement"]
+    def __init__(
+        self,
+        repository: SnapshotRepository,
+        store: Any,
+        *,
+        deployment: DeploymentIdentity | None = None,
+    ) -> None:
+        self.repository = repository
+        self.store = store
+        self.deployment = deployment or DeploymentIdentity()
+
+    @staticmethod
+    def _profile(snapshot: RepositorySnapshot) -> dict[str, Any]:
+        profile = snapshot.profile
+        return {
+            "id": profile.get("id"),
+            "version": profile.get("version"),
+            "schema": profile.get("schema_version"),
+            "sha256": profile.get("sha256") or profile_sha256(profile.get("profile_json", {})),
+        }
+
+    def _preview(self) -> PreviewV2:
+        snapshot = self.repository.load()
+        corpus = build_bounded_corpus(
+            snapshot.candidates,
+            boundaries={
+                "lower": snapshot.boundary.run_id,
+                "lower_started_at_utc": snapshot.boundary.started_at_utc,
+                "upper": snapshot.upper_boundary.run_id if snapshot.upper_boundary else None,
+                "upper_started_at_utc": snapshot.upper_boundary.started_at_utc
+                if snapshot.upper_boundary
+                else None,
+            },
+            bounded_fingerprint_sha256=snapshot.bounded_fingerprint_sha256 or snapshot.fingerprint,
+        )
+        partition = None
+        if corpus.status == "ready":
+            partition = partition_corpus(corpus)
+        rejection = dict(corpus.rejection_counts)
+        for key, value in corpus.ignored_link_counts.items():
+            rejection[key] = rejection.get(key, 0) + value
+        profile = self._profile(snapshot)
+        upper = snapshot.upper_boundary
+        payload: dict[str, Any] = {
+            "schema_version": "f10.1c-preview-v2",
+            "status": corpus.status,
+            "lower_boundary_run_id": snapshot.boundary.run_id,
+            "lower_boundary_started_at_utc": snapshot.boundary.started_at_utc,
+            "lower_boundary_inclusive": True,
+            "upper_boundary_run_id": upper.run_id if upper else None,
+            "upper_boundary_started_at_utc": upper.started_at_utc if upper else None,
+            "upper_boundary_inclusive": True,
+            "corpus_count": CORPUS_COUNT if corpus.status == "ready" else 0,
+            "pilot_count": 50 if partition else 0,
+            "holdout_count": HOLDOUT_COUNT if partition else 0,
+            "rejection_counts": dict(sorted(rejection.items())),
+            "profile_id": profile["id"],
+            "profile_version": profile["version"],
+            "profile_schema": profile["schema"],
+            "profile_sha256": profile["sha256"],
+            "deployment_commit": self.deployment.code_commit,
+            "deployment_clean": self.deployment.clean,
+            "alembic_head": snapshot.alembic_version,
+            "corpus_protocol": CORPUS_PROTOCOL,
+            "partition_protocol": PARTITION_PROTOCOL,
+            "materialization_protocol": MATERIALIZATION_PROTOCOL_V2,
+            "bounded_fingerprint_sha256": (
+                snapshot.bounded_fingerprint_sha256 or snapshot.fingerprint
+            ),
+        }
+        if partition is not None and corpus.corpus_sha256 is not None:
+            payload.update(
+                {
+                    "corpus_sha256": corpus.corpus_sha256,
+                    "pilot_sha256": partition.pilot_sha256,
+                    "holdout_sha256": partition.holdout_sha256,
+                    "quota_sha256": partition.quota_sha256,
+                }
+            )
+        hash_input = {key: value for key, value in payload.items() if key != "preview_sha256"}
+        preview_hash = canonical_hash(hash_input)
+        payload["preview_sha256"] = preview_hash
+        return PreviewV2(payload, preview_hash, corpus, partition, snapshot)
+
+    def status(self) -> PreviewV2:
+        return self._preview()
+
+    def preview(self) -> PreviewV2:
+        return self._preview()
+
+    def freeze(self, supplied_acknowledgement: str) -> FrozenBundleV2:
+        preview = self._preview()
+        if preview.partition is None or preview.corpus.corpus_sha256 is None:
+            raise RuntimeErrorCode("blocked_corpus_cardinality")
+        partition = preview.partition
+        expected = acknowledgement_v2(
+            preview_sha256=preview.preview_sha256 or "",
+            corpus_sha256=preview.corpus.corpus_sha256,
+            pilot_sha256=partition.pilot_sha256,
+            holdout_sha256=partition.holdout_sha256,
+        )
+        if not supplied_acknowledgement.isascii() or supplied_acknowledgement != expected:
+            raise RuntimeErrorCode("acknowledgement_mismatch")
+        profile = self._profile(preview.snapshot)
+        if profile != {
+            "id": BASELINE_PROFILE_ID,
+            "version": BASELINE_PROFILE_VERSION,
+            "schema": BASELINE_PROFILE_SCHEMA,
+            "sha256": BASELINE_PROFILE_SHA256,
+        }:
+            raise RuntimeErrorCode("profile_baseline_mismatch")
+        if preview.snapshot.alembic_version != ALEMBIC_HEAD:
+            raise RuntimeErrorCode("alembic_head_mismatch")
+        if not self.deployment.clean or self.deployment.code_commit == "unknown":
+            raise RuntimeErrorCode("deployment_not_clean")
+        file_payloads, internal, dataset_id = materialize_v2(
+            preview.snapshot,
+            preview.corpus,
+            partition,
+            deployment=replace(self.deployment, alembic_head=preview.snapshot.alembic_version),
+        )
+        target = self.store.root / dataset_id
+        if target.exists() or target.is_symlink():
+            if not self.store.verify(dataset_id):
+                raise RuntimeErrorCode("dataset_id_conflict")
+            try:
+                existing = json.loads(
+                    (target / "internal-manifest.json").read_text(encoding="utf-8")
+                )
+            except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+                raise RuntimeErrorCode("dataset_id_conflict") from exc
+            if existing.get("dataset_id") != dataset_id:
+                raise RuntimeErrorCode("dataset_id_conflict")
+            internal = existing
+        else:
+            target = self.store.publish(
+                dataset_id=dataset_id,
+                file_payloads=file_payloads,
+                internal=internal,
+            )
+        if not self.store.verify(dataset_id):
+            raise RuntimeErrorCode("snapshot_verification_failed")
+        external = build_external_manifest_v2(internal)
+        validate_external_manifest_v2(external)
+        return FrozenBundleV2(
+            dataset_id=dataset_id,
+            path=str(target),
+            internal_manifest=internal,
+            external_manifest=external,
+            corpus_sha256=internal["hashes"]["corpus_sha256"],
+            pilot_sha256=internal["hashes"]["pilot_sha256"],
+            holdout_sha256=internal["hashes"]["holdout_sha256"],
+        )
+
+    def verify(self, dataset_id: str) -> Mapping[str, Any]:
+        if not self.store.verify(dataset_id):
+            raise RuntimeErrorCode("snapshot_verification_failed")
+        target = self.store.root / dataset_id
+        try:
+            internal = json.loads((target / "internal-manifest.json").read_text(encoding="utf-8"))
+            if (
+                internal.get("dataset_id") != dataset_id
+                or internal.get("schema_version") != INTERNAL_MANIFEST_SCHEMA_V2
+            ):
+                raise RuntimeErrorCode("snapshot_manifest_invalid")
+            external = build_external_manifest_v2(internal)
+            validate_external_manifest_v2(external)
+        except RuntimeErrorCode:
+            raise
+        except (OSError, UnicodeError, json.JSONDecodeError, ValueError, TypeError) as exc:
+            raise RuntimeErrorCode("snapshot_manifest_invalid") from exc
+        return {"schema_version": EXTERNAL_MANIFEST_SCHEMA_V2, **external}
+
+
+Runtime = CohortFreezeRuntime
+RuntimeV2 = CohortFreezeRuntimeV2
+
+__all__ = [
+    "CohortFreezeRuntime",
+    "CohortFreezeRuntimeV2",
+    "Runtime",
+    "RuntimeErrorCode",
+    "RuntimeV2",
+    "acknowledgement",
+]

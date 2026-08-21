@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Iterator
+from collections import Counter
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
@@ -17,12 +18,22 @@ from typing import Any
 
 from role_radar.evaluation.cohort_freeze.contracts import (
     BoundaryResolution,
+    BoundedRepositorySnapshot,
     CandidateEvidence,
     IdentityEvidence,
     RepositorySnapshot,
+    ResolvedBoundaries,
 )
 from role_radar.evaluation.cohort_freeze.policy import (
     BOUNDARY_RUN_ID,
+    LOWER_BOUNDARY_RUN_ID,
+    UPPER_BOUNDARY_RUN_ID,
+    UPPER_CONFLICT_COUNT,
+    UPPER_CREATED_COUNT,
+    UPPER_DUPLICATE_COUNT,
+    UPPER_INVALID_COUNT,
+    UPPER_OBSERVED_COUNT,
+    UPPER_STALE_COUNT,
     canonical_time,
 )
 from role_radar.evaluation.snapshot_store import sha256_bytes
@@ -101,6 +112,23 @@ def _row_dict(row: sqlite3.Row) -> dict[str, Any]:
         if key in result:
             result[key] = _parse_json(result[key], code=f"{key}_invalid")
     return result
+
+
+def _upper_aggregate_valid(
+    upper_row: Mapping[str, Any], upper_links: tuple[Mapping[str, Any], ...]
+) -> bool:
+    dispositions = Counter(str(row.get("disposition")) for row in upper_links)
+    return (
+        int(upper_row.get("created_count") or 0) == UPPER_CREATED_COUNT
+        and int(upper_row.get("duplicate_count") or 0) == UPPER_DUPLICATE_COUNT
+        and int(upper_row.get("stale_count") or 0) == UPPER_STALE_COUNT
+        and int(upper_row.get("invalid_count") or 0) == UPPER_INVALID_COUNT
+        and int(upper_row.get("conflict_count") or 0) == UPPER_CONFLICT_COUNT
+        and int(upper_row.get("observed_count") or 0) == UPPER_OBSERVED_COUNT
+        and dispositions.get("created", 0) == UPPER_CREATED_COUNT
+        and dispositions.get("duplicate", 0) == UPPER_DUPLICATE_COUNT
+        and len(upper_links) == UPPER_CREATED_COUNT + UPPER_DUPLICATE_COUNT
+    )
 
 
 class SQLiteSnapshotRepository:
@@ -367,16 +395,240 @@ class SQLiteSnapshotRepository:
                     source_type=(operation.get("source_snapshot_json") or {}).get("type")
                     if operation
                     else None,
+                    source_key=(operation.get("source_snapshot_json") or {}).get("source_key")
+                    if operation
+                    else None,
                     job_exists=row["job_id"] in jobs,
                 )
             )
         return tuple(result)
 
 
+class BoundedSQLiteSnapshotRepository(SQLiteSnapshotRepository):
+    """Read-only v2 projection bounded by the approved lower and upper runs.
+
+    This class intentionally does not reuse the v1 database-byte fingerprint.
+    The backup is still used for consistency, but the v2 identity is built from
+    the allowlisted, reachable semantic projection only.
+    """
+
+    def __init__(
+        self,
+        database: str | Path,
+        *,
+        deployment: dict[str, str] | None = None,
+        lower_boundary_run_id: str = LOWER_BOUNDARY_RUN_ID,
+        upper_boundary_run_id: str = UPPER_BOUNDARY_RUN_ID,
+    ) -> None:
+        super().__init__(database, boundary_run_id=lower_boundary_run_id)
+        self.upper_boundary_run_id = upper_boundary_run_id
+        self.deployment = dict(deployment or {})
+
+    @contextmanager
+    def _bounded_connection(self) -> Iterator[sqlite3.Connection]:
+        source_uri = f"file:{self.database}?mode=ro"
+        source = sqlite3.connect(source_uri, uri=True)
+        source.row_factory = sqlite3.Row
+        memory = sqlite3.connect(":memory:")
+        memory.row_factory = sqlite3.Row
+        try:
+            source.execute("PRAGMA query_only=ON")
+            if source.execute("PRAGMA query_only").fetchone()[0] != 1:
+                raise RepositoryError("query_only_not_enabled")
+            source.set_authorizer(_read_only_authorizer)
+            source.backup(memory)
+            memory.execute("PRAGMA query_only=ON")
+            if memory.execute("PRAGMA query_only").fetchone()[0] != 1:
+                raise RepositoryError("query_only_not_enabled")
+            memory.set_authorizer(_read_only_authorizer)
+            yield memory
+        finally:
+            memory.close()
+            source.close()
+
+    @staticmethod
+    def _projection(connection: sqlite3.Connection) -> dict[str, tuple[dict[str, Any], ...]]:
+        def rows(sql: str) -> tuple[dict[str, Any], ...]:
+            return tuple(_row_dict(row) for row in connection.execute(sql))
+
+        return {
+            "runs": rows(
+                "SELECT id,slot_key,state,snapshot_hash,snapshot_json,policy_version,"
+                "started_at,finished_at,created_count,duplicate_count,stale_count,"
+                "invalid_count,conflict_count,observed_count "
+                "FROM continuous_acquisition_runs"
+            ),
+            "operations": rows(
+                "SELECT id,run_id,source_id,source_snapshot_json,intent_state,result_state,"
+                "observed_count,created_count,started_at,finished_at "
+                "FROM continuous_acquisition_source_operations"
+            ),
+            "links": rows(
+                "SELECT id,run_id,operation_id,job_id,disposition,provider_recency_at,"
+                "recency_semantic,freshness_policy_version,identity_policy_version,"
+                "provenance_hash,created_at FROM continuous_acquisition_run_jobs"
+            ),
+            "jobs": rows(
+                "SELECT id,title,company,location,description,application_url FROM jobs"
+            ),
+            "identities": rows(
+                "SELECT id,job_id,identity_kind,identity_version,identity_value,value_digest "
+                "FROM job_identity_keys"
+            ),
+            "profiles": rows(
+                "SELECT id,name,version,schema_version,profile_json,is_active "
+                "FROM candidate_profiles WHERE is_active = 1"
+            ),
+            "alembic": rows("SELECT version_num FROM alembic_version"),
+        }
+
+    @staticmethod
+    def _semantic_fingerprint(
+        *,
+        boundaries: ResolvedBoundaries,
+        runs: tuple[dict[str, Any], ...],
+        operations: tuple[dict[str, Any], ...],
+        links: tuple[dict[str, Any], ...],
+        jobs: tuple[dict[str, Any], ...],
+        identities: tuple[dict[str, Any], ...],
+        profile: dict[str, Any],
+        alembic: str,
+        deployment: dict[str, str],
+    ) -> str:
+        from role_radar.evaluation.snapshot_store import canonical_line, sha256_bytes
+
+        reachable_jobs = {str(item["job_id"]) for item in links}
+        reachable_identities = tuple(
+            item for item in identities if str(item["job_id"]) in reachable_jobs
+        )
+        payload = {
+            "domain": "f10.1c:bounded-fingerprint-v2",
+            "boundaries": {
+                "lower": boundaries.lower.__dict__ if hasattr(boundaries.lower, "__dict__") else {
+                    "run_id": boundaries.lower.run_id,
+                    "started_at_utc": boundaries.lower.started_at_utc,
+                    "inclusive": boundaries.lower.inclusive,
+                },
+                "upper": {
+                    "run_id": boundaries.upper.run_id,
+                    "started_at_utc": boundaries.upper.started_at_utc,
+                    "inclusive": boundaries.upper.inclusive,
+                },
+            },
+            "runs": sorted(
+                runs, key=lambda row: (canonical_time(row["started_at"]), str(row["id"]))
+            ),
+            "operations": sorted(operations, key=lambda row: (str(row["run_id"]), str(row["id"]))),
+            "links": sorted(links, key=lambda row: (str(row["run_id"]), str(row["id"]))),
+            "jobs": sorted(jobs, key=lambda row: str(row["id"])),
+            "identities": sorted(
+                reachable_identities,
+                key=lambda row: (
+                    str(row["job_id"]),
+                    str(row["identity_version"]),
+                    str(row["identity_kind"]),
+                    str(row["id"]),
+                ),
+            ),
+            "profile": profile,
+            "alembic": alembic,
+            "deployment": deployment,
+        }
+        return sha256_bytes(canonical_line(payload))
+
+    def load(self) -> BoundedRepositorySnapshot:
+        with self._bounded_connection() as connection:
+            tables = self._tables(connection)
+            if not set(ALLOWED_TABLES) <= tables:
+                raise RepositoryError("required_table_missing")
+            projection = self._projection(connection)
+
+        runs = projection["runs"]
+        by_id = {str(row["id"]): row for row in runs}
+        if len(by_id) != len(runs):
+            raise RepositoryError("run_id_duplicate")
+        lower_boundary_run_id = self.boundary_run_id
+        upper_boundary_run_id = self.upper_boundary_run_id
+        try:
+            lower_row = by_id[lower_boundary_run_id]
+            upper_row = by_id[upper_boundary_run_id]
+            lower_time = canonical_time(lower_row["started_at"])
+            upper_time = canonical_time(upper_row["started_at"])
+        except (KeyError, TypeError, ValueError, OverflowError) as exc:
+            raise RepositoryError("boundary_missing_or_invalid") from exc
+        lower = BoundaryResolution(lower_boundary_run_id, lower_time, str(lower_row["state"]))
+        upper = BoundaryResolution(upper_boundary_run_id, upper_time, str(upper_row["state"]))
+        boundaries = ResolvedBoundaries(
+            lower,
+            upper,
+            (lower.started_at_utc, lower.run_id),
+            (upper.started_at_utc, upper.run_id),
+        )
+        if lower.run_state not in {"completed", "completed_partial"}:
+            raise RepositoryError("lower_boundary_not_terminal")
+        if upper.run_state != "completed":
+            raise RepositoryError("upper_boundary_not_completed")
+        bounded_runs = tuple(
+            row
+            for row in runs
+            if boundaries.lower_key
+            <= (canonical_time(row["started_at"]), str(row["id"]))
+            <= boundaries.upper_key
+        )
+        bounded_ids = {str(row["id"]) for row in bounded_runs}
+        operations = tuple(
+            row for row in projection["operations"] if str(row["run_id"]) in bounded_ids
+        )
+        links = tuple(
+            row for row in projection["links"]
+            if str(row["run_id"]) in bounded_ids
+        )
+        upper_links = [row for row in links if str(row["run_id"]) == upper_boundary_run_id]
+        if not _upper_aggregate_valid(upper_row, tuple(upper_links)):
+            raise RepositoryError("upper_boundary_aggregates_mismatch")
+        jobs_by_id = {str(row["id"]): row for row in projection["jobs"]}
+        reached_jobs = {str(row["job_id"]) for row in links}
+        jobs = tuple(row for job_id, row in jobs_by_id.items() if job_id in reached_jobs)
+        identities = tuple(
+            row for row in projection["identities"] if str(row["job_id"]) in reached_jobs
+        )
+        profile = self._active_profile(projection["profiles"])
+        alembic = self._alembic(projection["alembic"])
+        fingerprint = self._semantic_fingerprint(
+            boundaries=boundaries,
+            runs=bounded_runs,
+            operations=operations,
+            links=links,
+            jobs=jobs,
+            identities=identities,
+            profile=profile,
+            alembic=alembic,
+            deployment=self.deployment,
+        )
+        base = BoundedRepositorySnapshot(
+            boundary=lower,
+            upper_boundary=upper,
+            boundaries=boundaries,
+            fingerprint=fingerprint,
+            bounded_fingerprint_sha256=fingerprint,
+            deployment=self.deployment,
+            runs=bounded_runs,
+            operations=operations,
+            links=links,
+            jobs=jobs,
+            identities=identities,
+            profile=profile,
+            alembic_version=alembic,
+        )
+        return replace(base, candidates=self._candidates(base))
+
+
 Repository = SQLiteSnapshotRepository
 
 SQLiteRepository = SQLiteSnapshotRepository
 CohortRepository = SQLiteSnapshotRepository
+
+BoundedRepository = BoundedSQLiteSnapshotRepository
 
 __all__ = [
     "ALLOWED_TABLES",

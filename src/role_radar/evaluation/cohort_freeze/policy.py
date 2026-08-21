@@ -12,6 +12,32 @@ from urllib.parse import urlsplit
 from role_radar.evaluation.snapshot_store import canonical_json_bytes
 
 BOUNDARY_RUN_ID = "d19ce3d0-4e87-448d-a510-39be39b3fef6"
+# F10.1C v1 constants above are retained for the historical exact-50 adapter.
+# The following constants are the only operational policy for the amendment.
+LOWER_BOUNDARY_RUN_ID = "d19ce3d0-4e87-448d-a510-39be39b3fef6"
+UPPER_BOUNDARY_RUN_ID = "f1bff46f-72d0-4724-bcd7-d4a30df20593"
+CORPUS_PROTOCOL = "f10.1c-bounded-corpus-v2"
+PARTITION_PROTOCOL = "f10.1c-source-stratified-partition-v2"
+PREVIEW_SCHEMA_V2 = "f10.1c-preview-v2"
+INTERNAL_MANIFEST_SCHEMA_V2 = "f10.1c-internal-manifest-v2"
+EXTERNAL_MANIFEST_SCHEMA_V2 = "f10.1c-external-manifest-v2"
+INTERNAL_MANIFEST_SCHEMA = INTERNAL_MANIFEST_SCHEMA_V2
+MATERIALIZATION_PROTOCOL_V2 = "f10.1c-materialization-v2"
+SNAPSHOT_SCHEMA_V2 = INTERNAL_MANIFEST_SCHEMA_V2
+CORPUS_COUNT = 177
+PILOT_COUNT = 50
+HOLDOUT_COUNT = 127
+V2_DOMAIN_VERSION = "f10.1c-v2"
+V2_RANK_DOMAIN = "f10.1c:partition-rank-v2"
+V2_CORPUS_DOMAIN = "f10.1c:corpus-v2"
+V2_PARTITION_DOMAIN = "f10.1c:partition-membership-v2"
+V2_DATASET_DOMAIN = "f10.1c:dataset-id-v2"
+UPPER_CREATED_COUNT = 151
+UPPER_DUPLICATE_COUNT = 22
+UPPER_STALE_COUNT = 255
+UPPER_OBSERVED_COUNT = 428
+UPPER_INVALID_COUNT = 0
+UPPER_CONFLICT_COUNT = 0
 SELECTION_PROTOCOL = "f10.1c-selection-v1"
 MATERIALIZATION_PROTOCOL = "f10.1c-materialization-v1"
 PREVIEW_SCHEMA = "f10.1c-preview-v1"
@@ -173,8 +199,56 @@ def validate_acknowledgement(value: str, preview_sha256: str) -> bool:
     return value == acknowledgement(preview_sha256)
 
 
+def acknowledgement_v2(
+    *,
+    preview_sha256: str,
+    corpus_sha256: str,
+    pilot_sha256: str,
+    holdout_sha256: str,
+) -> str:
+    """Return the literal v2 freeze challenge.
+
+    Keeping this constructor separate is intentional: old acknowledgements
+    must never be interpreted as an approval for the bounded corpus.
+    """
+
+    values = (preview_sha256, corpus_sha256, pilot_sha256, holdout_sha256)
+    if any(HEX64.fullmatch(value) is None for value in values):
+        raise ValueError("v2_hash_invalid")
+    return (
+        f"FREEZE F10.1C V2 preview_sha256={preview_sha256} "
+        f"profile_id={BASELINE_PROFILE_ID} profile_version={BASELINE_PROFILE_VERSION} "
+        f"profile_schema={BASELINE_PROFILE_SCHEMA} profile_sha256={BASELINE_PROFILE_SHA256} "
+        f"corpus_sha256={corpus_sha256} pilot_sha256={pilot_sha256} "
+        f"holdout_sha256={holdout_sha256} corpus_protocol={CORPUS_PROTOCOL} "
+        f"partition_protocol={PARTITION_PROTOCOL} corpus_count={CORPUS_COUNT} "
+        f"pilot_count={PILOT_COUNT} holdout_count={HOLDOUT_COUNT}"
+    )
+
+
+def validate_acknowledgement_v2(
+    value: str,
+    *,
+    preview_sha256: str,
+    corpus_sha256: str,
+    pilot_sha256: str,
+    holdout_sha256: str,
+) -> bool:
+    try:
+        expected = acknowledgement_v2(
+            preview_sha256=preview_sha256,
+            corpus_sha256=corpus_sha256,
+            pilot_sha256=pilot_sha256,
+            holdout_sha256=holdout_sha256,
+        )
+    except ValueError:
+        return False
+    return value.isascii() and value == expected
+
+
 __all__ = [name for name in globals() if name.isupper()] + [
     "acknowledgement",
+    "acknowledgement_v2",
     "acquisition_snapshot_hash",
     "canonical_hash",
     "canonical_time",
@@ -182,4 +256,5 @@ __all__ = [name for name in globals() if name.isupper()] + [
     "profile_sha256",
     "source_snapshot_valid",
     "validate_acknowledgement",
+    "validate_acknowledgement_v2",
 ]

@@ -4,16 +4,20 @@ from __future__ import annotations
 
 import re
 from collections import Counter, defaultdict
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from typing import Any
 
 from role_radar.evaluation.cohort_freeze.contracts import (
     CandidateEvidence,
     CohortStatus,
+    CorpusItem,
+    CorpusResult,
     SelectionResult,
 )
 from role_radar.evaluation.cohort_freeze.policy import (
+    CORPUS_COUNT,
     TARGET_COUNT,
+    V2_CORPUS_DOMAIN,
     acquisition_snapshot_hash,
     canonical_hash,
     canonical_time,
@@ -279,14 +283,165 @@ def select_candidates(
     )
 
 
+def strong_identity_digest(candidate: CandidateEvidence) -> str:
+    """Canonical digest used by v2, never a raw identity value in public data."""
+
+    matches = [
+        item
+        for item in candidate.identity_keys
+        if item.version == candidate.identity_policy_version
+    ]
+    if not matches:
+        raise ValueError("strong_identity_missing")
+    ordered = sorted((item.kind, item.version, item.value_digest) for item in matches)
+    return sha256_bytes(b"f10.1c:strong-identity-v2\0" + canonical_line(ordered))
+
+
+def source_stratum(candidate: CandidateEvidence) -> str:
+    source = candidate.source_snapshot_json
+    if not isinstance(source, dict):
+        raise ValueError("source_snapshot_invalid")
+    source_id = source.get("source_id")
+    source_key = source.get("source_key")
+    if not isinstance(source_id, str) or not source_id.strip():
+        raise ValueError("source_snapshot_invalid")
+    if not isinstance(source_key, str) or not source_key.strip():
+        raise ValueError("source_snapshot_invalid")
+    return f"{source_id.strip()}\x00{source_key.strip()}"
+
+
+def item_semantic_sha256_v2(candidate: CandidateEvidence) -> str:
+    if candidate.provider_recency_at is None:
+        raise ValueError("semantic_timestamp_missing")
+    payload = {
+        "content": {
+            "title": candidate.title,
+            "company": candidate.company,
+            "location": candidate.location,
+            "description": candidate.description,
+            "application_url": candidate.application_url,
+        },
+        "provenance": {
+            "provider_recency_at": canonical_time(candidate.provider_recency_at),
+            "recency_semantic": candidate.recency_semantic,
+            "freshness_policy_version": candidate.freshness_policy_version,
+            "identity_policy_version": candidate.identity_policy_version,
+            "provenance_hash": candidate.provenance_hash,
+            "provenance_scope": "source_key+external_id",
+            "source_snapshot_hash": canonical_hash(candidate.source_snapshot_json),
+        },
+    }
+    return sha256_bytes(b"f10.1c:item-semantic-v2\0" + canonical_line(payload))
+
+
+def build_bounded_corpus(
+    candidates: Iterable[CandidateEvidence],
+    *,
+    expected_count: int = CORPUS_COUNT,
+    boundaries: Mapping[str, object] | None = None,
+    bounded_fingerprint_sha256: str = "",
+) -> CorpusResult:
+    """Build the complete bounded parent corpus; never truncates or backfills."""
+
+    source = tuple(candidates)
+    identity_owners: defaultdict[tuple[str, str, str], set[str]] = defaultdict(set)
+    for candidate in source:
+        for identity in candidate.identity_keys:
+            identity_owners[(identity.version, identity.kind, identity.value)].add(
+                identity.owner_job_id
+            )
+    operation_counts: Counter[str] = Counter(
+        item.operation_id for item in source if item.disposition == "created"
+    )
+    run_counts: Counter[str] = Counter(
+        item.run_id for item in source if item.disposition == "created"
+    )
+    counts = MappingCounts(dict(operation_counts), dict(run_counts))
+    ignored: Counter[str] = Counter()
+    by_job: defaultdict[str, list[CandidateEvidence]] = defaultdict(list)
+    for item in source:
+        if item.disposition == "duplicate":
+            ignored["duplicate_link_ignored"] += 1
+        elif item.disposition == "created":
+            by_job[item.job_id].append(item)
+    considered: list[CandidateEvidence] = []
+    for links in by_job.values():
+        ordered = sorted(links, key=_sort_key)
+        considered.append(ordered[0])
+        ignored["non_first_created_link_ignored"] += max(0, len(ordered) - 1)
+    rejection: Counter[str] = Counter()
+    eligible: list[CorpusItem] = []
+    for candidate in sorted(considered, key=_sort_key):
+        reason = _reason(candidate, counts, identity_owners)
+        if reason is not None:
+            rejection[reason] += 1
+            continue
+        try:
+            eligible.append(
+                CorpusItem(
+                    evidence=candidate,
+                    source_stratum=source_stratum(candidate),
+                    strong_identity_digest=strong_identity_digest(candidate),
+                    item_semantic_sha256=item_semantic_sha256_v2(candidate),
+                )
+            )
+        except ValueError as exc:
+            rejection[str(exc)] += 1
+    eligible.sort(key=lambda item: (item.item_semantic_sha256, item.strong_identity_digest))
+    if len({item.item_semantic_sha256 for item in eligible}) != len(eligible):
+        rejection["item_semantic_collision"] += 1
+    if len({item.strong_identity_digest for item in eligible}) != len(eligible):
+        rejection["strong_identity_collision"] += 1
+    if (
+        len(eligible) != expected_count
+        or rejection.get("item_semantic_collision")
+        or rejection.get("strong_identity_collision")
+    ):
+        return CorpusResult(
+            status="blocked",
+            items=(),
+            eligible_count=len(eligible),
+            rejection_counts=dict(sorted(rejection.items())),
+            ignored_link_counts=dict(sorted(ignored.items())),
+            corpus_sha256=None,
+        )
+    corpus_hash = _domain_hash(
+        V2_CORPUS_DOMAIN,
+        (
+            {
+                "schema_version": "f10.1c-preview-v2",
+                "corpus_protocol": "f10.1c-bounded-corpus-v2",
+                "boundaries": dict(boundaries or {}),
+                "bounded_fingerprint_sha256": bounded_fingerprint_sha256,
+            },
+            *(
+                {"semantic": item.item_semantic_sha256, "identity": item.strong_identity_digest}
+                for item in eligible
+            ),
+        ),
+    )
+    return CorpusResult(
+        status="ready",
+        items=tuple(eligible),
+        eligible_count=len(eligible),
+        rejection_counts=dict(sorted(rejection.items())),
+        ignored_link_counts=dict(sorted(ignored.items())),
+        corpus_sha256=corpus_hash,
+    )
+
+
 select = select_candidates
 select_cohort = select_candidates
 evaluate_candidates = select_candidates
 
 __all__ = [
+    "build_bounded_corpus",
     "evaluate_candidates",
     "item_semantic_sha256",
+    "item_semantic_sha256_v2",
     "select",
     "select_candidates",
     "select_cohort",
+    "source_stratum",
+    "strong_identity_digest",
 ]

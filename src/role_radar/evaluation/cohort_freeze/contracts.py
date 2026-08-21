@@ -59,6 +59,7 @@ class CandidateEvidence:
     application_url: str | None = None
     identity_keys: tuple[IdentityEvidence, ...] = ()
     source_type: str | None = None
+    source_key: str | None = None
     ignored_link_ids: tuple[str, ...] = ()
     job_exists: bool = True
 
@@ -84,6 +85,10 @@ class RepositorySnapshot:
     profile: Mapping[str, Any]
     alembic_version: str
     candidates: tuple[CandidateEvidence, ...] = ()
+    # v2 is additive so the historical v1 SnapshotStore contract remains
+    # constructible by old callers and fixtures.
+    upper_boundary: BoundaryResolution | None = None
+    bounded_fingerprint_sha256: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,14 +131,104 @@ class FrozenBundle:
     label_view_sha256: str
 
 
+@dataclass(frozen=True, slots=True)
+class ResolvedBoundaries:
+    lower: BoundaryResolution
+    upper: BoundaryResolution
+    lower_key: tuple[str, str]
+    upper_key: tuple[str, str]
+
+    def __post_init__(self) -> None:
+        if not self.lower.inclusive or not self.upper.inclusive:
+            raise ValueError("boundaries_must_be_inclusive")
+        if self.lower_key > self.upper_key:
+            raise ValueError("boundaries_inverted")
+
+
+@dataclass(frozen=True, slots=True)
+class BoundedRepositorySnapshot(RepositorySnapshot):
+    boundaries: ResolvedBoundaries | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CorpusItem:
+    evidence: CandidateEvidence
+    source_stratum: str
+    strong_identity_digest: str
+    item_semantic_sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class CorpusResult:
+    status: str
+    items: tuple[CorpusItem, ...]
+    eligible_count: int
+    rejection_counts: Mapping[str, int]
+    ignored_link_counts: Mapping[str, int]
+    corpus_sha256: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class SourceQuota:
+    source_stratum: str
+    population: int
+    minimum_applied: int
+    ideal_numerator: int
+    ideal_denominator: int
+    floor: int
+    remainder_numerator: int
+    remainder_denominator: int
+    tie_break_sha256: str
+    quota: int
+
+
+@dataclass(frozen=True, slots=True)
+class PartitionResult:
+    pilot: tuple[CorpusItem, ...]
+    holdout: tuple[CorpusItem, ...]
+    quotas: tuple[SourceQuota, ...]
+    pilot_sha256: str
+    holdout_sha256: str
+    quota_sha256: str
+    algorithm_version: str
+
+
+@dataclass(frozen=True, slots=True)
+class PreviewV2:
+    payload: Mapping[str, Any]
+    preview_sha256: str | None
+    corpus: CorpusResult
+    partition: PartitionResult | None
+    snapshot: RepositorySnapshot
+
+
+@dataclass(frozen=True, slots=True)
+class FrozenBundleV2:
+    dataset_id: str
+    path: str
+    internal_manifest: Mapping[str, Any]
+    external_manifest: Mapping[str, Any]
+    corpus_sha256: str
+    pilot_sha256: str
+    holdout_sha256: str
+
+
 __all__ = [
     "BoundaryResolution",
+    "BoundedRepositorySnapshot",
     "CandidateEvidence",
     "CohortStatus",
+    "CorpusItem",
+    "CorpusResult",
     "DeploymentIdentity",
     "FrozenBundle",
+    "FrozenBundleV2",
     "IdentityEvidence",
+    "PartitionResult",
     "PreviewResult",
+    "PreviewV2",
     "RepositorySnapshot",
+    "ResolvedBoundaries",
     "SelectionResult",
+    "SourceQuota",
 ]

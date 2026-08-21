@@ -9,18 +9,29 @@ from typing import Any
 
 from role_radar.evaluation.cohort_freeze.contracts import (
     CandidateEvidence,
+    CorpusResult,
     DeploymentIdentity,
+    PartitionResult,
     RepositorySnapshot,
     SelectionResult,
 )
+from role_radar.evaluation.cohort_freeze.partition import partition_rank_sha256
 from role_radar.evaluation.cohort_freeze.policy import (
     BASELINE_PROFILE_ID,
     BASELINE_PROFILE_SCHEMA,
     BASELINE_PROFILE_SHA256,
     BASELINE_PROFILE_VERSION,
+    CORPUS_COUNT,
+    CORPUS_PROTOCOL,
+    HOLDOUT_COUNT,
+    INTERNAL_MANIFEST_SCHEMA_V2,
     MATERIALIZATION_PROTOCOL,
+    MATERIALIZATION_PROTOCOL_V2,
+    PARTITION_PROTOCOL,
+    PILOT_COUNT,
     SNAPSHOT_SCHEMA,
     TARGET_COUNT,
+    V2_DATASET_DOMAIN,
     canonical_hash,
     canonical_time,
 )
@@ -195,4 +206,235 @@ materialize_selection = materialize
 opaque_id = _opaque_id
 blind_order_key = _blind_key
 
-__all__ = ["blind_order_key", "materialize", "materialize_selection", "opaque_id"]
+
+def _v2_opaque_id(dataset_id: str, item_hash: str) -> str:
+    return hashlib.sha256(
+        b"f10.1c:opaque-id-v2\0" + dataset_id.encode("ascii") + b"\0" + item_hash.encode("ascii")
+    ).hexdigest()[:24]
+
+
+def _v2_blind_key(dataset_id: str, split: str, opaque_id: str) -> str:
+    return hashlib.sha256(
+        b"f10.1c:blind-order-v2\0"
+        + dataset_id.encode("ascii")
+        + b"\0"
+        + split.encode("ascii")
+        + b"\0"
+        + opaque_id.encode("ascii")
+    ).hexdigest()
+
+
+def materialize_v2(
+    snapshot: RepositorySnapshot,
+    corpus: CorpusResult,
+    partition: PartitionResult,
+    *,
+    deployment: DeploymentIdentity | None = None,
+    frozen_at: datetime | None = None,
+) -> tuple[dict[str, bytes], dict[str, Any], str]:
+    """Build the six-file v2 bundle payload without touching the filesystem."""
+
+    if corpus.status != "ready" or corpus.corpus_sha256 is None:
+        raise ValueError("corpus_not_ready")
+    if (
+        len(corpus.items) != CORPUS_COUNT
+        or len(partition.pilot) != PILOT_COUNT
+        or len(partition.holdout) != HOLDOUT_COUNT
+    ):
+        raise ValueError("materialization_cardinality_invalid")
+    identity = deployment or DeploymentIdentity(alembic_head=snapshot.alembic_version)
+    item_hashes = tuple(item.item_semantic_sha256 for item in corpus.items)
+    preimage = {
+        "schema_version": INTERNAL_MANIFEST_SCHEMA_V2,
+        "corpus_protocol": CORPUS_PROTOCOL,
+        "partition_protocol": PARTITION_PROTOCOL,
+        "materialization_protocol": MATERIALIZATION_PROTOCOL_V2,
+        "boundaries": {
+            "lower": snapshot.boundary.run_id,
+            "upper": snapshot.upper_boundary.run_id if snapshot.upper_boundary else None,
+        },
+        "profile": {
+            "id": BASELINE_PROFILE_ID,
+            "version": BASELINE_PROFILE_VERSION,
+            "schema": BASELINE_PROFILE_SCHEMA,
+            "sha256": BASELINE_PROFILE_SHA256,
+        },
+        "corpus_sha256": corpus.corpus_sha256,
+        "pilot_sha256": partition.pilot_sha256,
+        "holdout_sha256": partition.holdout_sha256,
+        "quota_sha256": partition.quota_sha256,
+        "item_semantic_sha256": item_hashes,
+    }
+    dataset_id = sha256_bytes(V2_DATASET_DOMAIN.encode("ascii") + b"\0" + canonical_line(preimage))
+    opaque_by_key = {
+        (item.item_semantic_sha256, item.strong_identity_digest): _v2_opaque_id(
+            dataset_id, item.item_semantic_sha256
+        )
+        for item in corpus.items
+    }
+    if len(set(opaque_by_key.values())) != CORPUS_COUNT:
+        raise ValueError("opaque_id_collision")
+    pilot_keys = {
+        (item.item_semantic_sha256, item.strong_identity_digest) for item in partition.pilot
+    }
+    holdout_keys = {
+        (item.item_semantic_sha256, item.strong_identity_digest) for item in partition.holdout
+    }
+
+    corpus_records: list[dict[str, Any]] = []
+    provenance_records: list[dict[str, Any]] = []
+    item_manifest: list[dict[str, Any]] = []
+    for ordinal, item in enumerate(corpus.items, start=1):
+        key = (item.item_semantic_sha256, item.strong_identity_digest)
+        opaque = opaque_by_key[key]
+        candidate = item.evidence
+        if candidate.accepted_observation_at is None or candidate.provider_recency_at is None:
+            raise ValueError("materialization_timestamp_missing")
+        corpus_records.append(
+            {
+                "opaque_id": opaque,
+                "ordinal": ordinal,
+                "title": candidate.title,
+                "company": candidate.company,
+                "location": candidate.location,
+                "description": candidate.description,
+                "application_url": candidate.application_url,
+            }
+        )
+        provenance_records.append(
+            {
+                "opaque_id": opaque,
+                "job_id": candidate.job_id,
+                "link_id": candidate.link_id,
+                "run_id": candidate.run_id,
+                "operation_id": candidate.operation_id,
+                "accepted_observation_at_utc": canonical_time(candidate.accepted_observation_at),
+                "provider_recency_at": canonical_time(candidate.provider_recency_at),
+                "recency_semantic": candidate.recency_semantic,
+                "freshness_policy_version": candidate.freshness_policy_version,
+                "identity_policy_version": candidate.identity_policy_version,
+                "provenance_hash": candidate.provenance_hash,
+                "provenance_scope": "source_key+external_id",
+                "run_policy_version": candidate.run_policy_version,
+                "run_snapshot_hash": candidate.run_snapshot_hash,
+                "source_snapshot": _source_projection(candidate),
+                "identity_digest": item.strong_identity_digest,
+            }
+        )
+        split = "pilot" if key in pilot_keys else "holdout" if key in holdout_keys else ""
+        if not split:
+            raise ValueError("partition_membership_invalid")
+        item_manifest.append(
+            {
+                "opaque_id": opaque,
+                "item_semantic_sha256": item.item_semantic_sha256,
+                "strong_identity_digest": item.strong_identity_digest,
+                "source_stratum": item.source_stratum,
+                "split": split,
+                "partition_rank_sha256": partition_rank_sha256(corpus.corpus_sha256, item),
+            }
+        )
+
+    corpus_lines = tuple(canonical_line(record) for record in corpus_records)
+    provenance_lines = tuple(canonical_line(record) for record in provenance_records)
+
+    def label_lines(items: tuple[Any, ...], split: str) -> bytes:
+        records = []
+        for item in items:
+            opaque = opaque_by_key[(item.item_semantic_sha256, item.strong_identity_digest)]
+            candidate = item.evidence
+            records.append(
+                (
+                    _v2_blind_key(dataset_id, split, opaque),
+                    canonical_line(
+                        {
+                            "opaque_id": opaque,
+                            "title": candidate.title,
+                            "company": candidate.company,
+                            "location": candidate.location,
+                            "description": candidate.description,
+                        }
+                    ),
+                )
+            )
+        return b"".join(line for _key, line in sorted(records, key=lambda value: value[0]))
+
+    pilot_lines = label_lines(partition.pilot, "pilot")
+    holdout_lines = label_lines(partition.holdout, "holdout")
+    frozen = (
+        (frozen_at or datetime.now(UTC))
+        .astimezone(UTC)
+        .isoformat(timespec="microseconds")
+        .replace("+00:00", "Z")
+    )
+    file_payloads = {
+        "corpus.jsonl": b"".join(corpus_lines),
+        "provenance.jsonl": b"".join(provenance_lines),
+        "pilot-label-view.jsonl": pilot_lines,
+        "holdout-label-view.jsonl": holdout_lines,
+    }
+    internal = {
+        "schema_version": INTERNAL_MANIFEST_SCHEMA_V2,
+        "dataset_id": dataset_id,
+        "boundaries": {
+            "lower": {
+                "run_id": snapshot.boundary.run_id,
+                "started_at_utc": snapshot.boundary.started_at_utc,
+                "inclusive": True,
+            },
+            "upper": {
+                "run_id": snapshot.upper_boundary.run_id if snapshot.upper_boundary else None,
+                "started_at_utc": (
+                    snapshot.upper_boundary.started_at_utc if snapshot.upper_boundary else None
+                ),
+                "inclusive": True,
+            },
+        },
+        "counts": {"corpus": CORPUS_COUNT, "pilot": PILOT_COUNT, "holdout": HOLDOUT_COUNT},
+        "hashes": {
+            "bounded_fingerprint_sha256": (
+                snapshot.bounded_fingerprint_sha256 or snapshot.fingerprint
+            ),
+            "corpus_sha256": corpus.corpus_sha256,
+            "pilot_sha256": partition.pilot_sha256,
+            "holdout_sha256": partition.holdout_sha256,
+            "quota_sha256": partition.quota_sha256,
+        },
+        "protocols": {
+            "corpus": CORPUS_PROTOCOL,
+            "partition": PARTITION_PROTOCOL,
+            "materialization": MATERIALIZATION_PROTOCOL_V2,
+        },
+        "profile": preimage["profile"],
+        "deployment": {
+            "code_commit": identity.code_commit,
+            "clean": identity.clean,
+            "alembic_head": identity.alembic_head,
+        },
+        "source_quotas": [
+            {
+                "source_stratum": quota.source_stratum,
+                "population": quota.population,
+                "minimum_applied": quota.minimum_applied,
+                "ideal": [quota.ideal_numerator, quota.ideal_denominator],
+                "floor": quota.floor,
+                "remainder": [quota.remainder_numerator, quota.remainder_denominator],
+                "tie_break_sha256": quota.tie_break_sha256,
+                "quota": quota.quota,
+            }
+            for quota in partition.quotas
+        ],
+        "items": item_manifest,
+        "file_hashes": {name: sha256_bytes(value) for name, value in file_payloads.items()},
+        "frozen_at": frozen,
+        "preimage": preimage,
+    }
+    return file_payloads, internal, dataset_id
+
+__all__ = [
+    "blind_order_key",
+    "materialize",
+    "materialize_selection",
+    "materialize_v2",
+    "opaque_id",
+]
