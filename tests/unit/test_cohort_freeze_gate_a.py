@@ -28,6 +28,7 @@ from role_radar.evaluation.cohort_freeze.policy import (
     BASELINE_PROFILE_SHA256,
     BASELINE_PROFILE_VERSION,
     BOUNDARY_RUN_ID,
+    acquisition_snapshot_hash,
     canonical_hash,
 )
 from role_radar.evaluation.cohort_freeze.repository import SQLiteSnapshotRepository
@@ -136,6 +137,37 @@ def test_precedence_rejects_invalid_provenance_and_content() -> None:
         "freshness_provenance_invalid": 1,
         "job_content_missing": 1,
     }
+
+
+def test_snapshot_hash_is_compatible_with_multi_source_acquisition_order() -> None:
+    first = {
+        "source_id": "source-z",
+        "source_key": "source:key:z",
+        "type": "greenhouse",
+        "revision": 1,
+    }
+    second = {
+        "source_id": "source-a",
+        "source_key": "source:key:a",
+        "type": "greenhouse",
+        "revision": 1,
+    }
+    current = replace(
+        candidate(1),
+        run_snapshot_json=[first, second],
+        run_snapshot_hash=acquisition_snapshot_hash([first, second]),
+        source_snapshot_json=first,
+        operation_source_id="source-z",
+    )
+
+    result = select_candidates((current,))
+
+    assert result.eligible_count == 1
+    assert result.rejection_counts == {}
+
+
+def test_profile_baseline_id_matches_runtime_profile() -> None:
+    assert BASELINE_PROFILE_ID == "e4aec18c-90fa-4553-ae3e-9e4655223683"
 
 
 def test_store_is_exactly_fifty_tamper_evident_and_atomic(tmp_path: Path) -> None:

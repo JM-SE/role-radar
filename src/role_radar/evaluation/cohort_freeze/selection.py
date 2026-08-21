@@ -14,6 +14,7 @@ from role_radar.evaluation.cohort_freeze.contracts import (
 )
 from role_radar.evaluation.cohort_freeze.policy import (
     TARGET_COUNT,
+    acquisition_snapshot_hash,
     canonical_hash,
     canonical_time,
     content_reason,
@@ -85,7 +86,7 @@ def _reason(
     if candidate.operation_source_id != candidate.source_snapshot_json["source_id"]:
         return "run_operation_inconsistent"
     try:
-        expected_run_hash = canonical_hash(candidate.run_snapshot_json)
+        expected_run_hash = acquisition_snapshot_hash(candidate.run_snapshot_json)
         source_belongs = isinstance(candidate.run_snapshot_json, list) and any(
             item == candidate.source_snapshot_json for item in candidate.run_snapshot_json
         )

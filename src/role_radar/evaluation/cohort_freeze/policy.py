@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from datetime import UTC, datetime
 from typing import Any
@@ -18,7 +19,7 @@ SNAPSHOT_SCHEMA = "f10.1c-snapshot-v1"
 EXTERNAL_MANIFEST_SCHEMA = "f10.1c-external-manifest-v1"
 TARGET_COUNT = 50
 SNAPSHOT_ROOT = "/opt/role-radar/data/evaluation/f10.1c"
-BASELINE_PROFILE_ID = "e4aec18c-90fa-455a-ae3e-9e4655223683"
+BASELINE_PROFILE_ID = "e4aec18c-90fa-4553-ae3e-9e4655223683"
 BASELINE_PROFILE_VERSION = 2
 BASELINE_PROFILE_SCHEMA = 1
 BASELINE_PROFILE_SCHEMA_VERSION = BASELINE_PROFILE_SCHEMA
@@ -76,6 +77,25 @@ def canonical_time(value: datetime | str) -> str:
 
 def canonical_hash(value: Any) -> str:
     return hashlib.sha256(canonical_json_bytes(value)).hexdigest()
+
+
+def acquisition_snapshot_hash(value: Any) -> str:
+    """Reproduce the hash persisted by continuous acquisition runs.
+
+    Acquisition hashes source snapshots sorted by ``source_id`` while the
+    stored JSON may retain the source iteration order. F10.1C must validate
+    that persisted contract without treating list order as semantic.
+    """
+
+    if not isinstance(value, list) or any(not isinstance(item, dict) for item in value):
+        raise ValueError("run_snapshot_invalid")
+    try:
+        ordered = sorted(value, key=lambda item: str(item["source_id"]))
+    except (KeyError, TypeError) as exc:
+        raise ValueError("run_snapshot_invalid") from exc
+    return hashlib.sha256(
+        json.dumps(ordered, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
 
 
 def source_snapshot_valid(value: Any) -> bool:
@@ -155,6 +175,7 @@ def validate_acknowledgement(value: str, preview_sha256: str) -> bool:
 
 __all__ = [name for name in globals() if name.isupper()] + [
     "acknowledgement",
+    "acquisition_snapshot_hash",
     "canonical_hash",
     "canonical_time",
     "content_reason",
