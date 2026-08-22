@@ -522,6 +522,22 @@ def _parser() -> argparse.ArgumentParser:
     freeze_f10_1c.add_argument("--acknowledgement", required=True)
     verify_f10_1c = f10_1c_commands.add_parser("verify")
     verify_f10_1c.add_argument("--dataset-id", required=True)
+    f10_2 = evaluation_commands.add_parser("f10-2")
+    f10_2_commands = f10_2.add_subparsers(dest="f10_2_command", required=True)
+    for command in ("status", "label", "review", "adjudicate", "preview-finalize"):
+        command_parser = f10_2_commands.add_parser(command)
+        command_parser.add_argument("--dataset-id", required=True)
+    start_f10_2 = f10_2_commands.add_parser("start")
+    start_f10_2.add_argument("--dataset-id", required=True)
+    start_f10_2.add_argument("--acknowledgement", required=True)
+    reopen_f10_2 = f10_2_commands.add_parser("reopen-first-pass")
+    reopen_f10_2.add_argument("--dataset-id", required=True)
+    reopen_f10_2.add_argument("--acknowledgement", required=True)
+    finalize_f10_2 = f10_2_commands.add_parser("finalize")
+    finalize_f10_2.add_argument("--dataset-id", required=True)
+    finalize_f10_2.add_argument("--acknowledgement", required=True)
+    verify_f10_2 = f10_2_commands.add_parser("verify")
+    verify_f10_2.add_argument("--labelset-id", required=True)
     return parser
 
 
@@ -529,6 +545,10 @@ def _run_evaluation(args: argparse.Namespace) -> int:
     """Gate-A CLI surface; live acquisition is deliberately fail-closed here."""
     if args.evaluation_command == "f10-1c":
         from role_radar.cli.evaluation_f10_1c import run
+
+        return run(args)
+    if args.evaluation_command == "f10-2":
+        from role_radar.cli.evaluation_f10_2 import run
 
         return run(args)
     if args.evaluation_command != "f10-1":
