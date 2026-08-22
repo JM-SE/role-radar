@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import ctypes
+import errno
 import fcntl
 import os
 import stat
@@ -95,10 +97,31 @@ def atomic_write(path: Path, payload: bytes) -> None:
 
 
 def publish_no_replace(staging: Path, target: Path) -> None:
-    if target.exists() or target.is_symlink():
-        raise FilesystemError("publish_conflict")
     try:
-        os.rename(staging, target)
+        libc = ctypes.CDLL(None, use_errno=True)
+        renameat2 = getattr(libc, "renameat2", None)
+        if renameat2 is None:
+            raise FilesystemError("no_replace_unavailable")
+        renameat2.argtypes = [
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_uint,
+        ]
+        renameat2.restype = ctypes.c_int
+        result = renameat2(
+            -100,
+            os.fsencode(staging),
+            -100,
+            os.fsencode(target),
+            1,
+        )
+        if result != 0:
+            error = ctypes.get_errno()
+            if error == errno.EEXIST:
+                raise FilesystemError("publish_conflict")
+            raise OSError(error, os.strerror(error))
         directory = os.open(target.parent, os.O_DIRECTORY)
         try:
             os.fsync(directory)

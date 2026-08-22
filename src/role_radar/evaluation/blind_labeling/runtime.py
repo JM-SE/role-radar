@@ -145,7 +145,18 @@ class BlindLabelingRuntime:
 
     def save_first_pass(self, item_id: str, decision: Decision) -> dict[str, Any]:
         state = self._state()
-        next_state = save_first_pass(state, item_id, decision, self.clock(), expected_revision=state.revision)
+        snapshot = self._snapshot()
+        try:
+            next_state = save_first_pass(
+                state,
+                item_id,
+                decision,
+                self.clock(),
+                expected_revision=state.revision,
+                allowed_item_ids=frozenset(item.opaque_id for item in snapshot.items),
+            )
+        except SessionError as exc:
+            raise RuntimeErrorCode(exc.code) from exc
         try:
             self.store.save(next_state, expected_revision=state.revision)
         except StoreError as exc:

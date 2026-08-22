@@ -26,6 +26,7 @@ def _fixture(root: Path) -> tuple[PilotSource, str]:
     dataset_id = "d" * 64
     directory = root / dataset_id
     directory.mkdir(mode=0o700, parents=True)
+    os.chmod(root, 0o700)
     lines = tuple(
         canonical_line(
             {

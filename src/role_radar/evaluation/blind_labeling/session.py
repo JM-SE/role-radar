@@ -15,6 +15,7 @@ from role_radar.evaluation.blind_labeling.contracts import (
     SessionPhase,
     SessionState,
 )
+from role_radar.evaluation.blind_labeling.policy import PILOT_COUNT
 from role_radar.evaluation.blind_labeling.review import build_review_plan, first_pass_hash
 from role_radar.evaluation.blind_labeling.validation import ValidationError, validate_decision
 
@@ -63,18 +64,23 @@ def save_first_pass(
     occurred_at: str,
     *,
     expected_revision: int | None = None,
+    allowed_item_ids: frozenset[str] | None = None,
 ) -> SessionState:
     _require_revision(state, expected_revision)
     if state.phase not in {SessionPhase.LABELING, SessionPhase.FIRST_PASS_COMPLETE}:
         raise SessionError("first_pass_sealed")
+    if allowed_item_ids is not None and item_id not in allowed_item_ids:
+        raise SessionError("pilot_item_invalid")
     try:
         decision = validate_decision(decision)
     except ValidationError as exc:
         raise SessionError(exc.code) from exc
     values = _decisions(state)
     before = values.get(item_id)
+    if before is None and len(values) >= PILOT_COUNT:
+        raise SessionError("label_cardinality_invalid")
     values[item_id] = decision
-    phase = SessionPhase.FIRST_PASS_COMPLETE if len(values) == 50 else SessionPhase.LABELING
+    phase = SessionPhase.FIRST_PASS_COMPLETE if len(values) == PILOT_COUNT else SessionPhase.LABELING
     next_state = replace(state, phase=phase, first_pass=tuple(sorted(values.items())))
     return _event(
         next_state,
@@ -98,7 +104,7 @@ def _decision_payload(value: Decision | None) -> dict[str, object] | None:
 
 
 def seal_for_review(state: SessionState, snapshot: PilotSnapshot, occurred_at: str) -> SessionState:
-    if state.phase not in {SessionPhase.FIRST_PASS_COMPLETE, SessionPhase.REVIEWING} or len(state.first_pass) != 50:
+    if state.phase not in {SessionPhase.FIRST_PASS_COMPLETE, SessionPhase.REVIEWING} or len(state.first_pass) != PILOT_COUNT:
         raise SessionError("first_pass_incomplete")
     decisions = _decisions(state)
     plan = state.review_plan or build_review_plan(snapshot, decisions, generation=state.generation, rubric_sha256=state.rubric_sha256)
@@ -165,7 +171,7 @@ def reopen(state: SessionState, occurred_at: str, *, expected_revision: int | No
     if state.phase in {SessionPhase.FINALIZED, SessionPhase.LABELING, SessionPhase.FIRST_PASS_COMPLETE}:
         raise SessionError("reopen_invalid")
     next_state = replace(
-        state, phase=SessionPhase.LABELING if len(state.first_pass) < 50 else SessionPhase.FIRST_PASS_COMPLETE,
+        state, phase=SessionPhase.LABELING if len(state.first_pass) < PILOT_COUNT else SessionPhase.FIRST_PASS_COMPLETE,
         first_pass_sha256=None, generation=state.generation + 1, review_plan=None,
         review_decisions=(), adjudications=(), finalization_intent=None,
     )
@@ -180,7 +186,7 @@ def final_decisions(state: SessionState) -> dict[str, Decision]:
     adjudications = {item.item_id: item.decision for item in state.adjudications}
     for item_id, review in reviews.items():
         result[item_id] = adjudications.get(item_id, review.decision)
-    if len(result) != 50:
+    if len(result) != PILOT_COUNT:
         raise SessionError("label_cardinality_invalid")
     return result
 

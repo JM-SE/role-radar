@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,8 @@ def _payload(value: Any) -> str:
 
 
 def _runtime(dataset_id: str) -> BlindLabelingRuntime:
+    if dataset_id != DATASET_ID:
+        raise RuntimeErrorCode("dataset_id_mismatch")
     return BlindLabelingRuntime(
         PilotSource(Path(SOURCE_ROOT), dataset_id=dataset_id),
         LabelingStore(Path(OUTPUT_ROOT), dataset_id=dataset_id, rubric_version="f10.2-rubric-v1"),
@@ -31,8 +34,10 @@ def _runtime(dataset_id: str) -> BlindLabelingRuntime:
 
 
 def run(args: Any) -> int:
-    dataset_id = args.dataset_id
+    dataset_id = getattr(args, "dataset_id", DATASET_ID)
     try:
+        if dataset_id != DATASET_ID:
+            raise RuntimeErrorCode("dataset_id_mismatch")
         runtime = _runtime(dataset_id)
         command = args.f10_2_command
         if command == "status":
@@ -53,7 +58,11 @@ def run(args: Any) -> int:
         if command == "verify":
             print(_payload(_runtime(DATASET_ID).verify(args.labelset_id)))
             return 0
-        io = StdTerminalIO(input, print, True)
+        io = StdTerminalIO(
+            input,
+            print,
+            bool(sys.stdin.isatty() and sys.stdout.isatty()),
+        )
         if not io.is_tty:
             return 130
         if command == "label":
