@@ -6,7 +6,7 @@ import hashlib
 import os
 from pathlib import Path
 
-from role_radar.evaluation.blind_labeling.contracts import Decision, Label
+from role_radar.evaluation.blind_labeling.contracts import AuditKind, Decision, Label
 from role_radar.evaluation.blind_labeling.materialization import build_bundle
 from role_radar.evaluation.blind_labeling.pilot_source import PilotSource
 from role_radar.evaluation.blind_labeling.policy import PROTOCOL_VERSION, RUBRIC_VERSION
@@ -48,7 +48,7 @@ def _fixture(root: Path) -> tuple[PilotSource, str]:
         PilotSource(
             root,
             dataset_id=dataset_id,
-            pilot_sha256="p" * 64,
+            pilot_sha256="a" * 64,
             pilot_file_sha256=file_hash,
         ),
         dataset_id,
@@ -61,7 +61,7 @@ def test_full_first_pass_review_and_immutable_materialization(tmp_path: Path) ->
     state = new_session(
         snapshot,
         RUBRIC_VERSION,
-        "r" * 64,
+        "b" * 64,
         PROTOCOL_VERSION,
         "2026-01-01T00:00:00Z",
     )
@@ -95,7 +95,7 @@ def test_full_first_pass_review_and_immutable_materialization(tmp_path: Path) ->
         new_session(
             snapshot,
             RUBRIC_VERSION,
-            "r" * 64,
+            "b" * 64,
             PROTOCOL_VERSION,
             "2026-01-01T00:00:00Z",
         )
@@ -126,4 +126,12 @@ def test_runtime_finalization_retry_is_idempotent(tmp_path: Path) -> None:
     first = runtime.finalize(challenge)
     second = runtime.finalize(challenge)
     assert first.labelset_id == second.labelset_id
+    intent = runtime._state().finalization_intent
+    assert intent is not None
+    assert intent.labelset_id == first.labelset_id
+    assert len(intent.draft_payload_sha256) == 64
+    assert any(
+        event.kind is AuditKind.FINALIZATION_INTENT
+        for event in runtime._state().audit_events
+    )
     assert runtime.verify(first.labelset_id)["status"] == "verified"

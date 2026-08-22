@@ -100,6 +100,18 @@ class ReviewPlan:
 
 
 @dataclass(frozen=True, slots=True)
+class FinalizationIntent:
+    challenge_sha256: str
+    draft_revision: int
+    draft_payload_sha256: str
+    labelset_id: str
+    final_labels_sha256: str
+    review_report_sha256: str
+    audit_sha256: str
+    finalized_at: str
+
+
+@dataclass(frozen=True, slots=True)
 class SessionState:
     dataset_id: str
     pilot_sha256: str
@@ -116,7 +128,7 @@ class SessionState:
     review_decisions: tuple[ReviewDecision, ...]
     adjudications: tuple[Adjudication, ...]
     audit_events: tuple[AuditEvent, ...]
-    finalization_intent: dict[str, Any] | None = None
+    finalization_intent: FinalizationIntent | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,7 +138,8 @@ class FinalizedBundle:
 
 
 __all__ = [
-    "Adjudication", "AuditEvent", "AuditKind", "Decision", "FinalizedBundle", "Label",
+    "Adjudication", "AuditEvent", "AuditKind", "Decision", "FinalizationIntent",
+    "FinalizedBundle", "Label",
     "PilotItem", "PilotSnapshot", "ReviewDecision", "ReviewItem", "ReviewPlan", "SessionPhase",
     "SessionState",
 ]

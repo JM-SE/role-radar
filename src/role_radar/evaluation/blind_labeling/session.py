@@ -10,12 +10,19 @@ from role_radar.evaluation.blind_labeling.contracts import (
     AuditEvent,
     AuditKind,
     Decision,
+    FinalizationIntent,
     PilotSnapshot,
     ReviewDecision,
     SessionPhase,
     SessionState,
 )
-from role_radar.evaluation.blind_labeling.policy import PILOT_COUNT
+from role_radar.evaluation.blind_labeling.policy import (
+    DATASET_ID,
+    HEX64,
+    OPAQUE_ID,
+    PILOT_COUNT,
+    PROTOCOL_VERSION,
+)
 from role_radar.evaluation.blind_labeling.review import build_review_plan, first_pass_hash
 from role_radar.evaluation.blind_labeling.validation import ValidationError, validate_decision
 
@@ -24,6 +31,177 @@ class SessionError(ValueError):
     def __init__(self, code: str) -> None:
         self.code = code
         super().__init__(code)
+
+
+def validate_state(
+    state: SessionState,
+    *,
+    expected_dataset_id: str | None = None,
+    expected_rubric_version: str | None = None,
+) -> None:
+    if not isinstance(state, SessionState):
+        raise SessionError("draft_state_invalid")
+    if expected_dataset_id is not None and state.dataset_id != expected_dataset_id:
+        raise SessionError("draft_binding_invalid")
+    if (
+        state.dataset_id != DATASET_ID
+        and expected_dataset_id is None
+        and HEX64.fullmatch(state.dataset_id) is None
+    ):
+        raise SessionError("draft_binding_invalid")
+    for value in (state.pilot_sha256, state.pilot_view_sha256, state.rubric_sha256):
+        if not isinstance(value, str) or HEX64.fullmatch(value) is None:
+            raise SessionError("draft_binding_invalid")
+    if expected_rubric_version is not None and state.rubric_version != expected_rubric_version:
+        raise SessionError("draft_binding_invalid")
+    if not isinstance(state.rubric_version, str) or not state.rubric_version:
+        raise SessionError("draft_binding_invalid")
+    if state.protocol_version != PROTOCOL_VERSION:
+        raise SessionError("draft_binding_invalid")
+    if type(state.revision) is not int or type(state.generation) is not int or state.revision < 1 or len(state.audit_events) != state.revision:
+        raise SessionError("draft_state_invalid")
+    if [event.revision for event in state.audit_events] != list(range(1, state.revision + 1)):
+        raise SessionError("draft_audit_invalid")
+    if any(
+        type(event.revision) is not int
+        or type(event.generation) is not int
+        or not isinstance(event.item_id, str | None)
+        or not isinstance(event.before, dict | None)
+        or not isinstance(event.after, dict | None)
+        or not isinstance(event.occurred_at, str)
+        for event in state.audit_events
+    ):
+        raise SessionError("draft_audit_invalid")
+    if state.generation < 0:
+        raise SessionError("draft_state_invalid")
+
+    first_pass_ids = [item_id for item_id, _decision in state.first_pass]
+    if first_pass_ids != sorted(first_pass_ids) or len(set(first_pass_ids)) != len(first_pass_ids):
+        raise SessionError("draft_first_pass_invalid")
+    if len(first_pass_ids) > PILOT_COUNT or any(OPAQUE_ID.fullmatch(item_id) is None for item_id in first_pass_ids):
+        raise SessionError("draft_first_pass_invalid")
+    decisions = _decisions(state)
+    for decision in decisions.values():
+        try:
+            validate_decision(decision)
+        except ValidationError as exc:
+            raise SessionError("draft_decision_invalid") from exc
+
+    plan = state.review_plan
+    if plan is not None:
+        if (
+            type(plan.generation) is not int
+            or not isinstance(plan.first_pass_sha256, str)
+            or not isinstance(plan.plan_sha256, str)
+            or plan.generation != state.generation
+            or HEX64.fullmatch(plan.first_pass_sha256) is None
+            or HEX64.fullmatch(plan.plan_sha256) is None
+        ):
+            raise SessionError("draft_review_plan_invalid")
+        if not plan.item_ids or len(set(plan.item_ids)) != len(plan.item_ids):
+            raise SessionError("draft_review_plan_invalid")
+        if any(OPAQUE_ID.fullmatch(item_id) is None or item_id not in decisions for item_id in plan.item_ids):
+            raise SessionError("draft_review_plan_invalid")
+    review_ids = [item.item_id for item in state.review_decisions]
+    if len(set(review_ids)) != len(review_ids) or any(plan is None or item_id not in plan.item_ids for item_id in review_ids):
+        raise SessionError("draft_review_invalid")
+    for item in state.review_decisions:
+        if not isinstance(item.matches_first_pass, bool) or item.matches_first_pass != (item.decision == decisions[item.item_id]):
+            raise SessionError("draft_review_invalid")
+        try:
+            validate_decision(item.decision)
+        except ValidationError as exc:
+            raise SessionError("draft_review_invalid") from exc
+    adjudication_ids = [item.item_id for item in state.adjudications]
+    if len(set(adjudication_ids)) != len(adjudication_ids):
+        raise SessionError("draft_adjudication_invalid")
+    discrepancies = {item.item_id for item in state.review_decisions if not item.matches_first_pass}
+    if any(item_id not in discrepancies for item_id in adjudication_ids):
+        raise SessionError("draft_adjudication_invalid")
+    for adjudication in state.adjudications:
+        try:
+            validate_decision(adjudication.decision)
+        except ValidationError as exc:
+            raise SessionError("draft_adjudication_invalid") from exc
+
+    if plan is None:
+        if state.phase not in {SessionPhase.LABELING, SessionPhase.FIRST_PASS_COMPLETE}:
+            raise SessionError("draft_phase_invalid")
+        if state.first_pass_sha256 is not None or state.review_decisions or state.adjudications:
+            raise SessionError("draft_state_invalid")
+    elif state.phase in {SessionPhase.REVIEWING, SessionPhase.ADJUDICATION_PENDING, SessionPhase.READY_TO_FINALIZE, SessionPhase.FINALIZED}:
+        if len(first_pass_ids) != PILOT_COUNT or state.first_pass_sha256 is None:
+            raise SessionError("draft_phase_invalid")
+        if len(review_ids) > len(plan.item_ids):
+            raise SessionError("draft_review_invalid")
+        if state.phase is SessionPhase.REVIEWING and len(review_ids) == len(plan.item_ids):
+            raise SessionError("draft_phase_invalid")
+        if state.phase is SessionPhase.ADJUDICATION_PENDING and (
+            len(review_ids) != len(plan.item_ids) or not discrepancies or set(adjudication_ids) >= discrepancies
+        ):
+            raise SessionError("draft_phase_invalid")
+        if state.phase in {SessionPhase.READY_TO_FINALIZE, SessionPhase.FINALIZED} and (
+            len(review_ids) != len(plan.item_ids) or discrepancies - set(adjudication_ids)
+        ):
+            raise SessionError("draft_phase_invalid")
+    else:
+        raise SessionError("draft_phase_invalid")
+
+    intent = state.finalization_intent
+    if intent is not None:
+        if state.phase not in {SessionPhase.READY_TO_FINALIZE, SessionPhase.FINALIZED}:
+            raise SessionError("draft_finalization_invalid")
+        if type(intent.draft_revision) is not int or intent.draft_revision >= state.revision or intent.draft_revision < 1:
+            raise SessionError("draft_finalization_invalid")
+        if any(HEX64.fullmatch(value) is None for value in (
+            intent.challenge_sha256,
+            intent.draft_payload_sha256,
+            intent.labelset_id,
+            intent.final_labels_sha256,
+            intent.review_report_sha256,
+            intent.audit_sha256,
+        )):
+            raise SessionError("draft_finalization_invalid")
+        if not isinstance(intent.finalized_at, str) or not intent.finalized_at:
+            raise SessionError("draft_finalization_invalid")
+    elif state.phase is SessionPhase.FINALIZED:
+        raise SessionError("draft_finalization_invalid")
+
+    if not state.audit_events or state.audit_events[0].kind is not AuditKind.STARTED:
+        raise SessionError("draft_audit_invalid")
+    if any(event.generation < 0 for event in state.audit_events):
+        raise SessionError("draft_audit_invalid")
+
+
+def begin_finalization(state: SessionState, intent: FinalizationIntent, occurred_at: str) -> SessionState:
+    validate_state(state)
+    if state.phase is not SessionPhase.READY_TO_FINALIZE or state.finalization_intent is not None:
+        raise SessionError("finalization_invalid")
+    return _event(replace(state, finalization_intent=intent), AuditKind.FINALIZATION_INTENT, occurred_at, None, None, {
+        "labelset_id": intent.labelset_id,
+        "challenge_sha256": intent.challenge_sha256,
+    })
+
+
+def validate_state_against_snapshot(state: SessionState, snapshot: PilotSnapshot) -> None:
+    validate_state(state, expected_dataset_id=snapshot.dataset_id)
+    snapshot_ids = tuple(sorted(item.opaque_id for item in snapshot.items))
+    first_pass_ids = tuple(item_id for item_id, _decision in state.first_pass)
+    if len(snapshot.items) != PILOT_COUNT or (
+        first_pass_ids and set(first_pass_ids) - set(snapshot_ids)
+    ):
+        raise SessionError("draft_snapshot_mismatch")
+    if state.pilot_sha256 != snapshot.pilot_sha256 or state.pilot_view_sha256 != snapshot.pilot_view_sha256:
+        raise SessionError("draft_snapshot_mismatch")
+    if state.review_plan is not None:
+        expected = build_review_plan(
+            snapshot,
+            dict(state.first_pass),
+            generation=state.generation,
+            rubric_sha256=state.rubric_sha256,
+        )
+        if state.first_pass_sha256 != expected.first_pass_sha256 or state.review_plan != expected:
+            raise SessionError("draft_review_plan_invalid")
 
 
 def new_session(snapshot: PilotSnapshot, rubric_version: str, rubric_sha256: str, protocol: str, occurred_at: str) -> SessionState:
@@ -168,7 +346,7 @@ def adjudicate(state: SessionState, item_id: str, decision: Decision, occurred_a
 
 def reopen(state: SessionState, occurred_at: str, *, expected_revision: int | None = None) -> SessionState:
     _require_revision(state, expected_revision)
-    if state.phase in {SessionPhase.FINALIZED, SessionPhase.LABELING, SessionPhase.FIRST_PASS_COMPLETE}:
+    if state.phase in {SessionPhase.FINALIZED, SessionPhase.LABELING, SessionPhase.FIRST_PASS_COMPLETE} or state.finalization_intent is not None:
         raise SessionError("reopen_invalid")
     next_state = replace(
         state, phase=SessionPhase.LABELING if len(state.first_pass) < PILOT_COUNT else SessionPhase.FIRST_PASS_COMPLETE,
@@ -200,6 +378,7 @@ def mark_finalized(state: SessionState, occurred_at: str) -> SessionState:
 __all__ = [
     "SessionError",
     "adjudicate",
+    "begin_finalization",
     "final_decisions",
     "mark_finalized",
     "new_session",
@@ -208,4 +387,6 @@ __all__ = [
     "save_review",
     "seal_for_review",
     "unresolved_items",
+    "validate_state",
+    "validate_state_against_snapshot",
 ]

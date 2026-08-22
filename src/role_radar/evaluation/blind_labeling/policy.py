@@ -40,6 +40,7 @@ NOTE_MAX_CODEPOINTS: Final = 280
 MAX_PILOT_FILE_BYTES: Final = 16 * 1024 * 1024
 MAX_PILOT_LINE_BYTES: Final = 1024 * 1024
 MAX_DRAFT_BYTES: Final = 16 * 1024 * 1024
+MAX_FINAL_FILE_BYTES: Final = 16 * 1024 * 1024
 MAX_AUDIT_EVENTS: Final = 10_000
 SOURCE_ROOT: Final = "/opt/role-radar/data/evaluation/f10.1c"
 OUTPUT_ROOT: Final = "/opt/role-radar/data/evaluation/f10.2"

@@ -117,6 +117,13 @@ class PilotSource:
                         total += len(chunk)
                     data = b"".join(chunks)
                     after = os.fstat(fd)
+                    if (
+                        before.st_ino != after.st_ino
+                        or before.st_size != after.st_size
+                        or before.st_mode != after.st_mode
+                        or before.st_uid != after.st_uid
+                    ):
+                        raise PilotSourceError("pilot_file_changed")
                     return data, before, after
                 finally:
                     os.close(fd)
@@ -134,7 +141,12 @@ class PilotSource:
             if not self.root.is_absolute() or self.root.is_symlink() or not self.root.is_dir():
                 raise PilotSourceError("pilot_root_invalid")
             data, before, after = self._read_pilot_bytes()
-            if before.st_ino != after.st_ino or before.st_size != after.st_size:
+            if (
+                before.st_ino != after.st_ino
+                or before.st_size != after.st_size
+                or before.st_mode != after.st_mode
+                or before.st_uid != after.st_uid
+            ):
                 raise PilotSourceError("pilot_file_changed")
         except PilotSourceError:
             raise

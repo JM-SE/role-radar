@@ -79,12 +79,12 @@ def parse_pilot_line(line: bytes) -> PilotItem:
     opaque_id = value["opaque_id"]
     if not isinstance(opaque_id, str) or OPAQUE_ID.fullmatch(opaque_id) is None:
         raise ValidationError("opaque_id_invalid")
-    title = _safe_text(value["title"], field="title")
-    company = _safe_text(value["company"], field="company")
+    title = _safe_text(value["title"], field="title", allow_lf=False)
+    company = _safe_text(value["company"], field="company", allow_lf=False)
     description = _safe_text(value["description"], field="description")
     location = value["location"]
     if location is not None:
-        location = _safe_text(location, field="location")
+        location = _safe_text(location, field="location", allow_lf=False)
     if not title.strip() or not company.strip() or not description.strip():
         raise ValidationError("pilot_required_text_missing")
     return PilotItem(opaque_id, title, company, location, description)
@@ -103,12 +103,18 @@ def validate_decision(decision: Decision) -> Decision:
         raise ValidationError("reason_label_mismatch")
     note = decision.note
     if note is not None:
-        if not isinstance(note, str) or note != unicodedata.normalize("NFC", note):
+        if not isinstance(note, str):
             raise ValidationError("note_unicode_invalid")
-        note = note.strip()
+        note = unicodedata.normalize("NFC", note).strip()
         if not note:
             note = None
-        elif len(note) > NOTE_MAX_CODEPOINTS or any(ord(char) < 0x20 or 0x7F <= ord(char) <= 0x9F for char in note):
+        elif len(note) > NOTE_MAX_CODEPOINTS or any(
+            ord(char) < 0x20
+            or 0x7F <= ord(char) <= 0x9F
+            or 0x202A <= ord(char) <= 0x202E
+            or 0x2066 <= ord(char) <= 0x2069
+            for char in note
+        ):
             raise ValidationError("note_invalid")
         elif any(pattern.search(note) for pattern in CANARY_PATTERNS):
             raise ValidationError("note_forbidden_content")
@@ -138,7 +144,7 @@ def decision_from_dict(value: object) -> Decision:
             Label(str(value["label"])),
             str(value["primary_reason"]),
             tuple(str(item) for item in value["secondary_reasons"]),
-            value["note"] if value["note"] is None or isinstance(value["note"], str) else None,
+            value["note"],
         )
     except (TypeError, ValueError) as exc:
         raise ValidationError("decision_schema_invalid") from exc

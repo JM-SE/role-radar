@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import unicodedata
 
 import pytest
 
@@ -49,3 +50,23 @@ def test_pilot_line_rejects_duplicate_keys_and_requires_canonical_json() -> None
     noncanonical = json.dumps(value, indent=2).encode() + b"\n"
     with pytest.raises(ValidationError, match="pilot_not_canonical"):
         parse_pilot_line(noncanonical)
+
+
+def test_decision_notes_normalize_nfc_and_reject_directional_controls() -> None:
+    note = "Cafe\u0301"
+    normalized = validate_decision(Decision(Label.MAYBE, "description_incomplete", note=note))
+    assert normalized.note == unicodedata.normalize("NFC", note)
+    with pytest.raises(ValidationError, match="note_invalid"):
+        validate_decision(Decision(Label.MAYBE, "description_incomplete", note="safe\u202evalue"))
+
+
+def test_pilot_display_fields_reject_line_breaks_and_tabs() -> None:
+    value = {
+        "opaque_id": "a" * 24,
+        "title": "Role\twith tab",
+        "company": "Acme",
+        "location": None,
+        "description": "Text",
+    }
+    with pytest.raises(ValidationError, match="title_unsafe_control"):
+        parse_pilot_line(canonical_line(value))

@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from role_radar.evaluation.blind_labeling.contracts import Decision, Label, PilotItem, ReviewItem
-from role_radar.evaluation.blind_labeling.policy import LABEL_DOMAINS
+from role_radar.evaluation.blind_labeling.policy import LABEL_DEFINITIONS, LABEL_DOMAINS
 from role_radar.evaluation.blind_labeling.validation import validate_decision
 
 
@@ -21,6 +21,12 @@ class TerminalIO(Protocol):
 
 class InteractionCancelled(EOFError):
     """The operator did not confirm a complete decision."""
+
+
+class InteractionError(ValueError):
+    def __init__(self, code: str) -> None:
+        self.code = code
+        super().__init__(code)
 
 
 @dataclass
@@ -37,13 +43,20 @@ class StdTerminalIO:
 
 
 def render_item(item: PilotItem, *, index: int, total: int) -> str:
-    location = item.location if item.location is not None else "(not provided)"
-    return f"\n[{index}/{total}]\nTitle: {item.title}\nCompany: {item.company}\nLocation: {location}\n\n{item.description}\n"
+    def render(value: str) -> str:
+        return value.replace("\t", r"\t")
+
+    location = render(item.location) if item.location is not None else "(not provided)"
+    return f"\n[{index}/{total}]\nTitle: {render(item.title)}\nCompany: {render(item.company)}\nLocation: {location}\n\n{render(item.description)}\n"
 
 
 def collect_decision(io: TerminalIO, item: PilotItem, *, index: int, total: int) -> Decision:
     io.write(render_item(item, index=index, total=total))
-    label = Label(io.read_line("Label [apply/maybe/reject]: ").strip().lower())
+    try:
+        label = Label(io.read_line("Label [apply/maybe/reject]: ").strip().lower())
+    except ValueError as exc:
+        raise InteractionError("label_invalid") from exc
+    io.write("Definition: " + LABEL_DEFINITIONS[label.value] + "\n")
     reasons = LABEL_DOMAINS[label.value]
     io.write("Allowed reasons: " + ", ".join(reasons) + "\n")
     primary = io.read_line("Primary reason: ").strip()
@@ -63,6 +76,7 @@ def collect_review_decision(io: TerminalIO, item: ReviewItem) -> Decision:
 
 __all__ = [
     "InteractionCancelled",
+    "InteractionError",
     "StdTerminalIO",
     "TerminalIO",
     "collect_decision",
