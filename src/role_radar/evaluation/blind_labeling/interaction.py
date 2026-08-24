@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from role_radar.evaluation.blind_labeling.contracts import Decision, Label, PilotItem, ReviewItem
+from role_radar.evaluation.blind_labeling.display import RenderedEvidence
 from role_radar.evaluation.blind_labeling.policy import LABEL_DEFINITIONS, LABEL_DOMAINS
 from role_radar.evaluation.blind_labeling.validation import validate_decision
 
@@ -50,6 +51,11 @@ def render_item(item: PilotItem, *, index: int, total: int) -> str:
     return f"\n[{index}/{total}]\nTitle: {render(item.title)}\nCompany: {render(item.company)}\nLocation: {location}\n\n{render(item.description)}\n"
 
 
+def compose_rendered_item(item: RenderedEvidence, *, index: int, total: int) -> str:
+    location = item.location if item.location is not None else "(not provided)"
+    return f"\n[{index}/{total}]\nTitle: {item.title}\nCompany: {item.company}\nLocation: {location}\n\n{item.description}\n"
+
+
 def collect_decision(io: TerminalIO, item: PilotItem, *, index: int, total: int) -> Decision:
     io.write(render_item(item, index=index, total=total))
     try:
@@ -81,5 +87,6 @@ __all__ = [
     "TerminalIO",
     "collect_decision",
     "collect_review_decision",
+    "compose_rendered_item",
     "render_item",
 ]
