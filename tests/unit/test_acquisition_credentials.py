@@ -1,13 +1,20 @@
 """Credential filesystem policy tests."""
 
 import stat
-from types import SimpleNamespace
+from dataclasses import dataclass
 
 from role_radar.acquisition.credentials import _credential_mode_allowed
 
 
-def _metadata(*, mode: int, uid: int, gid: int) -> SimpleNamespace:
-    return SimpleNamespace(st_mode=stat.S_IFREG | mode, st_uid=uid, st_gid=gid)
+@dataclass(frozen=True)
+class Metadata:
+    st_mode: int
+    st_uid: int
+    st_gid: int
+
+
+def _metadata(*, mode: int, uid: int, gid: int) -> Metadata:
+    return Metadata(st_mode=stat.S_IFREG | mode, st_uid=uid, st_gid=gid)
 
 
 def test_accepts_systemd_root_owned_0440_projection() -> None:

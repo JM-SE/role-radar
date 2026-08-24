@@ -2,10 +2,14 @@
 
 import json
 
+import pytest
+
 from role_radar.cli.main import main
 
 
-def test_linkedin_host_audit_ack_fails_before_settings_or_database(capsys) -> None:
+def test_linkedin_host_audit_ack_fails_before_settings_or_database(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     assert main(["mailbox", "linkedin-host-audit", "source-id"]) == 4
     output = json.loads(capsys.readouterr().out)
     assert set(output) == {

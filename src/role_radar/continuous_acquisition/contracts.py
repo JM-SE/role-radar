@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Any, Literal, Protocol
 
+from role_radar.collectors.outcomes import CollectionOutcome
 from role_radar.domain.dto import RawJob
 
 ACQUISITION_POLICY_VERSION = "continuous-acquisition-v1"
@@ -253,7 +254,9 @@ class RegistrationResult:
 
 
 class SourceCollector(Protocol):
-    def __call__(self, source: SourceSnapshot) -> tuple[RawJob, ...]: ...
+    def __call__(
+        self, source: SourceSnapshot
+    ) -> CollectionOutcome | Awaitable[CollectionOutcome] | tuple[RawJob, ...]: ...
 
 
 class BoardVerifier(Protocol):

@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Callable, Iterable
+from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any
 
 import httpx
 
-from role_radar.collectors.outcomes import CollectionFailure, CollectionOutcome, CollectionSuccess
+from role_radar.collectors.outcomes import CollectionFailure, CollectionOutcome
 from role_radar.collectors.protocols import CollectorRuntime, SourceSnapshot
 from role_radar.collectors.registry import (
     CollectorContext,
@@ -82,10 +82,7 @@ class JournaledTransport(httpx.AsyncBaseTransport):
         await self._transport.aclose()
 
 
-class CollectorAdapter(Protocol):
-    async def __call__(
-        self, snapshot: SourceSnapshot, runtime: CollectorRuntime
-    ) -> CollectionSuccess | CollectionFailure: ...
+CollectorAdapter = Callable[[SourceSnapshot, CollectorRuntime], Awaitable[CollectionOutcome]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,6 +102,12 @@ class EphemeralCollectorTaskFactory:
         if plan.plan_version != PLAN_VERSION_V2:
             raise ValueError("plan_version_unsupported")
         tasks: list[CollectorTask] = []
+
+        async def collect_with_context(
+            snapshot: SourceSnapshot, runtime: CollectorRuntime
+        ) -> CollectionOutcome:
+            return await _collect_direct(snapshot, runtime, self.context)
+
         for item in plan.source_configs:
             family = str(item["family"])
             source_key = str(item["source_key"])
@@ -123,9 +126,7 @@ class EphemeralCollectorTaskFactory:
                 CollectorTask(
                     snapshot=snapshot,
                     source_revision=0,
-                    collector=lambda current, runtime, context=self.context: _collect_direct(
-                        current, runtime, context
-                    ),
+                    collector=collect_with_context,
                 )
             )
         return tuple(tasks)

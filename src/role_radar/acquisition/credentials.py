@@ -9,6 +9,7 @@ import stat
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Protocol
 
 from role_radar.mailbox.contracts import CredentialMaterial, MailboxDescriptor
 
@@ -22,6 +23,17 @@ class CredentialError(ValueError):
     def __init__(self, code: str) -> None:
         self.code = code
         super().__init__(code)
+
+
+class _CredentialMetadata(Protocol):
+    @property
+    def st_mode(self) -> int: ...
+
+    @property
+    def st_uid(self) -> int: ...
+
+    @property
+    def st_gid(self) -> int: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,7 +157,7 @@ class CredentialResolver:
         return self.resolve(handle, text=True).get_secret_value().decode("utf-8")
 
 
-def _credential_mode_allowed(metadata: os.stat_result) -> bool:
+def _credential_mode_allowed(metadata: _CredentialMetadata) -> bool:
     """Accept private files and systemd's root-owned credential projection.
 
     ``LoadCredential`` may expose a root-owned credential as ``0440``. That

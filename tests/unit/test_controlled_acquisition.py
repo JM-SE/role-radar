@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from role_radar.collectors.outcomes import CollectionMetrics, CollectionSuccess
+from role_radar.collectors.outcomes import CollectionMetrics, CollectionOutcome, CollectionSuccess
 from role_radar.collectors.policy import CollectionRunBudget
 from role_radar.collectors.protocols import CollectorRuntime, SourceSnapshot
 from role_radar.domain.dto import RawJob
@@ -402,7 +402,7 @@ class FakeInventory:
 
 async def fake_collector(
     _snapshot: SourceSnapshot, _runtime: CollectorRuntime
-) -> CollectionSuccess:
+) -> CollectionOutcome:
     jobs = tuple(
         RawJob(
             source="greenhouse",

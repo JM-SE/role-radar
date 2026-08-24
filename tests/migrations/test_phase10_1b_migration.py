@@ -28,7 +28,10 @@ def alembic(
 
 def version(database: Path) -> str:
     with sqlite3.connect(database) as connection:
-        return connection.execute("SELECT version_num FROM alembic_version").fetchone()[0]
+        row = connection.execute("SELECT version_num FROM alembic_version").fetchone()
+    if row is None or not isinstance(row[0], str):
+        raise AssertionError("alembic version row is missing or invalid")
+    return row[0]
 
 
 def test_fresh_upgrade_from_f87_and_clean_downgrade(tmp_path: Path) -> None:

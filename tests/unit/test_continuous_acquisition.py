@@ -236,8 +236,13 @@ def test_source_only_registration_preserves_disabled_archived_and_empty_board(
 
         assert disabled_result.disposition == "existing_disabled"
         assert archived_result.disposition == "existing_archived"
-        assert session.get(Source, "disabled").enabled is False
-        assert session.get(Source, "archived").archived_at.replace(tzinfo=UTC) == AS_OF
+        disabled_source = session.get(Source, "disabled")
+        archived_source = session.get(Source, "archived")
+        assert disabled_source is not None
+        assert archived_source is not None
+        assert disabled_source.enabled is False
+        assert archived_source.archived_at is not None
+        assert archived_source.archived_at.replace(tzinfo=UTC) == AS_OF
         assert empty == ()
         assert session.scalar(select(func.count()).select_from(Source)) == 2
     finally:

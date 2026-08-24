@@ -6,6 +6,7 @@ rows and refuses to backfill an ambiguous strong identity collision.
 
 import hashlib
 from collections.abc import Sequence
+from typing import Any, cast
 
 import sqlalchemy as sa
 
@@ -19,12 +20,12 @@ depends_on: str | Sequence[str] | None = None
 
 def _common_run_columns() -> list[sa.Column[object]]:
     return [
-        sa.Column("id", sa.String(36), primary_key=True),
-        sa.Column("slot_key", sa.String(128), nullable=False),
-        sa.Column("state", sa.String(24), nullable=False),
-        sa.Column("policy_version", sa.String(64), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("id", cast(Any, sa.String(36)), primary_key=True),
+        sa.Column("slot_key", cast(Any, sa.String(128)), nullable=False),
+        sa.Column("state", cast(Any, sa.String(24)), nullable=False),
+        sa.Column("policy_version", cast(Any, sa.String(64)), nullable=False),
+        sa.Column("created_at", cast(Any, sa.DateTime(timezone=True)), nullable=False),
+        sa.Column("updated_at", cast(Any, sa.DateTime(timezone=True)), nullable=False),
     ]
 
 

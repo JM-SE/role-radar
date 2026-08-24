@@ -20,7 +20,8 @@ from sqlalchemy.orm import Session, joinedload
 
 from role_radar.acquisition.activation import validate_jobicy_activation
 from role_radar.acquisition.jobicy_terms_evidence import load_jobicy_terms_evidence
-from role_radar.collectors.protocols import SourceSnapshot
+from role_radar.collectors.outcomes import CollectionFailure, CollectionOutcome, CollectionSuccess
+from role_radar.collectors.protocols import CollectorRuntime, SourceSnapshot
 from role_radar.collectors.registry import CollectorContext, create_collector
 from role_radar.db.models import JobSourceReference, Source
 from role_radar.domain.profile import canonical_profile_sha256
@@ -139,6 +140,12 @@ class CollectorTaskFactory:
         state = SqlAlchemySourceState(self.session)
         checkpoints = {item.source_id: item for item in state.checkpoint(source_ids)}
         tasks: list[CollectorTask] = []
+
+        async def collect_with_context(
+            snapshot: SourceSnapshot, runtime: CollectorRuntime
+        ) -> CollectionOutcome:
+            return await _collect(snapshot, runtime, self.context)
+
         for source_config in plan.source_configs:
             source_id = str(source_config["source_id"])
             expected_revision = int(source_config["revision"])
@@ -170,9 +177,7 @@ class CollectorTaskFactory:
                 CollectorTask(
                     snapshot=snapshot,
                     source_revision=checkpoint.revision,
-                    collector=lambda snapshot, runtime, context=self.context: _collect(
-                        snapshot, runtime, context
-                    ),
+                    collector=collect_with_context,
                 )
             )
         return tuple(tasks)
@@ -180,9 +185,12 @@ class CollectorTaskFactory:
 
 async def _collect(
     snapshot: SourceSnapshot, runtime: Any, context: CollectorContext
-) -> Any:
+) -> CollectionOutcome:
     collector = create_collector(snapshot, context)
-    return await collector.collect(snapshot, runtime)
+    result = await collector.collect(snapshot, runtime)
+    if not isinstance(result, (CollectionSuccess, CollectionFailure)):
+        raise TypeError("collector returned an unsupported outcome")
+    return result
 
 
 class SqlAlchemyRuntimeSafety:

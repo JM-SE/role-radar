@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
+
 import pytest
 
 from role_radar.cli.main import main
@@ -47,8 +49,14 @@ async def test_gate_b_runs_jobicy_brave_and_tavily_in_order() -> None:
         calls.append(name)
         return GateBSmokeResult(name, "ok", None, 1, 1)
 
+    def operation(name: str) -> Callable[[], Awaitable[GateBSmokeResult]]:
+        async def run() -> GateBSmokeResult:
+            return await step(name)
+
+        return run
+
     report = await service.run_sequence(
-        tuple((name, lambda name=name: step(name)) for name in ("jobicy", "brave", "tavily"))
+        tuple((name, operation(name)) for name in ("jobicy", "brave", "tavily"))
     )
 
     assert report.state == "ok"

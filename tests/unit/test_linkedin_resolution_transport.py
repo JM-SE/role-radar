@@ -46,7 +46,9 @@ class FakeWriter:
 
 
 @pytest.mark.asyncio
-async def test_transport_sends_head_only_and_does_not_read_body(monkeypatch) -> None:
+async def test_transport_sends_head_only_and_does_not_read_body(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     reader = FakeReader()
     writer = FakeWriter()
 
@@ -70,7 +72,9 @@ async def test_transport_sends_head_only_and_does_not_read_body(monkeypatch) -> 
 
 
 @pytest.mark.asyncio
-async def test_transport_sanitizes_socket_argument_errors(monkeypatch) -> None:
+async def test_transport_sanitizes_socket_argument_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     async def open_connection(**_kwargs: object) -> tuple[FakeReader, FakeWriter]:
         raise ValueError("raw socket details must not escape")
 

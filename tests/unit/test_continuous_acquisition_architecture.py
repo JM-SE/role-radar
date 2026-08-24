@@ -25,7 +25,7 @@ FORBIDDEN_NAMES = {
 def test_continuous_acquisition_has_no_pipeline_llm_or_downstream_imports() -> None:
     for path in PACKAGE.glob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"))
-        imports = []
+        imports: list[str] = []
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 imports.extend(item.name for item in node.names)

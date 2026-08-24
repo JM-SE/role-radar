@@ -51,7 +51,7 @@ def main() -> int:
     return 0
 
 
-def _is_public(value: str) -> bool:
+def _is_public(value: str | int) -> bool:
     try:
         address = ipaddress.ip_address(value)
     except ValueError:

@@ -29,6 +29,10 @@ class DNSResolver(Protocol):
     async def resolve(self, host: str) -> tuple[str, ...]: ...
 
 
+class CredentialTextResolver(Protocol):
+    def text(self, handle: str) -> str: ...
+
+
 class EgressGuard(Protocol):
     async def assert_ready(self) -> None: ...
 
@@ -50,11 +54,11 @@ class SystemdAttestationStore:
 
     def __init__(
         self,
-        resolver: CredentialResolver | None = None,
+        resolver: CredentialTextResolver | None = None,
         *,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
-        self._resolver = resolver or CredentialResolver()
+        self._resolver: CredentialTextResolver = resolver or CredentialResolver()
         self._clock = clock or (lambda: datetime.now(UTC))
 
     def load(self) -> EgressAttestation:

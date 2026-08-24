@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Literal, cast
 
 import httpx
 import pytest
@@ -30,6 +30,7 @@ from role_radar.continuous_acquisition.providers import (
 from role_radar.db.models import Job, Source
 from role_radar.discovery.contracts import (
     ProviderTier,
+    SearchRequest,
     SearchResponse,
     TransientSearchHit,
 )
@@ -193,14 +194,20 @@ async def test_bounded_collector_provider_uses_exact_official_ats_origin_and_pat
 
 
 class _SearchStub:
-    def __init__(self, provider: Literal["brave", "tavily"], status: str) -> None:
+    provider: str
+
+    def __init__(
+        self,
+        provider: Literal["brave", "tavily"],
+        status: Literal["succeeded", "empty", "failed", "malformed", "indeterminate"],
+    ) -> None:
         self.provider = provider
         self.status = status
-        self.requests = []
+        self.requests: list[SearchRequest] = []
 
-    async def search(self, request: object) -> SearchResponse:
+    async def search(self, request: SearchRequest) -> SearchResponse:
         self.requests.append(request)
-        hits = ()
+        hits: tuple[TransientSearchHit, ...] = ()
         if self.status == "succeeded":
             call_number = len(self.requests)
             hits = tuple(
@@ -215,7 +222,7 @@ class _SearchStub:
                 for index in range(1, 11)
             )
         return SearchResponse(
-            provider=self.provider,
+            provider=cast(Literal["brave", "tavily"], self.provider),
             tier=ProviderTier.FREE,
             status=self.status,
             hits=hits,

@@ -36,6 +36,9 @@ class FakeProvider:
         self.calls.append(("preflight", None))
         return MailboxPreflight(53, "RoleRadar", True, "app_password")
 
+    async def get_uidvalidity(self) -> int:
+        return 53
+
     async def list_uids(self, **kwargs: object) -> tuple[MailboxMessageRef, ...]:
         self.calls.append(("list_uids", kwargs))
         return self.refs

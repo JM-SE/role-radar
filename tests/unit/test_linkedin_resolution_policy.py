@@ -3,6 +3,8 @@
 import pytest
 
 from role_radar.mailbox.linkedin_resolution.policy import (
+    ATSTarget,
+    LinkedInTarget,
     ResolutionPolicyError,
     classify_location,
     validate_linkedin_url,
@@ -28,13 +30,15 @@ def test_location_can_be_relative_linkedin_or_exact_ats_posting() -> None:
     linked = classify_location(
         "https://www.linkedin.com/jobs/1?trk=redacted", "/jobs/view/2?trk=next"
     )
+    assert isinstance(linked, LinkedInTarget)
     assert linked.host == "www.linkedin.com"
     ats = classify_location(
         "https://www.linkedin.com/jobs/1",
         "https://job-boards.greenhouse.io/acme/jobs/eng-1",
     )
-    assert ats.final_ats.provider == "greenhouse"  # type: ignore[attr-defined]
-    assert ats.final_ats.external_id == "eng-1"  # type: ignore[attr-defined]
+    assert isinstance(ats, ATSTarget)
+    assert ats.final_ats.provider == "greenhouse"
+    assert ats.final_ats.external_id == "eng-1"
 
 
 def test_location_rejects_unknown_hosts_and_board_only_ats() -> None:

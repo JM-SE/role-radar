@@ -1,6 +1,7 @@
 """Pinned Gmail IMAP transport tests for F9.1."""
 
 import socket
+from typing import cast
 
 import pytest
 
@@ -40,7 +41,9 @@ class FakeContext:
         return sock
 
 
-def test_pinned_tls_connects_to_numeric_ip_and_preserves_gmail_sni(monkeypatch) -> None:
+def test_pinned_tls_connects_to_numeric_ip_and_preserves_gmail_sni(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     sock = FakeSocket()
     context = FakeContext()
     monkeypatch.setattr(socket, "socket", lambda *_args: sock)
@@ -53,7 +56,7 @@ def test_pinned_tls_connects_to_numeric_ip_and_preserves_gmail_sni(monkeypatch) 
         2.0,
     )
 
-    assert result is sock
+    assert cast(object, result) is sock
     assert sock.destination == ("8.8.8.8", 993)
     assert context.server_hostname == "imap.gmail.com"
 

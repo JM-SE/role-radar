@@ -24,6 +24,7 @@ from role_radar.continuous_acquisition.persistence import OfferPersistence
 from role_radar.continuous_acquisition.policy import aggregate_outcomes
 from role_radar.continuous_acquisition.repositories import FenceLostError, RunRepository
 from role_radar.continuous_acquisition.scheduling import rotate_sources
+from role_radar.domain.dto import RawJob
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,20 +87,22 @@ class AcquisitionService:
                     # Preserve sync/fake compatibility while making the real
                     # async collector seam usable by existing callers.
                     collected = asyncio.run(cast(Any, collected))
-                if isinstance(collected, CollectionFailure):
+                collected_result = cast(CollectionFailure | CollectionSuccess | tuple[RawJob, ...], collected)
+                raw_jobs: tuple[RawJob, ...]
+                if isinstance(collected_result, CollectionFailure):
                     counters = JobCounters()
-                    error_code = collected.error_code.value
+                    error_code = collected_result.error_code.value
                     state = OperationState.FAILED
                     usable = True
                     raw_jobs = ()
-                elif isinstance(collected, CollectionSuccess):
+                elif isinstance(collected_result, CollectionSuccess):
                     counters = JobCounters()
-                    raw_jobs = collected.jobs
+                    raw_jobs = collected_result.jobs
                     error_code = None
                     state = OperationState.EMPTY if not raw_jobs else OperationState.SUCCEEDED
                     usable = True
                 else:
-                    raw_jobs = collected
+                    raw_jobs = collected_result
                     counters = JobCounters()
                     error_code = None
                     state = OperationState.EMPTY if not raw_jobs else OperationState.SUCCEEDED

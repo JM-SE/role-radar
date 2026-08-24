@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import replace
 from pathlib import Path
 
 from role_radar.evaluation.cohort_freeze.bundle_store import V2BundleStore
 from role_radar.evaluation.cohort_freeze.contracts import (
     BoundaryResolution,
+    CandidateEvidence,
+    CorpusResult,
     DeploymentIdentity,
     RepositorySnapshot,
 )
@@ -29,7 +32,7 @@ from role_radar.evaluation.cohort_freeze.selection import build_bounded_corpus
 from tests.unit.test_cohort_freeze_gate_a import candidate
 
 
-def _corpus():
+def _corpus() -> CorpusResult:
     values = tuple(
         replace(candidate(index), run_created_count=CORPUS_COUNT, run_observed_count=CORPUS_COUNT)
         for index in range(CORPUS_COUNT)
@@ -41,7 +44,7 @@ def _corpus():
     )
 
 
-def _snapshot(candidates):
+def _snapshot(candidates: Iterable[CandidateEvidence]) -> RepositorySnapshot:
     return RepositorySnapshot(
         boundary=BoundaryResolution(LOWER_BOUNDARY_RUN_ID, "2026-08-01T00:00:00Z", "completed"),
         fingerprint="b" * 64,

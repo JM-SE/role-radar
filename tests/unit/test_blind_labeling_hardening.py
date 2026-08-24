@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -10,12 +11,13 @@ from types import SimpleNamespace
 import pytest
 
 from role_radar.cli import evaluation_f10_2
-from role_radar.evaluation.blind_labeling import pilot_source as pilot_source_module
 from role_radar.evaluation.blind_labeling.contracts import (
     Adjudication,
     Decision,
     Label,
+    PilotSnapshot,
     SessionPhase,
+    SessionState,
 )
 from role_radar.evaluation.blind_labeling.filesystem import (
     FilesystemError,
@@ -78,7 +80,7 @@ def test_cli_interactive_commands_require_real_terminal(
             return False
 
     monkeypatch.setattr(evaluation_f10_2, "_runtime", lambda dataset_id: FakeRuntime())
-    monkeypatch.setattr(evaluation_f10_2.sys, "stdin", NonTty())
+    monkeypatch.setattr(sys, "stdin", NonTty())
     args = SimpleNamespace(f10_2_command="label")
 
     assert evaluation_f10_2.run(args) == 130
@@ -113,15 +115,21 @@ def test_pilot_source_opens_no_holdout_or_sibling_path(
     tmp_path: Path,
 ) -> None:
     source, _dataset_id = _fixture(tmp_path / "source")
-    original_open = pilot_source_module.os.open
+    original_open = os.open
     opened: list[str] = []
 
-    def tracking_open(path, *args, **kwargs):
+    def tracking_open(
+        path: os.PathLike[str] | str | bytes,
+        flags: int,
+        mode: int = 0o777,
+        *,
+        dir_fd: int | None = None,
+    ) -> int:
         if isinstance(path, (str, bytes)):
             opened.append(os.fsdecode(path))
-        return original_open(path, *args, **kwargs)
+        return original_open(path, flags, mode, dir_fd=dir_fd)
 
-    monkeypatch.setattr(pilot_source_module.os, "open", tracking_open)
+    monkeypatch.setattr(os, "open", tracking_open)
     source.load()
 
     assert all("holdout-label-view.jsonl" not in path for path in opened)
@@ -312,10 +320,10 @@ def test_cli_adjudication_serializes_private_decisions_without_internal_error(
         def __init__(self) -> None:
             self.current = state
 
-        def state(self):
+        def state(self) -> SessionState:
             return self.current
 
-        def snapshot(self):
+        def snapshot(self) -> PilotSnapshot:
             return snapshot
 
         def adjudicate(self, item_id: str, decision: Decision) -> dict[str, object]:
