@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import final
 
@@ -43,6 +44,23 @@ def _require_nonempty(value: str) -> str:
     if not value.strip():
         raise DisplayError(DISPLAY_ERROR_EMPTY)
     return value
+
+
+def _run_public[ResultT](operation: Callable[[], ResultT]) -> ResultT:
+    """Normalize failures after exception handling has fully unwound."""
+
+    result: ResultT | None = None
+    error_code: str | None = None
+    try:
+        result = operation()
+    except DisplayError as exc:
+        error_code = exc.code
+    except (UnicodeError, TypeError, ValueError):
+        error_code = DISPLAY_ERROR_INPUT_INVALID
+    if error_code is not None:
+        raise DisplayError(error_code)
+    assert result is not None
+    return result
 
 
 def _rendered_payload(
@@ -121,72 +139,82 @@ def display_contract_identity() -> tuple[str, str]:
     return DISPLAY_CONTRACT_VERSION, DISPLAY_CONTRACT_SHA256
 
 
+def _render_evidence(value: str) -> str:
+    verified_entity_table()
+    rendered = _render_field(value)
+    return _require_nonempty(rendered)
+
+
 def render_evidence(value: str) -> str:
     """Render one required evidence field without exposing source markup."""
 
-    try:
-        verified_entity_table()
-        rendered = _render_field(value)
-        return _require_nonempty(rendered)
-    except DisplayError as exc:
-        raise DisplayError(exc.code) from None
-    except (UnicodeError, TypeError, ValueError) as exc:
-        del exc
-        raise DisplayError(DISPLAY_ERROR_INPUT_INVALID) from None
+    return _run_public(lambda: _render_evidence(value))
+
+
+def _render_pilot_item(
+    item: PilotItem,
+) -> tuple[str, str, str, str | None, str, str]:
+    """Render all evidence fields and create the only supported v2 result."""
+
+    verified_entity_table()
+    if not isinstance(item, PilotItem) or not isinstance(item.opaque_id, str):
+        raise DisplayError(DISPLAY_ERROR_INPUT_INVALID)
+    title = _require_nonempty(_render_field(item.title))
+    company = _require_nonempty(_render_field(item.company))
+    description = _require_nonempty(_render_field(item.description))
+    location: str | None
+    if item.location is None:
+        location = None
+    else:
+        derived_location = _render_field(item.location)
+        location = (
+            None
+            if item.location.isspace() or not derived_location.strip()
+            else derived_location
+        )
+    visible_bytes = sum(
+        len(value.encode("utf-8"))
+        for value in (title, company, description, location)
+        if value is not None
+    )
+    if visible_bytes > DISPLAY_MAX_RENDERED_VISIBLE_EVIDENCE_BYTES:
+        raise DisplayError(DISPLAY_ERROR_OUTPUT_TOO_LARGE)
+    payload = _rendered_payload(
+        opaque_id=item.opaque_id,
+        title=title,
+        company=company,
+        location=location,
+        description=description,
+    )
+    result_hash = _rendered_hash(payload)
+    return (
+        item.opaque_id,
+        title,
+        company,
+        location,
+        description,
+        result_hash,
+    )
 
 
 def render_pilot_item(item: PilotItem) -> RenderedEvidence:
     """Render all evidence fields and create the only supported v2 result."""
 
-    try:
-        verified_entity_table()
-        if not isinstance(item, PilotItem) or not isinstance(item.opaque_id, str):
-            raise DisplayError(DISPLAY_ERROR_INPUT_INVALID)
-        title = _require_nonempty(_render_field(item.title))
-        company = _require_nonempty(_render_field(item.company))
-        description = _require_nonempty(_render_field(item.description))
-        location: str | None
-        if item.location is None:
-            location = None
-        else:
-            derived_location = _render_field(item.location)
-            location = (
-                None
-                if item.location.isspace() or not derived_location.strip()
-                else derived_location
-            )
-        visible_bytes = sum(
-            len(value.encode("utf-8"))
-            for value in (title, company, description, location)
-            if value is not None
-        )
-        if visible_bytes > DISPLAY_MAX_RENDERED_VISIBLE_EVIDENCE_BYTES:
-            raise DisplayError(DISPLAY_ERROR_OUTPUT_TOO_LARGE)
-        payload = _rendered_payload(
-            opaque_id=item.opaque_id,
-            title=title,
-            company=company,
-            location=location,
-            description=description,
-        )
-        result_hash = _rendered_hash(payload)
-        return RenderedEvidence(
-            item.opaque_id,
-            title,
-            company,
-            location,
-            description,
-            DISPLAY_SCHEMA,
-            DISPLAY_CONTRACT_VERSION,
-            DISPLAY_CONTRACT_SHA256,
-            result_hash,
-            _token=_CONSTRUCTOR_TOKEN,
-        )
-    except DisplayError as exc:
-        raise DisplayError(exc.code) from None
-    except (UnicodeError, TypeError, ValueError) as exc:
-        del exc
-        raise DisplayError(DISPLAY_ERROR_INPUT_INVALID) from None
+    opaque_id, title, company, location, description, result_hash = _run_public(
+        lambda: _render_pilot_item(item)
+    )
+    return RenderedEvidence(
+        opaque_id,
+        title,
+        company,
+        location,
+        description,
+        DISPLAY_SCHEMA,
+        DISPLAY_CONTRACT_VERSION,
+        DISPLAY_CONTRACT_SHA256,
+        result_hash,
+        _token=_CONSTRUCTOR_TOKEN,
+    )
 
 
 __all__ = [

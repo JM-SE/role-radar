@@ -5,8 +5,9 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Mapping
 from types import MappingProxyType
-from typing import Final
+from typing import Final, cast
 
 DISPLAY_CONTRACT_VERSION: Final = "f10.2-display-v2"
 DISPLAY_SCHEMA: Final = "f10.2-rendered-evidence-v1"
@@ -41,7 +42,6 @@ DISPLAY_HTML_VOID_TAGS: Final = frozenset(
         "base",
         "br",
         "col",
-        "embed",
         "hr",
         "img",
         "input",
@@ -123,6 +123,29 @@ class DisplayError(ValueError):
         super().__init__(code)
 
 
+def validate_entity_replacement(value: str) -> None:
+    """Validate a decoded entity before the next transformation stage."""
+
+    for char in value:
+        codepoint = ord(char)
+        if (
+            codepoint > 0x10FFFF
+            or 0xD800 <= codepoint <= 0xDFFF
+            or 0xFDD0 <= codepoint <= 0xFDEF
+            or codepoint & 0xFFFF in {0xFFFE, 0xFFFF}
+        ):
+            raise DisplayError(DISPLAY_ERROR_UNICODE_INVALID)
+        if (
+            codepoint < 0x20
+            or 0x7F <= codepoint <= 0x9F
+            or codepoint in {0x2028, 0x2029, 0x061C}
+            or 0x200E <= codepoint <= 0x200F
+            or 0x202A <= codepoint <= 0x202E
+            or 0x2066 <= codepoint <= 0x2069
+        ):
+            raise DisplayError(DISPLAY_ERROR_UNSAFE_CONTROL)
+
+
 def canonical_json_bytes(value: object) -> bytes:
     """Serialize a display-owned value using the contract's canonical JSON rules."""
 
@@ -170,6 +193,7 @@ _DISPLAY_POLICY_PAYLOAD = {
         "comments_and_declarations": "discard",
         "unknown_tags": "discard_tags_preserve_text",
         "layout": "blocks-blank-line-br-line-li-bullet-two-space-indent-v1",
+        "literal_ampersands": "control-sentinel-before-html-parser-v1",
     },
     "limits": {
         "field_input_bytes": DISPLAY_MAX_FIELD_INPUT_BYTES,
@@ -177,6 +201,21 @@ _DISPLAY_POLICY_PAYLOAD = {
         "aggregate_visible_evidence_bytes": DISPLAY_MAX_RENDERED_VISIBLE_EVIDENCE_BYTES,
         "html_depth": DISPLAY_MAX_HTML_DEPTH,
         "parse_events": DISPLAY_MAX_PARSE_EVENTS,
+        "accounting": {
+            "encoding": "utf-8",
+            "field_input": "each-non-none-source-field-before-decoding",
+            "working_output": "after-each-completed-entity-pass",
+            "field_output": "each-non-none-final-field-after-nfc-and-tab-rendering",
+            "aggregate": "title-company-description-and-non-none-location-only",
+            "aggregate_excludes": [
+                "opaque_id",
+                "schema-version-hashes",
+                "json-syntax",
+                "composer-labels-counters-separators",
+                "none-location",
+            ],
+            "enforcement": "before-serialization-hashing-and-constructor",
+        },
     },
     "schema": DISPLAY_SCHEMA,
     "source_validation": {
@@ -197,8 +236,21 @@ DISPLAY_CONTRACT_SHA256: Final = hashlib.sha256(
     + DISPLAY_POLICY_CANONICAL_BYTES
 ).hexdigest()
 
-# The mapping is intentionally read-only for callers and useful to architecture tests.
-DISPLAY_POLICY_PAYLOAD: Final = MappingProxyType(_DISPLAY_POLICY_PAYLOAD)
+
+def _freeze_policy(value: object) -> object:
+    if isinstance(value, dict):
+        return MappingProxyType(
+            {key: _freeze_policy(item) for key, item in value.items()}
+        )
+    if isinstance(value, list):
+        return tuple(_freeze_policy(item) for item in value)
+    return value
+
+
+# The mapping and every nested collection are intentionally immutable for callers.
+DISPLAY_POLICY_PAYLOAD: Final = cast(
+    Mapping[str, object], _freeze_policy(_DISPLAY_POLICY_PAYLOAD)
+)
 
 
 __all__ = [
@@ -246,4 +298,5 @@ __all__ = [
     "DISPLAY_VISIBLE_URL_PATTERN_SOURCE",
     "DisplayError",
     "canonical_json_bytes",
+    "validate_entity_replacement",
 ]

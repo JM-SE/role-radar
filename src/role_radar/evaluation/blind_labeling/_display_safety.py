@@ -18,6 +18,9 @@ from role_radar.evaluation.blind_labeling.display_policy import (
     DISPLAY_VISIBLE_URL_PATTERN,
     DisplayError,
 )
+from role_radar.evaluation.blind_labeling.display_policy import (
+    validate_entity_replacement as _validate_entity_replacement,
+)
 
 
 def _is_noncharacter(codepoint: int) -> bool:
@@ -52,8 +55,10 @@ def validate_source(value: object) -> str:
         raise DisplayError(DISPLAY_ERROR_INPUT_INVALID)
     try:
         encoded = value.encode("utf-8")
-    except UnicodeEncodeError as exc:
-        raise DisplayError(DISPLAY_ERROR_UNICODE_INVALID) from exc
+    except UnicodeEncodeError:
+        encoded = None
+    if encoded is None:
+        raise DisplayError(DISPLAY_ERROR_UNICODE_INVALID)
     if len(encoded) > DISPLAY_MAX_FIELD_INPUT_BYTES:
         raise DisplayError(DISPLAY_ERROR_INPUT_TOO_LARGE)
     _validate_scalars(value, error_code=DISPLAY_ERROR_UNICODE_INVALID)
@@ -73,8 +78,8 @@ def normalize_derived(value: str) -> str:
 def validate_final(value: str) -> str:
     try:
         value.encode("utf-8")
-    except UnicodeEncodeError as exc:
-        raise DisplayError(DISPLAY_ERROR_UNICODE_INVALID) from exc
+    except UnicodeEncodeError:
+        raise DisplayError(DISPLAY_ERROR_UNICODE_INVALID) from None
     _validate_scalars(value, error_code=DISPLAY_ERROR_UNICODE_INVALID)
     _validate_controls(value, allow_lf_tab=True)
     if len(value.encode("utf-8")) > DISPLAY_MAX_FIELD_OUTPUT_BYTES:
@@ -87,8 +92,7 @@ def validate_final(value: str) -> str:
 
 
 def validate_entity_replacement(value: str) -> None:
-    _validate_scalars(value, error_code=DISPLAY_ERROR_UNICODE_INVALID)
-    _validate_controls(value, allow_lf_tab=False)
+    _validate_entity_replacement(value)
 
 
 __all__ = [

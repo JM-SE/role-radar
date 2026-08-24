@@ -15,13 +15,12 @@ from role_radar.evaluation.blind_labeling.display_policy import (
     DISPLAY_ERROR_ENTITY_INVALID,
     DISPLAY_ERROR_ENTITY_TABLE_MISMATCH,
     DISPLAY_ERROR_OUTPUT_TOO_LARGE,
-    DISPLAY_ERROR_UNSAFE_CONTROL,
     DISPLAY_HTML5_ENTITY_TABLE_SHA256,
     DISPLAY_MAX_FIELD_OUTPUT_BYTES,
     DisplayError,
+    validate_entity_replacement,
 )
 
-_NAMED_REFERENCE = re.compile(r"&([A-Za-z][A-Za-z0-9]+);\Z")
 _NUMERIC_REFERENCE = re.compile(r"&#(?:([0-9]+)|[xX]([0-9A-Fa-f]+));\Z")
 _ASCII_ALNUM = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
 
@@ -56,22 +55,6 @@ def _valid_scalar(codepoint: int) -> bool:
     )
 
 
-def _replacement_is_safe(value: str) -> bool:
-    for char in value:
-        codepoint = ord(char)
-        if (
-            codepoint < 0x20
-            or 0x7F <= codepoint <= 0x9F
-            or codepoint in {0x2028, 0x2029}
-            or codepoint == 0x061C
-            or 0x200E <= codepoint <= 0x200F
-            or 0x202A <= codepoint <= 0x202E
-            or 0x2066 <= codepoint <= 0x2069
-        ):
-            return False
-    return True
-
-
 def _numeric_replacement(token: str) -> str:
     match = _NUMERIC_REFERENCE.fullmatch(token)
     if match is None:
@@ -79,8 +62,8 @@ def _numeric_replacement(token: str) -> str:
     digits, hex_digits = match.groups()
     try:
         codepoint = int(digits or hex_digits, 16 if hex_digits is not None else 10)
-    except ValueError as exc:
-        raise DisplayError(DISPLAY_ERROR_ENTITY_INVALID) from exc
+    except ValueError:
+        raise DisplayError(DISPLAY_ERROR_ENTITY_INVALID) from None
     if not _valid_scalar(codepoint):
         raise DisplayError(DISPLAY_ERROR_ENTITY_INVALID)
     return chr(codepoint)
@@ -91,54 +74,72 @@ def _reference_at(value: str, start: int, table: Mapping[str, str]) -> tuple[int
         return None
     next_char = value[start + 1]
     if next_char == "#":
-        end = value.find(";", start + 2)
-        if end < 0:
+        cursor = start + 2
+        base = 10
+        if cursor < len(value) and value[cursor] in "xX":
+            base = 16
+            cursor += 1
+        digit_start = cursor
+        digits = "0123456789abcdefABCDEF" if base == 16 else "0123456789"
+        while cursor < len(value) and value[cursor] in digits:
+            cursor += 1
+        if cursor == digit_start or cursor >= len(value) or value[cursor] != ";":
             raise DisplayError(DISPLAY_ERROR_ENTITY_INVALID)
-        token = value[start : end + 1]
-        return end + 1, _numeric_replacement(token)
+        token = value[start : cursor + 1]
+        return cursor + 1, _numeric_replacement(token)
     if next_char not in _ASCII_ALNUM or not next_char.isalpha():
         return None
-    end = value.find(";", start + 1)
-    if end >= 0:
-        token = value[start : end + 1]
-        match = _NAMED_REFERENCE.fullmatch(token)
-        if match is None:
-            raise DisplayError(DISPLAY_ERROR_ENTITY_INVALID)
-        replacement = table.get(match.group(1) + ";")
-        if replacement is None:
-            raise DisplayError(DISPLAY_ERROR_ENTITY_INVALID)
-        return end + 1, replacement
-
-    end = start + 1
+    end = start + 2
     while end < len(value) and value[end] in _ASCII_ALNUM:
         end += 1
-    candidate = value[start + 1 : end] + ";"
-    if candidate in table:
+    name = value[start + 1 : end]
+    if end >= len(value) or value[end] != ";":
+        if name + ";" in table:
+            raise DisplayError(DISPLAY_ERROR_ENTITY_INVALID)
+        return None
+    replacement = table.get(name + ";")
+    if replacement is None:
         raise DisplayError(DISPLAY_ERROR_ENTITY_INVALID)
-    return None
+    return end + 1, replacement
+
+
+class _DecodedBuilder:
+    def __init__(self) -> None:
+        self._chunks: list[str] = []
+        self._bytes = 0
+
+    def append(self, value: str) -> None:
+        self._bytes += len(value.encode("utf-8"))
+        if self._bytes > DISPLAY_MAX_FIELD_OUTPUT_BYTES:
+            raise DisplayError(DISPLAY_ERROR_OUTPUT_TOO_LARGE)
+        self._chunks.append(value)
+
+    def finish(self) -> str:
+        return "".join(self._chunks)
 
 
 def _decode_pass(value: str, table: Mapping[str, str]) -> tuple[str, bool]:
-    output: list[str] = []
+    output = _DecodedBuilder()
     changed = False
     index = 0
     while index < len(value):
-        if value[index] == "&":
-            reference = _reference_at(value, index, table)
-            if reference is not None:
-                end, replacement = reference
-                if not _replacement_is_safe(replacement):
-                    raise DisplayError(DISPLAY_ERROR_UNSAFE_CONTROL)
-                output.append(replacement)
-                index = end
-                changed = True
-                continue
-        output.append(value[index])
-        index += 1
-    decoded = "".join(output)
-    if len(decoded.encode("utf-8")) > DISPLAY_MAX_FIELD_OUTPUT_BYTES:
-        raise DisplayError(DISPLAY_ERROR_OUTPUT_TOO_LARGE)
-    return decoded, changed
+        if value[index] != "&":
+            next_ampersand = value.find("&", index)
+            end = len(value) if next_ampersand < 0 else next_ampersand
+            output.append(value[index:end])
+            index = end
+            continue
+        reference = _reference_at(value, index, table)
+        if reference is None:
+            output.append("&")
+            index += 1
+            continue
+        end, replacement = reference
+        validate_entity_replacement(replacement)
+        output.append(replacement)
+        index = end
+        changed = True
+    return output.finish(), changed
 
 
 def _has_valid_reference(value: str, table: Mapping[str, str]) -> bool:

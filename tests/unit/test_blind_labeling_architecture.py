@@ -5,6 +5,46 @@ from pathlib import Path
 
 PACKAGE = Path("src/role_radar/evaluation/blind_labeling")
 
+DISPLAY_MODULES = (
+    "display_policy.py",
+    "_display_entities.py",
+    "_display_html.py",
+    "_display_safety.py",
+    "display.py",
+)
+ALLOWED_IMPORTS = {
+    "display_policy.py": {"hashlib", "json", "re", "types", "typing", "collections.abc"},
+    "_display_entities.py": {
+        "hashlib",
+        "html.entities",
+        "json",
+        "re",
+        "collections.abc",
+        "types",
+        "role_radar.evaluation.blind_labeling.display_policy",
+    },
+    "_display_html.py": {
+        "dataclasses",
+        "html.parser",
+        "role_radar.evaluation.blind_labeling.display_policy",
+    },
+    "_display_safety.py": {
+        "unicodedata",
+        "role_radar.evaluation.blind_labeling.display_policy",
+    },
+    "display.py": {
+        "hashlib",
+        "collections.abc",
+        "dataclasses",
+        "typing",
+        "role_radar.evaluation.blind_labeling._display_entities",
+        "role_radar.evaluation.blind_labeling._display_html",
+        "role_radar.evaluation.blind_labeling._display_safety",
+        "role_radar.evaluation.blind_labeling.contracts",
+        "role_radar.evaluation.blind_labeling.display_policy",
+    },
+}
+
 
 def test_blind_labeling_package_does_not_reference_forbidden_runtime_integrations() -> None:
     forbidden = (
@@ -65,9 +105,56 @@ def test_display_modules_have_pure_import_and_call_boundaries() -> None:
                 assert node.func.id not in forbidden_calls, (name, node.func.id)
 
 
+def test_display_modules_use_only_the_approved_import_sets() -> None:
+    for name in DISPLAY_MODULES:
+        tree = ast.parse((PACKAGE / name).read_text(encoding="utf-8"), filename=name)
+        imported: set[str] = set()
+        for node in tree.body:
+            if isinstance(node, ast.Import):
+                imported.update(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module != "__future__":
+                assert node.module is not None
+                imported.add(node.module)
+        assert imported <= ALLOWED_IMPORTS[name], (name, imported - ALLOWED_IMPORTS[name])
+
+
+def test_display_modules_have_no_io_network_process_or_generic_entity_decoder_calls() -> None:
+    forbidden_attributes = {
+        "open",
+        "Path",
+        "socket",
+        "urlopen",
+        "system",
+        "Popen",
+        "run",
+        "getenv",
+        "environ",
+        "request",
+        "create_connection",
+        "unescape",
+    }
+    for name in DISPLAY_MODULES:
+        tree = ast.parse((PACKAGE / name).read_text(encoding="utf-8"), filename=name)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                assert node.func.attr not in forbidden_attributes, (name, node.func.attr)
+
+
 def test_rendered_evidence_has_one_factory_constructor_call() -> None:
-    display_source = (PACKAGE / "display.py").read_text(encoding="utf-8")
-    assert display_source.count("RenderedEvidence(") == 1
+    tree = ast.parse((PACKAGE / "display.py").read_text(encoding="utf-8"))
+    render_function = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "render_pilot_item"
+    )
+    constructors = [
+        node
+        for node in ast.walk(render_function)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "RenderedEvidence"
+    ]
+    assert len(constructors) == 1
     for path in PACKAGE.glob("*.py"):
         if path.name != "display.py":
             assert "RenderedEvidence(" not in path.read_text(encoding="utf-8")

@@ -11,10 +11,12 @@ from role_radar.evaluation.blind_labeling.display_policy import (
     DISPLAY_ERROR_ENTITY_INVALID,
     DISPLAY_ERROR_HTML_DEPTH_EXCEEDED,
     DISPLAY_ERROR_HTML_MALFORMED,
+    DISPLAY_ERROR_OUTPUT_TOO_LARGE,
     DISPLAY_ERROR_PARSE_LIMIT_EXCEEDED,
     DISPLAY_HTML_VOID_TAGS,
     DISPLAY_LIST_CONTAINER_TAGS,
     DISPLAY_LIST_ITEM_TAG,
+    DISPLAY_MAX_FIELD_OUTPUT_BYTES,
     DISPLAY_MAX_HTML_DEPTH,
     DISPLAY_MAX_PARSE_EVENTS,
     DISPLAY_SUPPRESSED_TAGS,
@@ -28,10 +30,92 @@ class _Frame:
     suppressed: bool
 
 
+_LITERAL_AMPERSAND_SENTINEL = "\x01"
+_HTML_NAME_CHARS = frozenset(
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:.-_"
+)
+_HTML_SPACE_CHARS = " \t\n\f\r"
+
+
+def _scan_markup_end(value: str, start: int) -> int:
+    quote: str | None = None
+    index = start + 1
+    while index < len(value):
+        char = value[index]
+        if quote is not None:
+            if char == quote:
+                quote = None
+        elif char in {"'", '"'}:
+            quote = char
+        elif char == ">":
+            return index
+        index += 1
+    raise DisplayError(DISPLAY_ERROR_HTML_MALFORMED)
+
+
+def _validate_raw_markup(value: str) -> None:
+    """Reject syntax that HTMLParser otherwise silently normalizes away."""
+
+    index = 0
+    while index < len(value):
+        start = value.find("<", index)
+        if start < 0:
+            return
+        if start + 1 >= len(value):
+            raise DisplayError(DISPLAY_ERROR_HTML_MALFORMED)
+        marker = value[start + 1]
+        if value.startswith("<!--", start):
+            end = value.find("-->", start + 4)
+            if end < 0 or "--" in value[start + 4 : end]:
+                raise DisplayError(DISPLAY_ERROR_HTML_MALFORMED)
+            index = end + 3
+            continue
+        if marker == "!":
+            end = _scan_markup_end(value, start + 1)
+            declaration = value[start + 2 : end]
+            if (
+                len(declaration) <= 8
+                or declaration[:7].casefold() != "doctype"
+                or declaration[7] not in _HTML_SPACE_CHARS
+                or not declaration[8:].strip()
+            ):
+                raise DisplayError(DISPLAY_ERROR_HTML_MALFORMED)
+            index = end + 1
+            continue
+        if marker == "?":
+            raise DisplayError(DISPLAY_ERROR_HTML_MALFORMED)
+        if marker == "/":
+            end = _scan_markup_end(value, start + 1)
+            cursor = start + 2
+            name_start = cursor
+            while cursor < end and value[cursor] in _HTML_NAME_CHARS:
+                cursor += 1
+            if cursor == name_start or not all(
+                "A" <= char <= "Z" or "a" <= char <= "z" for char in value[name_start]
+            ):
+                raise DisplayError(DISPLAY_ERROR_HTML_MALFORMED)
+            if value[cursor:end].strip(_HTML_SPACE_CHARS):
+                raise DisplayError(DISPLAY_ERROR_HTML_MALFORMED)
+            index = end + 1
+            continue
+        if "A" <= marker <= "Z" or "a" <= marker <= "z":
+            end = _scan_markup_end(value, start + 1)
+            cursor = start + 1
+            while cursor < end and value[cursor] in _HTML_NAME_CHARS:
+                cursor += 1
+            if cursor == start + 1:
+                raise DisplayError(DISPLAY_ERROR_HTML_MALFORMED)
+            index = end + 1
+            continue
+        index = start + 1
+
+
 class _LayoutBuffer:
     def __init__(self) -> None:
         self._chunks: list[str] = []
+        self._bytes = 0
         self._line_has_content = False
+        self._trailing_newlines = 0
         self._list_depth = 0
         self._li_levels: list[int] = []
 
@@ -41,32 +125,47 @@ class _LayoutBuffer:
 
     def _append_raw(self, value: str) -> None:
         if value:
+            self._bytes += len(value.encode("utf-8"))
+            if self._bytes > DISPLAY_MAX_FIELD_OUTPUT_BYTES:
+                raise DisplayError(DISPLAY_ERROR_OUTPUT_TOO_LARGE)
             self._chunks.append(value)
-            for char in value:
-                self._line_has_content = char != "\n"
+            trailing = len(value) - len(value.rstrip("\n"))
+            if trailing:
+                if value[:-trailing]:
+                    self._trailing_newlines = trailing
+                else:
+                    self._trailing_newlines += trailing
+                self._line_has_content = False
+            else:
+                self._trailing_newlines = 0
+                self._line_has_content = True
 
     def append_text(self, value: str) -> None:
-        for char in value:
-            if char == "\n":
-                self._append_raw(char)
-                continue
-            if not self._line_has_content and self._li_levels:
-                self._append_raw(" " * (2 * (self._li_levels[-1] + 1)))
-            self._append_raw(char)
+        index = 0
+        while index < len(value):
+            newline = value.find("\n", index)
+            end = len(value) if newline < 0 else newline
+            if end > index:
+                if not self._line_has_content and self._li_levels:
+                    self._append_raw(" " * (2 * (self._li_levels[-1] + 1)))
+                self._append_raw(value[index:end])
+            if newline < 0:
+                break
+            self._append_raw("\n")
+            index = newline + 1
 
     def block_boundary(self) -> None:
         if not self._chunks:
             return
-        text = self.text
-        if text.endswith("\n\n"):
+        if self._trailing_newlines >= 2:
             return
-        if text.endswith("\n"):
+        if self._trailing_newlines == 1:
             self._append_raw("\n")
         else:
             self._append_raw("\n\n")
 
     def line_break(self) -> None:
-        if self._chunks and not self.text.endswith("\n"):
+        if self._chunks:
             self._append_raw("\n")
 
     def start_list(self) -> None:
@@ -85,7 +184,7 @@ class _LayoutBuffer:
     def end_item(self) -> None:
         if self._li_levels:
             self._li_levels.pop()
-        if self._chunks and not self.text.endswith("\n"):
+        if self._chunks and self._trailing_newlines == 0:
             self._append_raw("\n")
 
     def finish(self) -> str:
@@ -232,15 +331,19 @@ class _DisplayHTMLParser(HTMLParser):
 
 
 def layout_html(value: str) -> str:
+    _validate_raw_markup(value)
     parser = _DisplayHTMLParser()
+    parser_error = False
     try:
-        parser.feed(value)
+        parser.feed(value.replace("&", _LITERAL_AMPERSAND_SENTINEL))
         parser.close()
     except DisplayError:
         raise
-    except (AssertionError, IndexError, ValueError) as exc:
-        raise DisplayError(DISPLAY_ERROR_HTML_MALFORMED) from exc
-    return parser.result
+    except (AssertionError, IndexError, ValueError):
+        parser_error = True
+    if parser_error:
+        raise DisplayError(DISPLAY_ERROR_HTML_MALFORMED)
+    return parser.result.replace(_LITERAL_AMPERSAND_SENTINEL, "&")
 
 
 __all__ = ["layout_html"]
