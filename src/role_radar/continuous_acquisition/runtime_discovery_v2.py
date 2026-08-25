@@ -391,8 +391,10 @@ def build_search_runtime(
 
     bound_month = contexts[0].utc_month if contexts else None
 
+    runtime: BoundedSearchRuntime
+
     def check_before_transport() -> None:
-        now = datetime.now(UTC)
+        now = runtime.clock()
         if bound_month is None or now.strftime("%Y-%m") != bound_month:
             raise RuntimeCompositionError("discovery_quota_month_stale")
         expected = quota_contexts_from_config(
@@ -404,7 +406,7 @@ def build_search_runtime(
         if now >= authorization_capability.expires_at_utc.astimezone(UTC):
             raise RuntimeCompositionError("discovery_v2_authorization_expired")
 
-    return BoundedSearchRuntime(
+    runtime = BoundedSearchRuntime(
         plan=typed_plan,
         operation_id=authorization_capability.operation_id,
         authorization=authorization_capability,
@@ -416,6 +418,7 @@ def build_search_runtime(
         ),
         before_transport_check=check_before_transport,
     )
+    return runtime
 
 
 def run_discovery_v2(
@@ -463,6 +466,8 @@ async def execute_report_only_runtime(
 
     if not hasattr(search_runtime, "search") or not hasattr(search_runtime, "last_responses"):
         raise RuntimeCompositionError("discovery_search_runtime_invalid")
+    if isinstance(search_runtime, BoundedSearchRuntime) and clock is not None:
+        search_runtime.clock = clock if callable(clock) else lambda: clock
     try:
         return await execute_report_only(
             operation,

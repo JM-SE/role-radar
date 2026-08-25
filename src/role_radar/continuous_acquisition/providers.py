@@ -354,6 +354,7 @@ class BoundedSearchRuntime:
     quota_adapter: SearchQuotaAdapter | None = None
     quota_contexts: tuple[DiscoveryQuotaContextV2Protocol, ...] = ()
     before_transport_check: Callable[[], None] | None = None
+    clock: Callable[[], datetime] = field(default=lambda: datetime.now(UTC), repr=False)
     brave: SearchProvider | None = None
     tavily: SearchProvider | None = None
     last_responses: tuple[tuple[int, SearchResponse], ...] = ()
@@ -395,7 +396,7 @@ class BoundedSearchRuntime:
                     operation_id=self.operation_id,
                     plan_sha256=self.plan.plan_sha256,
                     provider=provider_name,
-                    now=datetime.now(UTC),
+                    now=self.clock(),
                 ):
                     raise RuntimeError("discovery_v2_authorization_expired")
                 budget.reserve_search(provider_name)
@@ -408,7 +409,7 @@ class BoundedSearchRuntime:
                     query_ordinal=query.ordinal,
                     provider=provider_name,  # type: ignore[arg-type]
                     tier="free",
-                    started_at=datetime.now(UTC),
+                    started_at=self.clock(),
                 )
                 publication = _reserve_and_start(
                     self.quota_adapter,
@@ -445,7 +446,7 @@ class BoundedSearchRuntime:
                             rejected_count=0,
                             duration_ms=0,
                             error_code="pretransport_failed",
-                            completed_at=datetime.now(UTC),
+                            completed_at=self.clock(),
                         )
                         _finalize(
                             self.quota_adapter,
@@ -475,7 +476,7 @@ class BoundedSearchRuntime:
                         rejected_count=0,
                         duration_ms=0,
                         error_code="transmission_indeterminate",
-                        completed_at=datetime.now(UTC),
+                        completed_at=self.clock(),
                     )
                     _finalize(
                         self.quota_adapter,
@@ -508,7 +509,7 @@ class BoundedSearchRuntime:
                     rejected_count=0,
                     duration_ms=response.duration_ms,
                     error_code=error_code,
-                    completed_at=datetime.now(UTC),
+                    completed_at=self.clock(),
                 )
                 _finalize(
                     self.quota_adapter,
