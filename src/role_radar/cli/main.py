@@ -539,6 +539,9 @@ def _parser() -> argparse.ArgumentParser:
     finalize_f10_2.add_argument("--acknowledgement", required=True)
     verify_f10_2 = f10_2_commands.add_parser("verify")
     verify_f10_2.add_argument("--labelset-id", required=True)
+    from role_radar.cli.evaluation_f10_1f import register_parser
+
+    register_parser(evaluation_commands)
     return parser
 
 
@@ -550,6 +553,10 @@ def _run_evaluation(args: argparse.Namespace) -> int:
         return run(args)
     if args.evaluation_command == "f10-2":
         from role_radar.cli.evaluation_f10_2 import run
+
+        return run(args)
+    if args.evaluation_command == "f10-1f":
+        from role_radar.cli.evaluation_f10_1f import run
 
         return run(args)
     if args.evaluation_command != "f10-1":

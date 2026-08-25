@@ -63,6 +63,51 @@ def test_gate_e_has_no_materialization_import_or_call() -> None:
     assert "run_gate_f_materialization" not in names
 
 
+def test_gate_e_cannot_reach_gate_f_or_materialization_transitively() -> None:
+    path = PACKAGE / "gate_e_preview.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    names = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
+    imports = _imports(path)
+    assert not any("gate_f_materialization" in value for value in imports)
+    assert not names.intersection(
+        {
+            "materialize_payload_bytes",
+            "MaterializedPayloads",
+            "CanonicalPayload",
+            "ApprovedPreview",
+            "MaterializationContext",
+            "run_gate_f_materialization",
+        }
+    )
+
+
+def test_f10_1f_has_no_historical_root_or_holdout_runtime_access() -> None:
+    forbidden_imports = (
+        "role_radar.evaluation.cohort_freeze",
+        "role_radar.evaluation.blind_labeling",
+        "role_radar.repositories",
+        "role_radar.db",
+    )
+    for path in PACKAGE.glob("*.py"):
+        imports = _imports(path)
+        assert not any(
+            any(value.startswith(prefix) for prefix in forbidden_imports) for value in imports
+        ), path
+
+    # LIVE_HOLDOUT is an aggregate preregistration target, not a holdout read.
+    for path in PACKAGE.glob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        assert not any(
+            isinstance(node, ast.Name) and node.id in {"open_holdout", "read_holdout"}
+            for node in ast.walk(tree)
+        ), path
+
+
+def test_f10_1f_cli_has_no_generic_acknowledgement_switch() -> None:
+    source = Path("src/role_radar/cli/evaluation_f10_1f.py").read_text(encoding="utf-8")
+    assert 'add_argument("--ack")' not in source
+
+
 def test_freeze_has_no_gate_or_materialization_dependency() -> None:
     path = PACKAGE / "freeze_runtime.py"
     source = path.read_text(encoding="utf-8")
