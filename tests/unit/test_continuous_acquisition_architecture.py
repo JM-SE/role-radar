@@ -17,8 +17,14 @@ FORBIDDEN_IMPORTS = (
     "role_radar.notifications",
 )
 FORBIDDEN_NAMES = {
-    "Pipeline", "LLMProvider", "WorkerRunner", "AcquiredJobWriter",
-    "JobSearchRun", "RunJob", "JobScore", "JobExtraction",
+    "Pipeline",
+    "LLMProvider",
+    "WorkerRunner",
+    "AcquiredJobWriter",
+    "JobSearchRun",
+    "RunJob",
+    "JobScore",
+    "JobExtraction",
 }
 
 

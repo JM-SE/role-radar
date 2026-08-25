@@ -46,9 +46,7 @@ def test_job_list_filters(db_session: Session) -> None:
 
 
 def test_add_source_reference(db_session: Session) -> None:
-    source = SourceRepository(db_session).create(
-        type=SourceType.GREENHOUSE, name="Acme Greenhouse"
-    )
+    source = SourceRepository(db_session).create(type=SourceType.GREENHOUSE, name="Acme Greenhouse")
     job = JobRepository(db_session).create(title="Backend Engineer", company="Acme")
     db_session.commit()
 

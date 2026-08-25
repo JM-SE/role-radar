@@ -38,9 +38,7 @@ def main() -> int:
         "external_requests": 0,
     }
     print(json.dumps(output, sort_keys=True))
-    healthy = all(
-        value == "pass" for key, value in output.items() if key != "external_requests"
-    )
+    healthy = all(value == "pass" for key, value in output.items() if key != "external_requests")
     return 0 if healthy else 3
 
 

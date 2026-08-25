@@ -127,4 +127,6 @@ def run_acquisition_once(
     except FenceLostError as exc:
         session.rollback()
         raise RuntimeCompositionError("fence_lost", exit_code=EXIT_CLAIM) from exc
-    return RuntimeResult(_payload(result, run_id=run.id, slot_key=slot_key), state_exit_code(result.state.value))
+    return RuntimeResult(
+        _payload(result, run_id=run.id, slot_key=slot_key), state_exit_code(result.state.value)
+    )

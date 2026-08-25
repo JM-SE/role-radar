@@ -121,16 +121,23 @@ def _membership_hash(
         + canonical_line(
             [{"semantic": semantic, "identity": identity} for semantic, identity in ordered]
         )
-        + canonical_line([quota.__dict__ if hasattr(quota, "__dict__") else {
-            "source": quota.source_stratum,
-            "population": quota.population,
-            "minimum": quota.minimum_applied,
-            "ideal": [quota.ideal_numerator, quota.ideal_denominator],
-            "floor": quota.floor,
-            "remainder": [quota.remainder_numerator, quota.remainder_denominator],
-            "tie": quota.tie_break_sha256,
-            "quota": quota.quota,
-        } for quota in quotas]),
+        + canonical_line(
+            [
+                quota.__dict__
+                if hasattr(quota, "__dict__")
+                else {
+                    "source": quota.source_stratum,
+                    "population": quota.population,
+                    "minimum": quota.minimum_applied,
+                    "ideal": [quota.ideal_numerator, quota.ideal_denominator],
+                    "floor": quota.floor,
+                    "remainder": [quota.remainder_numerator, quota.remainder_denominator],
+                    "tie": quota.tie_break_sha256,
+                    "quota": quota.quota,
+                }
+                for quota in quotas
+            ]
+        ),
     )
 
 
@@ -143,15 +150,15 @@ def partition_corpus(corpus: CorpusResult) -> PartitionResult:
     for item in corpus.items:
         groups[item.source_stratum].append(item)
     quotas = _quotas(dict(groups))
-    ranks = {
-        id(item): partition_rank_sha256(corpus.corpus_sha256, item) for item in corpus.items
-    }
+    ranks = {id(item): partition_rank_sha256(corpus.corpus_sha256, item) for item in corpus.items}
     pilot: list[CorpusItem] = []
     for quota in quotas:
         members = sorted(
             groups[quota.source_stratum],
             key=lambda item: (
-                ranks[id(item)], item.strong_identity_digest, item.item_semantic_sha256
+                ranks[id(item)],
+                item.strong_identity_digest,
+                item.item_semantic_sha256,
             ),
         )
         pilot.extend(members[: quota.quota])
@@ -160,7 +167,8 @@ def partition_corpus(corpus: CorpusResult) -> PartitionResult:
     )
     pilot_keys = {(item.item_semantic_sha256, item.strong_identity_digest) for item in pilot_tuple}
     holdout_tuple = tuple(
-        item for item in corpus.items
+        item
+        for item in corpus.items
         if (item.item_semantic_sha256, item.strong_identity_digest) not in pilot_keys
     )
     holdout_tuple = tuple(
@@ -169,19 +177,26 @@ def partition_corpus(corpus: CorpusResult) -> PartitionResult:
             key=lambda item: (item.item_semantic_sha256, item.strong_identity_digest),
         )
     )
-    if len(pilot_tuple) != PILOT_COUNT or len(holdout_tuple) != HOLDOUT_COUNT or pilot_keys & {
-        (item.item_semantic_sha256, item.strong_identity_digest) for item in holdout_tuple
-    }:
+    if (
+        len(pilot_tuple) != PILOT_COUNT
+        or len(holdout_tuple) != HOLDOUT_COUNT
+        or pilot_keys
+        & {(item.item_semantic_sha256, item.strong_identity_digest) for item in holdout_tuple}
+    ):
         raise ValueError("partition_membership_invalid")
-    quota_hash = sha256_bytes(canonical_line([
-        {
-            "source": quota.source_stratum,
-            "population": quota.population,
-            "quota": quota.quota,
-            "tie": quota.tie_break_sha256,
-        }
-        for quota in quotas
-    ]))
+    quota_hash = sha256_bytes(
+        canonical_line(
+            [
+                {
+                    "source": quota.source_stratum,
+                    "population": quota.population,
+                    "quota": quota.quota,
+                    "tie": quota.tie_break_sha256,
+                }
+                for quota in quotas
+            ]
+        )
+    )
     return PartitionResult(
         pilot=pilot_tuple,
         holdout=holdout_tuple,

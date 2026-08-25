@@ -12,8 +12,15 @@ _OFFICIAL_HOSTS = frozenset(
 )
 _TRACKING_PARAMETERS = frozenset(
     {
-        "gh_src", "source", "ref", "referrer", "utm_campaign", "utm_content",
-        "utm_medium", "utm_source", "utm_term",
+        "gh_src",
+        "source",
+        "ref",
+        "referrer",
+        "utm_campaign",
+        "utm_content",
+        "utm_medium",
+        "utm_source",
+        "utm_term",
     }
 )
 
@@ -33,7 +40,11 @@ def _normalize_url(url: str, *, application: bool) -> str | None:
     except ValueError:
         return None
     host = parsed.hostname
-    if parsed.scheme.casefold() != "https" or host is None or host.casefold() not in _OFFICIAL_HOSTS:
+    if (
+        parsed.scheme.casefold() != "https"
+        or host is None
+        or host.casefold() not in _OFFICIAL_HOSTS
+    ):
         return None
     if parsed.username or parsed.password or parsed.port:
         return None
@@ -61,19 +72,29 @@ def normalize_application_url(url: str | None) -> str | None:
 
 
 def derive_strong_identities(
-    *, source_key: str, external_id: str | None, posting_url: str | None, application_url: str | None
+    *,
+    source_key: str,
+    external_id: str | None,
+    posting_url: str | None,
+    application_url: str | None,
 ) -> tuple[StrongIdentity, ...]:
     if not source_key:
         raise ValueError("invalid_identity")
     values: list[StrongIdentity] = []
     if external_id:
-        values.append(StrongIdentity("source_external_id", IDENTITY_POLICY_VERSION, f"{source_key}:{external_id}"))
+        values.append(
+            StrongIdentity(
+                "source_external_id", IDENTITY_POLICY_VERSION, f"{source_key}:{external_id}"
+            )
+        )
     posting = normalize_official_posting_url(posting_url)
     application = normalize_application_url(application_url)
     if posting:
         values.append(StrongIdentity("official_posting_url", IDENTITY_POLICY_VERSION, posting))
     if application and application != posting:
-        values.append(StrongIdentity("allowlisted_application_url", IDENTITY_POLICY_VERSION, application))
+        values.append(
+            StrongIdentity("allowlisted_application_url", IDENTITY_POLICY_VERSION, application)
+        )
     if not values:
         raise ValueError("invalid_identity")
     return tuple(values)

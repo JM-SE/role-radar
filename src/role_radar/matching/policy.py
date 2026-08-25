@@ -39,7 +39,9 @@ EMPLOYMENT_ALIASES: dict[str, str] = {
 }
 LANGUAGE_ALIASES: dict[str, str] = {"en": "english", "es": "spanish", "fr": "french"}
 TECHNOLOGY_ALIASES: dict[str, str] = {
-    "py": "python", "postgresql": "postgres", "postgres": "postgres",
+    "py": "python",
+    "postgresql": "postgres",
+    "postgres": "postgres",
     "k8s": "kubernetes",
 }
 LEVEL_ORDER = {

@@ -31,9 +31,7 @@ class SearchRequest(BaseModel):
     the worker immediately before an adapter call.
     """
 
-    model_config = ConfigDict(
-        strict=True, extra="forbid", frozen=True, hide_input_in_errors=True
-    )
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True, hide_input_in_errors=True)
 
     operation_key: str = Field(min_length=1, max_length=512)
     query: str = Field(min_length=1, max_length=2048, repr=False)
@@ -58,9 +56,7 @@ class SearchRequest(BaseModel):
 class TransientSearchHit(BaseModel):
     """A bounded URL/rank pair; it must never cross a persistence boundary."""
 
-    model_config = ConfigDict(
-        strict=True, extra="forbid", frozen=True, hide_input_in_errors=True
-    )
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True, hide_input_in_errors=True)
 
     url: str = Field(min_length=1, max_length=2048, repr=False)
     rank: int = Field(gt=0, le=10)
@@ -69,9 +65,7 @@ class TransientSearchHit(BaseModel):
 class SearchResponse(BaseModel):
     """Sanitized provider outcome.  Provider payloads are discarded by adapters."""
 
-    model_config = ConfigDict(
-        strict=True, extra="forbid", frozen=True, hide_input_in_errors=True
-    )
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True, hide_input_in_errors=True)
 
     provider: Literal["brave", "tavily"]
     tier: ProviderTier

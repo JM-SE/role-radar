@@ -35,7 +35,10 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["job_id"], ["jobs.id"]),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint(
-            "job_id", "input_hash", "schema_version", "prompt_version",
+            "job_id",
+            "input_hash",
+            "schema_version",
+            "prompt_version",
             name="uq_job_extractions_operation",
         ),
     )

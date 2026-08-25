@@ -243,9 +243,7 @@ class SourceService:
         source: Source, *, jobicy_terms: JobicyTermsAcceptance | None = None
     ) -> None:
         if source.type is SourceType.JOBICY:
-            terms_error = validate_jobicy_terms(
-                jobicy_terms, now=datetime.now(UTC)
-            )
+            terms_error = validate_jobicy_terms(jobicy_terms, now=datetime.now(UTC))
             if terms_error is not None:
                 raise SourceServiceError(terms_error)
             if jobicy_terms is None or jobicy_terms.terms_sha256 is None:

@@ -231,26 +231,20 @@ _DISPLAY_POLICY_PAYLOAD = {
 }
 DISPLAY_POLICY_CANONICAL_BYTES: Final = canonical_json_bytes(_DISPLAY_POLICY_PAYLOAD)
 DISPLAY_CONTRACT_SHA256: Final = hashlib.sha256(
-    DISPLAY_HASH_DOMAIN_CONTRACT.encode("ascii")
-    + b"\x00"
-    + DISPLAY_POLICY_CANONICAL_BYTES
+    DISPLAY_HASH_DOMAIN_CONTRACT.encode("ascii") + b"\x00" + DISPLAY_POLICY_CANONICAL_BYTES
 ).hexdigest()
 
 
 def _freeze_policy(value: object) -> object:
     if isinstance(value, dict):
-        return MappingProxyType(
-            {key: _freeze_policy(item) for key, item in value.items()}
-        )
+        return MappingProxyType({key: _freeze_policy(item) for key, item in value.items()})
     if isinstance(value, list):
         return tuple(_freeze_policy(item) for item in value)
     return value
 
 
 # The mapping and every nested collection are intentionally immutable for callers.
-DISPLAY_POLICY_PAYLOAD: Final = cast(
-    Mapping[str, object], _freeze_policy(_DISPLAY_POLICY_PAYLOAD)
-)
+DISPLAY_POLICY_PAYLOAD: Final = cast(Mapping[str, object], _freeze_policy(_DISPLAY_POLICY_PAYLOAD))
 
 
 __all__ = [

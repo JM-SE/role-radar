@@ -192,9 +192,7 @@ class DiscoveryQueryPlanner:
         )
 
 
-Verifier = Callable[
-    [KnownOfficialCandidate, datetime], Awaitable[VerifiedEphemeralConfig | None]
-]
+Verifier = Callable[[KnownOfficialCandidate, datetime], Awaitable[VerifiedEphemeralConfig | None]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -256,12 +254,15 @@ class OfficialBoardVerifier:
                 source_revision=0,
                 configuration_version=1,
             )
-            if eligibility(
-                observation,
-                cutoff_utc=selection_as_of_utc.astimezone(UTC).replace(microsecond=0)
-                - timedelta(days=14),
-                as_of_utc=selection_as_of_utc,
-            ) is None:
+            if (
+                eligibility(
+                    observation,
+                    cutoff_utc=selection_as_of_utc.astimezone(UTC).replace(microsecond=0)
+                    - timedelta(days=14),
+                    as_of_utc=selection_as_of_utc,
+                )
+                is None
+            ):
                 eligible_count += 1
         if eligible_count < 1:
             return None

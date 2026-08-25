@@ -10,7 +10,7 @@ def test_plain_and_html_are_bounded_and_remote_resources_are_not_loaded() -> Non
         b"From: alerts@example.com\n"
         b"Authentication-Results: mx.google.com; dkim=pass\n"
         b"Content-Type: text/html; charset=utf-8\n\n"
-        b"<script>https://secret.invalid</script><a href=\"https://example.com/job\">job</a>"
+        b'<script>https://secret.invalid</script><a href="https://example.com/job">job</a>'
     )
     parsed = parse_rfc822(raw)
     assert parsed.auth_evidence == "pass"

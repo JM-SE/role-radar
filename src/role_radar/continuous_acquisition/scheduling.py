@@ -19,9 +19,7 @@ def daily_slot(day: date | datetime, *, namespace: str) -> str:
     return f"{namespace}:{SLOT_VERSION}:{local_day.isoformat()}"
 
 
-def daily_canary_slot(
-    day: date | datetime, *, namespace: str, canary_id: str
-) -> str:
+def daily_canary_slot(day: date | datetime, *, namespace: str, canary_id: str) -> str:
     if _CANARY_ID.fullmatch(canary_id) is None:
         raise ValueError("canary_id_invalid")
     local_day = day.astimezone(BUENOS_AIRES).date() if isinstance(day, datetime) else day
@@ -37,7 +35,9 @@ def rotate_sources(source_ids: Sequence[str], *, day: date | datetime) -> tuple[
     return tuple(
         sorted(
             source_ids,
-            key=lambda source_id: hashlib.sha256(f"{local_day.isoformat()}:{source_id}".encode()).hexdigest(),
+            key=lambda source_id: hashlib.sha256(
+                f"{local_day.isoformat()}:{source_id}".encode()
+            ).hexdigest(),
         )
     )
 
@@ -45,14 +45,10 @@ def rotate_sources(source_ids: Sequence[str], *, day: date | datetime) -> tuple[
 def discovery_slot(day: date | datetime, *, canary_id: str | None = None) -> str:
     if canary_id is None:
         return daily_slot(day, namespace="continuous-discovery")
-    return daily_canary_slot(
-        day, namespace="continuous-discovery", canary_id=canary_id
-    )
+    return daily_canary_slot(day, namespace="continuous-discovery", canary_id=canary_id)
 
 
 def acquisition_slot(day: date | datetime, *, canary_id: str | None = None) -> str:
     if canary_id is None:
         return daily_slot(day, namespace="continuous-acquisition")
-    return daily_canary_slot(
-        day, namespace="continuous-acquisition", canary_id=canary_id
-    )
+    return daily_canary_slot(day, namespace="continuous-acquisition", canary_id=canary_id)

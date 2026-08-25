@@ -43,8 +43,10 @@ class AcquiredJobWriter:
         ids: list[str] = []
         for raw_job in raw_jobs:
             normalized = normalize_raw_job(raw_job)
-            if not normalized.title or not normalized.description or not (
-                normalized.application_url or normalized.source_url
+            if (
+                not normalized.title
+                or not normalized.description
+                or not (normalized.application_url or normalized.source_url)
             ):
                 prefiltered += 1
                 continue

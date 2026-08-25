@@ -144,14 +144,18 @@ def _review_payload(state: SessionState) -> dict[str, Any]:
         "review_plan_sha256": state.review_plan.plan_sha256 if state.review_plan else None,
         "reviewed_count": len(state.review_decisions),
         "matched_count": sum(1 for value in state.review_decisions if value.matches_first_pass),
-        "discrepant_count": sum(1 for value in state.review_decisions if not value.matches_first_pass),
+        "discrepant_count": sum(
+            1 for value in state.review_decisions if not value.matches_first_pass
+        ),
         "adjudicated_count": len(state.adjudications),
         "consistency": "descriptive_only",
         "items": items,
     }
 
 
-def build_bundle(snapshot: PilotSnapshot, state: SessionState, finalized_at: str) -> tuple[dict[str, bytes], dict[str, Any], str]:
+def build_bundle(
+    snapshot: PilotSnapshot, state: SessionState, finalized_at: str
+) -> tuple[dict[str, bytes], dict[str, Any], str]:
     decisions = final_decisions(state)
     labels = [
         {"opaque_id": item.opaque_id, "decision": decision_dict(decisions[item.opaque_id])}
@@ -183,9 +187,23 @@ def build_bundle(snapshot: PilotSnapshot, state: SessionState, finalized_at: str
         "schema_version": INTERNAL_MANIFEST_SCHEMA,
         "dataset_id": DATASET_ID,
         "labelset_id": labelset_id,
-        "counts": {"total": PILOT_COUNT, "reviewed": len(state.review_decisions), "adjudicated": len(state.adjudications)},
-        "frozen": {"corpus_sha256": CORPUS_SHA256, "pilot_sha256": PILOT_SHA256, "pilot_view_sha256": PILOT_FILE_SHA256, "holdout_sha256": HOLDOUT_SHA256},
-        "profile": {"id": PROFILE_ID, "version": PROFILE_VERSION, "schema": PROFILE_SCHEMA, "sha256": PROFILE_SHA256},
+        "counts": {
+            "total": PILOT_COUNT,
+            "reviewed": len(state.review_decisions),
+            "adjudicated": len(state.adjudications),
+        },
+        "frozen": {
+            "corpus_sha256": CORPUS_SHA256,
+            "pilot_sha256": PILOT_SHA256,
+            "pilot_view_sha256": PILOT_FILE_SHA256,
+            "holdout_sha256": HOLDOUT_SHA256,
+        },
+        "profile": {
+            "id": PROFILE_ID,
+            "version": PROFILE_VERSION,
+            "schema": PROFILE_SCHEMA,
+            "sha256": PROFILE_SHA256,
+        },
         "protocol": PROTOCOL_VERSION,
         "protocol_schema": "f10.2-cli-output-v1",
         "rubric": {"version": RUBRIC_VERSION, "sha256": rubric_sha},
@@ -196,7 +214,9 @@ def build_bundle(snapshot: PilotSnapshot, state: SessionState, finalized_at: str
         "finalized_at": finalized_at,
         "preimage": preimage,
     }
-    audit_events = tuple(event for event in state.audit_events if event.kind is not AuditKind.FINALIZED)
+    audit_events = tuple(
+        event for event in state.audit_events if event.kind is not AuditKind.FINALIZED
+    )
     payloads = {
         "labels.jsonl": b"".join(canonical_line(value) for value in labels),
         "audit.jsonl": b"".join(
@@ -259,27 +279,47 @@ def validate_final_bundle(payloads: dict[str, bytes], labelset_id: str) -> dict[
     labels: list[dict[str, Any]] = []
     for line in payloads["labels.jsonl"].splitlines(keepends=True):
         value = json.loads(line.decode("utf-8"))
-        if not isinstance(value, dict) or set(value) != {"opaque_id", "decision"} or canonical_line(value) != line:
+        if (
+            not isinstance(value, dict)
+            or set(value) != {"opaque_id", "decision"}
+            or canonical_line(value) != line
+        ):
             raise ValidationError("final_labels_invalid")
-        if not isinstance(value["opaque_id"], str) or OPAQUE_ID.fullmatch(value["opaque_id"]) is None:
+        if (
+            not isinstance(value["opaque_id"], str)
+            or OPAQUE_ID.fullmatch(value["opaque_id"]) is None
+        ):
             raise ValidationError("final_labels_invalid")
         decision_from_dict(value["decision"])
         labels.append(value)
-    if len(labels) != PILOT_COUNT or [value["opaque_id"] for value in labels] != sorted(value["opaque_id"] for value in labels):
+    if len(labels) != PILOT_COUNT or [value["opaque_id"] for value in labels] != sorted(
+        value["opaque_id"] for value in labels
+    ):
         raise ValidationError("final_labels_invalid")
     if len({value["opaque_id"] for value in labels}) != PILOT_COUNT:
         raise ValidationError("final_labels_invalid")
     labels_by_id = {value["opaque_id"]: value["decision"] for value in labels}
 
     review = parse_object("review-report.json")
-    if set(review) != {
-        "schema_version", "review_plan_sha256", "reviewed_count", "matched_count",
-        "discrepant_count", "adjudicated_count", "consistency", "items",
-    } or review["schema_version"] != REVIEW_REPORT_SCHEMA:
+    if (
+        set(review)
+        != {
+            "schema_version",
+            "review_plan_sha256",
+            "reviewed_count",
+            "matched_count",
+            "discrepant_count",
+            "adjudicated_count",
+            "consistency",
+            "items",
+        }
+        or review["schema_version"] != REVIEW_REPORT_SCHEMA
+    ):
         raise ValidationError("final_review_invalid")
-    if not all(isinstance(review[key], int) and review[key] >= 0 for key in (
-        "reviewed_count", "matched_count", "discrepant_count", "adjudicated_count"
-    )):
+    if not all(
+        isinstance(review[key], int) and review[key] >= 0
+        for key in ("reviewed_count", "matched_count", "discrepant_count", "adjudicated_count")
+    ):
         raise ValidationError("final_review_invalid")
     if review["matched_count"] + review["discrepant_count"] != review["reviewed_count"]:
         raise ValidationError("final_review_invalid")
@@ -293,10 +333,19 @@ def validate_final_bundle(payloads: dict[str, bytes], labelset_id: str) -> dict[
     review_item_ids: set[str] = set()
     for item in review["items"]:
         if not isinstance(item, dict) or set(item) != {
-            "item_id", "first_pass", "review", "matches_first_pass", "adjudication", "final"
+            "item_id",
+            "first_pass",
+            "review",
+            "matches_first_pass",
+            "adjudication",
+            "final",
         }:
             raise ValidationError("final_review_invalid")
-        if not isinstance(item["item_id"], str) or OPAQUE_ID.fullmatch(item["item_id"]) is None or item["item_id"] in review_item_ids:
+        if (
+            not isinstance(item["item_id"], str)
+            or OPAQUE_ID.fullmatch(item["item_id"]) is None
+            or item["item_id"] in review_item_ids
+        ):
             raise ValidationError("final_review_invalid")
         review_item_ids.add(item["item_id"])
         decision_from_dict(item["first_pass"])
@@ -324,15 +373,30 @@ def validate_final_bundle(payloads: dict[str, bytes], labelset_id: str) -> dict[
         raise ValidationError("final_rubric_invalid")
     internal = parse_object("internal-manifest.json")
     expected_internal = {
-        "schema_version", "dataset_id", "labelset_id", "counts", "frozen", "profile",
-        "protocol", "protocol_schema", "rubric", "review_plan_sha256", "semantic_hashes",
-        "alembic_head", "code_commit", "finalized_at", "preimage",
+        "schema_version",
+        "dataset_id",
+        "labelset_id",
+        "counts",
+        "frozen",
+        "profile",
+        "protocol",
+        "protocol_schema",
+        "rubric",
+        "review_plan_sha256",
+        "semantic_hashes",
+        "alembic_head",
+        "code_commit",
+        "finalized_at",
+        "preimage",
     }
     if set(internal) != expected_internal or internal["labelset_id"] != labelset_id:
         raise ValidationError("final_manifest_invalid")
     if internal["dataset_id"] != DATASET_ID or internal["protocol"] != PROTOCOL_VERSION:
         raise ValidationError("final_manifest_invalid")
-    if internal["protocol_schema"] != "f10.2-cli-output-v1" or internal["code_commit"] != CODE_COMMIT:
+    if (
+        internal["protocol_schema"] != "f10.2-cli-output-v1"
+        or internal["code_commit"] != CODE_COMMIT
+    ):
         raise ValidationError("final_manifest_invalid")
     if internal["rubric"] != {"version": RUBRIC_VERSION, "sha256": rubric_hash()}:
         raise ValidationError("final_manifest_invalid")
@@ -358,7 +422,11 @@ def validate_final_bundle(payloads: dict[str, bytes], labelset_id: str) -> dict[
         raise ValidationError("final_manifest_invalid")
     if set(internal["counts"]) != {"total", "reviewed", "adjudicated"}:
         raise ValidationError("final_manifest_invalid")
-    if internal["counts"]["total"] != PILOT_COUNT or internal["counts"]["reviewed"] != review["reviewed_count"] or internal["counts"]["adjudicated"] != review["adjudicated_count"]:
+    if (
+        internal["counts"]["total"] != PILOT_COUNT
+        or internal["counts"]["reviewed"] != review["reviewed_count"]
+        or internal["counts"]["adjudicated"] != review["adjudicated_count"]
+    ):
         raise ValidationError("final_manifest_invalid")
     if internal["semantic_hashes"]["labels"] != semantic_hash("f10.2:final-labels-v1", labels):
         raise ValidationError("final_manifest_invalid")
@@ -372,7 +440,8 @@ def validate_final_bundle(payloads: dict[str, bytes], labelset_id: str) -> dict[
         raise ValidationError("final_audit_invalid")
     if any(
         not isinstance(record, dict)
-        or set(record) != {"revision", "kind", "phase", "generation", "item_id", "before", "after", "occurred_at"}
+        or set(record)
+        != {"revision", "kind", "phase", "generation", "item_id", "before", "after", "occurred_at"}
         or type(record["revision"]) is not int
         or record["revision"] < 1
         or type(record["generation"]) is not int
@@ -382,7 +451,9 @@ def validate_final_bundle(payloads: dict[str, bytes], labelset_id: str) -> dict[
         or not isinstance(record["before"], dict | None)
         or not isinstance(record["after"], dict | None)
         or canonical_line(record) != line
-        for record, line in zip(audit_records, payloads["audit.jsonl"].splitlines(keepends=True), strict=True)
+        for record, line in zip(
+            audit_records, payloads["audit.jsonl"].splitlines(keepends=True), strict=True
+        )
     ):
         raise ValidationError("final_audit_invalid")
     if [record["revision"] for record in audit_records] != list(range(1, len(audit_records) + 1)):
@@ -399,9 +470,19 @@ def validate_final_bundle(payloads: dict[str, bytes], labelset_id: str) -> dict[
         raise ValidationError("final_manifest_invalid")
     preimage = internal["preimage"]
     expected_preimage_keys = {
-        "schema", "dataset_id", "corpus_sha256", "pilot_sha256", "pilot_view_sha256",
-        "holdout_sha256", "profile", "protocol", "rubric", "review_plan_sha256", "labels_sha256",
-        "review_sha256", "audit_sha256",
+        "schema",
+        "dataset_id",
+        "corpus_sha256",
+        "pilot_sha256",
+        "pilot_view_sha256",
+        "holdout_sha256",
+        "profile",
+        "protocol",
+        "rubric",
+        "review_plan_sha256",
+        "labels_sha256",
+        "review_sha256",
+        "audit_sha256",
     }
     if (
         not isinstance(preimage, dict)

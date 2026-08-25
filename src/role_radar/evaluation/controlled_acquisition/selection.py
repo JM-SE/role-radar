@@ -34,11 +34,7 @@ def _matching(
     clusters: tuple[CandidateCluster, ...], seed: str, targets: dict[str, int]
 ) -> dict[str, str]:
     ordered = tuple(sorted(clusters, key=lambda item: _order(seed, item)))
-    slots = [
-        (family, index)
-        for family, count in targets.items()
-        for index in range(count)
-    ]
+    slots = [(family, index) for family, count in targets.items() for index in range(count)]
     owners: dict[str, str] = {}
 
     def visit(cluster: CandidateCluster, seen: set[str]) -> bool:

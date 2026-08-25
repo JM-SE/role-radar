@@ -19,8 +19,10 @@ from role_radar.services.pipeline_collection import CollectionResult, PipelineCo
 def test_file_backed_finalize_persists_only_allowlisted_result(tmp_path: Path) -> None:
     engine = create_engine(f"sqlite:///{tmp_path / 'bounded.db'}")
     Base.metadata.create_all(engine)
+
     def factory() -> Session:
         return Session(engine)
+
     with Session(engine) as session:
         source = SourceRepository(session).create(
             type=SourceType.GREENHOUSE,
@@ -58,7 +60,16 @@ def test_file_backed_finalize_persists_only_allowlisted_result(tmp_path: Path) -
         result = persisted.source_results_json[source_id]
         assert result["status"] == "ok"
         assert set(result) == {
-            "status", "collected", "new_jobs", "duplicates", "prefiltered", "failed",
-            "collection_metrics", "rejection_counts", "retryable", "http_status", "stop_code",
+            "status",
+            "collected",
+            "new_jobs",
+            "duplicates",
+            "prefiltered",
+            "failed",
+            "collection_metrics",
+            "rejection_counts",
+            "retryable",
+            "http_status",
+            "stop_code",
         }
         assert session.scalar(select(Job.id)) is not None

@@ -70,9 +70,10 @@ def parse_rfc822(data: bytes) -> BoundedMailboxMessage:
     header_bytes = data if not candidates else data[: min(candidates)]
     if len(header_bytes) > MAX_HEADER_BYTES:
         raise MimeLimitError()
-    if sum(
-        1 for line in header_bytes.splitlines() if line and line[:1] not in b" \t"
-    ) > MAX_HEADERS:
+    if (
+        sum(1 for line in header_bytes.splitlines() if line and line[:1] not in b" \t")
+        > MAX_HEADERS
+    ):
         raise MimeLimitError()
     try:
         message = BytesParser(policy=policy.default).parsebytes(data)
@@ -206,13 +207,10 @@ def _auth_evidence(
     header_from = header_match.group(1).strip(".") if header_match else None
     dkim_domains = tuple(
         dict.fromkeys(
-            item
-            for item in re.findall(r"\bdkim=.*?\b(?:header\.)?d=([a-z0-9.-]+)", lowered)
+            item for item in re.findall(r"\bdkim=.*?\b(?:header\.)?d=([a-z0-9.-]+)", lowered)
         )
     )
-    passes = any(
-        re.search(rf"\b{name}=pass\b", lowered) for name in ("dkim", "dmarc", "spf")
-    )
+    passes = any(re.search(rf"\b{name}=pass\b", lowered) for name in ("dkim", "dmarc", "spf"))
     if trusted and passes:
         return "pass", authserv, dmarc, header_from, dkim_domains, False
     if any(

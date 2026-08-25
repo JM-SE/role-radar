@@ -55,12 +55,19 @@ def _read_only_authorizer(
     action: int, arg1: str | None, _arg2: str | None, _database: str | None, _source: str | None
 ) -> int:
     denied = {
-        sqlite3.SQLITE_INSERT, sqlite3.SQLITE_UPDATE, sqlite3.SQLITE_DELETE,
-        sqlite3.SQLITE_ALTER_TABLE, sqlite3.SQLITE_CREATE_INDEX,
-        sqlite3.SQLITE_CREATE_TABLE, sqlite3.SQLITE_CREATE_TRIGGER,
-        sqlite3.SQLITE_CREATE_VIEW, sqlite3.SQLITE_DROP_INDEX,
-        sqlite3.SQLITE_DROP_TABLE, sqlite3.SQLITE_DROP_TRIGGER,
-        sqlite3.SQLITE_DROP_VIEW, sqlite3.SQLITE_REINDEX,
+        sqlite3.SQLITE_INSERT,
+        sqlite3.SQLITE_UPDATE,
+        sqlite3.SQLITE_DELETE,
+        sqlite3.SQLITE_ALTER_TABLE,
+        sqlite3.SQLITE_CREATE_INDEX,
+        sqlite3.SQLITE_CREATE_TABLE,
+        sqlite3.SQLITE_CREATE_TRIGGER,
+        sqlite3.SQLITE_CREATE_VIEW,
+        sqlite3.SQLITE_DROP_INDEX,
+        sqlite3.SQLITE_DROP_TABLE,
+        sqlite3.SQLITE_DROP_TRIGGER,
+        sqlite3.SQLITE_DROP_VIEW,
+        sqlite3.SQLITE_REINDEX,
     }
     if action in denied:
         return sqlite3.SQLITE_DENY
@@ -175,8 +182,7 @@ class SQLiteSnapshotRepository:
     def _tables(connection: sqlite3.Connection) -> set[str]:
         placeholders = ",".join("?" for _ in ALLOWED_TABLES)
         rows = connection.execute(
-            "SELECT name FROM sqlite_master "
-            f"WHERE type='table' AND name IN ({placeholders})",
+            f"SELECT name FROM sqlite_master WHERE type='table' AND name IN ({placeholders})",
             tuple(ALLOWED_TABLES),
         )
         return {str(row[0]) for row in rows}
@@ -320,9 +326,7 @@ class SQLiteSnapshotRepository:
                 owner_job_id=str(row["job_id"]),
             )
             identities.setdefault(str(row["job_id"]), []).append(item)
-            identities_by_key.setdefault(
-                (item.version, item.kind, item.value), []
-            ).append(item)
+            identities_by_key.setdefault((item.version, item.kind, item.value), []).append(item)
         links_by_operation: dict[str, int] = {}
         for link in snapshot.links:
             links_by_operation[str(link["operation_id"])] = (
@@ -468,9 +472,7 @@ class BoundedSQLiteSnapshotRepository(SQLiteSnapshotRepository):
                 "recency_semantic,freshness_policy_version,identity_policy_version,"
                 "provenance_hash,created_at FROM continuous_acquisition_run_jobs"
             ),
-            "jobs": rows(
-                "SELECT id,title,company,location,description,application_url FROM jobs"
-            ),
+            "jobs": rows("SELECT id,title,company,location,description,application_url FROM jobs"),
             "identities": rows(
                 "SELECT id,job_id,identity_kind,identity_version,identity_value,value_digest "
                 "FROM job_identity_keys"
@@ -504,7 +506,9 @@ class BoundedSQLiteSnapshotRepository(SQLiteSnapshotRepository):
         payload = {
             "domain": "f10.1c:bounded-fingerprint-v2",
             "boundaries": {
-                "lower": boundaries.lower.__dict__ if hasattr(boundaries.lower, "__dict__") else {
+                "lower": boundaries.lower.__dict__
+                if hasattr(boundaries.lower, "__dict__")
+                else {
                     "run_id": boundaries.lower.run_id,
                     "started_at_utc": boundaries.lower.started_at_utc,
                     "inclusive": boundaries.lower.inclusive,
@@ -579,10 +583,7 @@ class BoundedSQLiteSnapshotRepository(SQLiteSnapshotRepository):
         operations = tuple(
             row for row in projection["operations"] if str(row["run_id"]) in bounded_ids
         )
-        links = tuple(
-            row for row in projection["links"]
-            if str(row["run_id"]) in bounded_ids
-        )
+        links = tuple(row for row in projection["links"] if str(row["run_id"]) in bounded_ids)
         upper_links = [row for row in links if str(row["run_id"]) == upper_boundary_run_id]
         if not _upper_aggregate_valid(upper_row, tuple(upper_links)):
             raise RepositoryError("upper_boundary_aggregates_mismatch")

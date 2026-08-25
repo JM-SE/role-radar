@@ -25,8 +25,7 @@ def upgrade() -> None:
     # Audit before DDL.  Existing rows must be projectable without guessing.
     bad_sources = connection.execute(
         sa.text(
-            "SELECT id FROM sources "
-            "WHERE configuration IS NOT NULL AND json_valid(configuration)=0"
+            "SELECT id FROM sources WHERE configuration IS NOT NULL AND json_valid(configuration)=0"
         )
     ).all()
     if bad_sources:
@@ -123,9 +122,7 @@ def upgrade() -> None:
             "status IN ('planned','executed','empty','failed','reused')",
             name="ck_discovery_queries_status",
         ),
-        sa.CheckConstraint(
-            "ordinal >= 0 AND ordinal < 24", name="ck_discovery_queries_ordinal"
-        ),
+        sa.CheckConstraint("ordinal >= 0 AND ordinal < 24", name="ck_discovery_queries_ordinal"),
         sa.CheckConstraint(
             "candidate_count >= 0 AND known_count >= 0 AND unknown_count >= 0 "
             "AND rejected_count >= 0 AND verified_count >= 0",

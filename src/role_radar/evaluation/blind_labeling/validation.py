@@ -1,5 +1,4 @@
 """Pure validation and canonical parsing for F10.2."""
-# ruff: noqa: E501
 
 from __future__ import annotations
 
@@ -58,7 +57,12 @@ def _safe_text(value: object, *, field: str, allow_lf: bool = True) -> str:
             continue
         if code == 0x09 and allow_lf:
             continue
-        if code < 0x20 or 0x7F <= code <= 0x9F or 0x202A <= code <= 0x202E or 0x2066 <= code <= 0x2069:
+        if (
+            code < 0x20
+            or 0x7F <= code <= 0x9F
+            or 0x202A <= code <= 0x202E
+            or 0x2066 <= code <= 0x2069
+        ):
             raise ValidationError(f"{field}_unsafe_control")
     return value
 
@@ -67,12 +71,22 @@ def parse_pilot_line(line: bytes) -> PilotItem:
     if len(line) > MAX_PILOT_LINE_BYTES or not line.endswith(b"\n"):
         raise ValidationError("pilot_line_invalid")
     try:
-        value = json.loads(line.decode("utf-8"), object_pairs_hook=_pairs, parse_constant=lambda _: (_ for _ in ()).throw(ValidationError("non_finite_json")))
+        value = json.loads(
+            line.decode("utf-8"),
+            object_pairs_hook=_pairs,
+            parse_constant=lambda _: (_ for _ in ()).throw(ValidationError("non_finite_json")),
+        )
     except ValidationError:
         raise
     except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
         raise ValidationError("pilot_json_invalid") from exc
-    if not isinstance(value, dict) or set(value) != {"opaque_id", "title", "company", "location", "description"}:
+    if not isinstance(value, dict) or set(value) != {
+        "opaque_id",
+        "title",
+        "company",
+        "location",
+        "description",
+    }:
         raise ValidationError("pilot_schema_invalid")
     if canonical_line(value) != line:
         raise ValidationError("pilot_not_canonical")
@@ -97,9 +111,13 @@ def validate_decision(decision: Decision) -> Decision:
     reasons = (decision.primary_reason, *decision.secondary_reasons)
     if decision.primary_reason not in allowed:
         raise ValidationError("primary_reason_invalid")
-    if len(decision.secondary_reasons) > 2 or len(set(decision.secondary_reasons)) != len(decision.secondary_reasons):
+    if len(decision.secondary_reasons) > 2 or len(set(decision.secondary_reasons)) != len(
+        decision.secondary_reasons
+    ):
         raise ValidationError("secondary_reason_invalid")
-    if decision.primary_reason in decision.secondary_reasons or any(reason not in allowed for reason in reasons):
+    if decision.primary_reason in decision.secondary_reasons or any(
+        reason not in allowed for reason in reasons
+    ):
         raise ValidationError("reason_label_mismatch")
     note = decision.note
     if note is not None:
@@ -123,7 +141,9 @@ def validate_decision(decision: Decision) -> Decision:
         raise ValidationError("note_required_for_other")
     if not uses_other and note is not None and decision.label is not Label.MAYBE:
         raise ValidationError("note_forbidden")
-    return Decision(decision.label, decision.primary_reason, tuple(sorted(decision.secondary_reasons)), note)
+    return Decision(
+        decision.label, decision.primary_reason, tuple(sorted(decision.secondary_reasons)), note
+    )
 
 
 def decision_dict(decision: Decision) -> dict[str, Any]:
@@ -137,7 +157,12 @@ def decision_dict(decision: Decision) -> dict[str, Any]:
 
 
 def decision_from_dict(value: object) -> Decision:
-    if not isinstance(value, dict) or set(value) != {"label", "primary_reason", "secondary_reasons", "note"}:
+    if not isinstance(value, dict) or set(value) != {
+        "label",
+        "primary_reason",
+        "secondary_reasons",
+        "note",
+    }:
         raise ValidationError("decision_schema_invalid")
     try:
         decision = Decision(

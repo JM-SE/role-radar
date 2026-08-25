@@ -107,26 +107,34 @@ def test_lookback_is_required_strict_and_window_is_immutable() -> None:
 
 def test_recency_is_inclusive_and_rejects_future_missing_and_closed() -> None:
     window_start = AS_OF - timedelta(days=14)
-    assert eligibility(
-        observation(1, recency=window_start), cutoff_utc=window_start, as_of_utc=AS_OF
-    ) is None
-    assert eligibility(
-        observation(2, recency=None), cutoff_utc=window_start, as_of_utc=AS_OF
-    ) == "freshness_timestamp_missing"
-    assert eligibility(
-        observation(3, recency=AS_OF + timedelta(minutes=6)),
-        cutoff_utc=window_start,
-        as_of_utc=AS_OF,
-    ) == "freshness_future"
+    assert (
+        eligibility(observation(1, recency=window_start), cutoff_utc=window_start, as_of_utc=AS_OF)
+        is None
+    )
+    assert (
+        eligibility(observation(2, recency=None), cutoff_utc=window_start, as_of_utc=AS_OF)
+        == "freshness_timestamp_missing"
+    )
+    assert (
+        eligibility(
+            observation(3, recency=AS_OF + timedelta(minutes=6)),
+            cutoff_utc=window_start,
+            as_of_utc=AS_OF,
+        )
+        == "freshness_future"
+    )
     closed = observation(4)
     object.__setattr__(closed, "provider_status", "closed")
     assert eligibility(closed, cutoff_utc=window_start, as_of_utc=AS_OF) == "provider_closed"
 
 
 def test_identity_url_removes_only_allowlisted_tracking() -> None:
-    assert normalize_identity_url(
-        "https://jobs.example.com/post/?utm_source=x&ref=abc&team=platform#read"
-    ) == "https://jobs.example.com/post?team=platform"
+    assert (
+        normalize_identity_url(
+            "https://jobs.example.com/post/?utm_source=x&ref=abc&team=platform#read"
+        )
+        == "https://jobs.example.com/post?team=platform"
+    )
 
 
 def test_historical_strong_identity_excludes_candidate() -> None:
@@ -178,8 +186,7 @@ def test_selection_is_permutation_stable_and_fails_below_fifty() -> None:
 
 def test_selection_uses_soft_family_targets_and_deterministic_fallback() -> None:
     observations = tuple(
-        observation(index, "greenhouse" if index < 50 else "jobicy")
-        for index in range(50)
+        observation(index, "greenhouse" if index < 50 else "jobicy") for index in range(50)
     )
     clusters = cluster_observations(observations).clusters
     result = select_clusters(
@@ -249,13 +256,16 @@ def test_snapshot_is_exactly_fifty_create_once_and_tamper_evident(tmp_path: Path
     )
     assert path.is_dir()
     assert store.verify("a" * 64)
-    assert store.publish(
-        dataset_id="a" * 64,
-        dataset_lines=lines,
-        provenance_lines=lines,
-        label_lines=lines,
-        internal={"schema_version": 1, "count": 50},
-    ) == path
+    assert (
+        store.publish(
+            dataset_id="a" * 64,
+            dataset_lines=lines,
+            provenance_lines=lines,
+            label_lines=lines,
+            internal={"schema_version": 1, "count": 50},
+        )
+        == path
+    )
     with pytest.raises(FileExistsError, match="snapshot_id_conflict"):
         store.publish(
             dataset_id="a" * 64,

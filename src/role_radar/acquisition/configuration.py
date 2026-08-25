@@ -71,6 +71,7 @@ class BravePaidConfig(BaseModel):
     provider_ceiling_micro_usd: int | None = Field(default=None, ge=0)
     provider_ceiling_evidence: bool = False
     payment_control_evidence: bool = False
+
     @model_validator(mode="after")
     def validate_paid_gates(self) -> BravePaidConfig:
         if not self.enabled:

@@ -67,9 +67,9 @@ def test_greenhouse_accepts_job_boards_host_for_posting_and_application_urls() -
         )
 
     async def run() -> None:
-        outcome = await GreenhouseCollector(
-            transport=httpx.MockTransport(handler)
-        ).collect(_snapshot(), CollectorRuntime())
+        outcome = await GreenhouseCollector(transport=httpx.MockTransport(handler)).collect(
+            _snapshot(), CollectorRuntime()
+        )
         assert isinstance(outcome, CollectionSuccess)
         assert len(outcome.jobs) == 1
 
@@ -86,6 +86,7 @@ def test_greenhouse_empty_mixed_duplicates_and_all_invalid() -> None:
 
     async def run() -> None:
         for payload in payloads:
+
             async def handler(
                 _request: httpx.Request, payload: dict[str, object] = payload
             ) -> httpx.Response:
@@ -118,9 +119,9 @@ def test_greenhouse_501_items_fails_atomically() -> None:
         return httpx.Response(200, json={"jobs": [_item(index) for index in range(501)]})
 
     async def run() -> None:
-        outcome = await GreenhouseCollector(
-            transport=httpx.MockTransport(handler)
-        ).collect(_snapshot(), CollectorRuntime())
+        outcome = await GreenhouseCollector(transport=httpx.MockTransport(handler)).collect(
+            _snapshot(), CollectorRuntime()
+        )
         assert isinstance(outcome, CollectionFailure)
         assert outcome.error_code is CollectorFailureCode.JOB_LIMIT
         assert outcome.metrics.accepted_items == 0

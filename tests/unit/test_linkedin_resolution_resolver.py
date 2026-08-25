@@ -9,7 +9,13 @@ from role_radar.mailbox.linkedin_resolution.contracts import (
 from role_radar.mailbox.linkedin_resolution.resolver import LinkedInHeadResolver
 
 PROPOSAL = AuthenticatedLinkedInProposal(
-    "source", "receipt", "proposal", "linkedin", "v1", "recognized", "pass",
+    "source",
+    "receipt",
+    "proposal",
+    "linkedin",
+    "v1",
+    "recognized",
+    "pass",
     "https://www.linkedin.com/jobs/1?trk=redacted",
 )
 
@@ -39,9 +45,7 @@ class FakeTransport:
 
 @pytest.mark.asyncio
 async def test_resolver_stops_before_requesting_exact_ats() -> None:
-    transport = FakeTransport(
-        (HeadResponse(302, "https://boards.greenhouse.io/acme/jobs/eng-1"),)
-    )
+    transport = FakeTransport((HeadResponse(302, "https://boards.greenhouse.io/acme/jobs/eng-1"),))
     report = await LinkedInHeadResolver(transport, FakeDNS(), FakeEgress()).resolve(PROPOSAL)
 
     assert report.as_dict()["result"] == "intake"

@@ -496,9 +496,7 @@ def _parser() -> argparse.ArgumentParser:
     evaluation = subparsers.add_parser(
         "evaluation", help="operaciones offline/controladas de evaluación"
     )
-    evaluation_commands = evaluation.add_subparsers(
-        dest="evaluation_command", required=True
-    )
+    evaluation_commands = evaluation.add_subparsers(dest="evaluation_command", required=True)
     f10_1 = evaluation_commands.add_parser("f10-1")
     f10_1_commands = f10_1.add_subparsers(dest="f10_1_command", required=True)
     f10_1_commands.add_parser("preflight")
@@ -605,9 +603,7 @@ def _run_evaluation(args: argparse.Namespace) -> int:
                 or markers[".deployed-alembic-head"] != "e7a4c9f1b2d3"
             ):
                 raise ValueError("deployment_provenance_invalid")
-            acquisition = load_acquisition_config(
-                policy=ProductionAcquisitionFilePolicy()
-            )
+            acquisition = load_acquisition_config(policy=ProductionAcquisitionFilePolicy())
             if acquisition.discovery is None:
                 raise ValueError("query_hmac_config_missing")
             resolver = CredentialResolver()
@@ -622,6 +618,7 @@ def _run_evaluation(args: argparse.Namespace) -> int:
             as_of = datetime.now(UTC).replace(microsecond=0)
             discovery_journal = Journal(Path(config.snapshot_root) / "discovery-journal.json")
             try:
+
                 async def run_discovery() -> tuple[DiscoveryReport, SourcePlan]:
                     async with brave_runtime.provider as brave:
                         try:
@@ -722,9 +719,7 @@ def _run_evaluation(args: argparse.Namespace) -> int:
                                 budget=CollectionRunBudget(config.max_wire_attempts),
                             ),
                             snapshot_store=SnapshotStore(Path(config.snapshot_root)),
-                            journal=Journal(
-                                Path(config.snapshot_root) / "operation-journal.json"
-                            ),
+                            journal=Journal(Path(config.snapshot_root) / "operation-journal.json"),
                             prepare_services=lambda: None,
                             restore_services=lambda: None,
                             assert_runtime_safe=lambda: SqlAlchemyRuntimeSafety(
@@ -847,9 +842,7 @@ def _runtime_acquisition_metadata(
     except CredentialError as exc:
         code = exc.code
         if config.discovery is not None and (
-            config.brave_free.enabled
-            or config.tavily_free.enabled
-            or config.brave_paid.enabled
+            config.brave_free.enabled or config.tavily_free.enabled or config.brave_paid.enabled
         ):
             metadata["query_hmac"] = CapabilityMetadata(config_code=code)
         for name, enabled in (
@@ -911,9 +904,7 @@ def _runtime_acquisition_metadata(
             for item in (
                 descriptor.username_handle,
                 auth_handle,
-                descriptor.oauth2_expiry_handle
-                if descriptor.auth_mode == "xoauth2"
-                else None,
+                descriptor.oauth2_expiry_handle if descriptor.auth_mode == "xoauth2" else None,
                 descriptor.message_hmac_handle,
                 descriptor.content_hmac_handle,
             )
@@ -1090,11 +1081,7 @@ def _run_source(settings: Settings, args: argparse.Namespace) -> int:
                     "parser_profile": args.parser_profile,
                 }
             else:
-                if (
-                    args.board_token is not None
-                    or args.site is None
-                    or args.region is None
-                ):
+                if args.board_token is not None or args.site is None or args.region is None:
                     raise SourceServiceError("invalid_source_config")
                 configuration = {"site": args.site, "region": args.region}
             if args.company is not None:
@@ -1330,15 +1317,19 @@ def _run_mailbox(settings: Settings, args: argparse.Namespace) -> int:
             return 0 if result.validated else 3
         if args.mailbox_command == "status":
             state = MailboxStateRepository(session).get(source.id)
-            print(json.dumps({
-                "source_id": source.id,
-                "source_key": source.source_key,
-                "enabled": source.enabled,
-                "uidvalidity": state.uidvalidity if state else None,
-                "highest_terminal_uid": state.highest_terminal_uid if state else 0,
-                "revision": state.revision if state else None,
-                "last_error_code": state.last_error_code if state else None,
-            }))
+            print(
+                json.dumps(
+                    {
+                        "source_id": source.id,
+                        "source_key": source.source_key,
+                        "enabled": source.enabled,
+                        "uidvalidity": state.uidvalidity if state else None,
+                        "highest_terminal_uid": state.highest_terminal_uid if state else 0,
+                        "revision": state.revision if state else None,
+                        "last_error_code": state.last_error_code if state else None,
+                    }
+                )
+            )
             return 0
         if args.mailbox_command == "preflight":
             if not args.ack_live:

@@ -120,12 +120,37 @@ class BlindLabelingRuntime:
             "adjudication_count": 0 if state is None else len(state.adjudications),
         }
         if state is None:
-            preimage = {"dataset_id": DATASET_ID, "pilot_sha256": PILOT_SHA256, "pilot_view_sha256": PILOT_FILE_SHA256, "profile": [PROFILE_ID, PROFILE_VERSION, PROFILE_SCHEMA, PROFILE_SHA256], "rubric": [RUBRIC_VERSION, payload["rubric_sha256"]], "protocol": PROTOCOL_VERSION, "count": PILOT_COUNT}
+            preimage = {
+                "dataset_id": DATASET_ID,
+                "pilot_sha256": PILOT_SHA256,
+                "pilot_view_sha256": PILOT_FILE_SHA256,
+                "profile": [PROFILE_ID, PROFILE_VERSION, PROFILE_SCHEMA, PROFILE_SHA256],
+                "rubric": [RUBRIC_VERSION, payload["rubric_sha256"]],
+                "protocol": PROTOCOL_VERSION,
+                "count": PILOT_COUNT,
+            }
             digest = challenge(DOMAIN_START, preimage)
-            payload["acknowledgement"] = f"START F10.2 dataset_id={DATASET_ID} pilot_sha256={PILOT_SHA256} pilot_view_sha256={PILOT_FILE_SHA256} profile_id={PROFILE_ID} profile_version=2 profile_schema=1 profile_sha256={PROFILE_SHA256} rubric={RUBRIC_VERSION} rubric_sha256={payload['rubric_sha256']} protocol={PROTOCOL_VERSION} count=50 challenge_sha256={digest}"
-        elif state.review_plan is not None and state.phase not in {SessionPhase.FINALIZED} and state.finalization_intent is None:
-            digest = challenge(DOMAIN_REOPEN, {"dataset_id": state.dataset_id, "revision": state.revision, "draft_payload_sha256": self._payload_hash(state), "first_pass_sha256": state.first_pass_sha256, "review_plan_sha256": state.review_plan.plan_sha256})
-            payload["acknowledgement"] = f"REOPEN F10.2 dataset_id={DATASET_ID} rubric={RUBRIC_VERSION} protocol={PROTOCOL_VERSION} draft_revision={state.revision} draft_payload_sha256={self._payload_hash(state)} first_pass_sha256={state.first_pass_sha256} review_plan_sha256={state.review_plan.plan_sha256} challenge_sha256={digest}"
+            payload["acknowledgement"] = (
+                f"START F10.2 dataset_id={DATASET_ID} pilot_sha256={PILOT_SHA256} pilot_view_sha256={PILOT_FILE_SHA256} profile_id={PROFILE_ID} profile_version=2 profile_schema=1 profile_sha256={PROFILE_SHA256} rubric={RUBRIC_VERSION} rubric_sha256={payload['rubric_sha256']} protocol={PROTOCOL_VERSION} count=50 challenge_sha256={digest}"
+            )
+        elif (
+            state.review_plan is not None
+            and state.phase not in {SessionPhase.FINALIZED}
+            and state.finalization_intent is None
+        ):
+            digest = challenge(
+                DOMAIN_REOPEN,
+                {
+                    "dataset_id": state.dataset_id,
+                    "revision": state.revision,
+                    "draft_payload_sha256": self._payload_hash(state),
+                    "first_pass_sha256": state.first_pass_sha256,
+                    "review_plan_sha256": state.review_plan.plan_sha256,
+                },
+            )
+            payload["acknowledgement"] = (
+                f"REOPEN F10.2 dataset_id={DATASET_ID} rubric={RUBRIC_VERSION} protocol={PROTOCOL_VERSION} draft_revision={state.revision} draft_payload_sha256={self._payload_hash(state)} first_pass_sha256={state.first_pass_sha256} review_plan_sha256={state.review_plan.plan_sha256} challenge_sha256={digest}"
+            )
         return payload
 
     @staticmethod
@@ -145,14 +170,21 @@ class BlindLabelingRuntime:
         expected = status.get("acknowledgement")
         if not isinstance(expected, str) or not secrets.compare_digest(acknowledgement, expected):
             raise RuntimeErrorCode("acknowledgement_mismatch")
-        state = new_session(snapshot, RUBRIC_VERSION, str(status["rubric_sha256"]), PROTOCOL_VERSION, self.clock())
+        state = new_session(
+            snapshot, RUBRIC_VERSION, str(status["rubric_sha256"]), PROTOCOL_VERSION, self.clock()
+        )
         try:
             self.store.create(state)
         except StoreError as exc:
             raise RuntimeErrorCode(exc.code) from exc
         except OSError as exc:
             raise RuntimeErrorCode("draft_create_failed") from exc
-        return {"schema_version": "f10.2-cli-output-v1", "status": "labeling", "dataset_id": DATASET_ID, "count": PILOT_COUNT}
+        return {
+            "schema_version": "f10.2-cli-output-v1",
+            "status": "labeling",
+            "dataset_id": DATASET_ID,
+            "count": PILOT_COUNT,
+        }
 
     def save_first_pass(self, item_id: str, decision: Decision) -> dict[str, Any]:
         state = self._state()
@@ -185,25 +217,38 @@ class BlindLabelingRuntime:
                 self.store.save(next_state, expected_revision=state.revision)
         except (SessionError, StoreError) as exc:
             raise RuntimeErrorCode(getattr(exc, "code", "review_failed")) from exc
-        return {"status": next_state.phase.value, "review_count": len(next_state.review_plan.item_ids) if next_state.review_plan else 0}
+        return {
+            "status": next_state.phase.value,
+            "review_count": len(next_state.review_plan.item_ids) if next_state.review_plan else 0,
+        }
 
     def save_review(self, item_id: str, decision: Decision) -> dict[str, Any]:
         state = self._state()
         try:
-            next_state = save_review(state, item_id, decision, self.clock(), expected_revision=state.revision)
+            next_state = save_review(
+                state, item_id, decision, self.clock(), expected_revision=state.revision
+            )
             self.store.save(next_state, expected_revision=state.revision)
         except (SessionError, StoreError) as exc:
             raise RuntimeErrorCode(getattr(exc, "code", "review_failed")) from exc
-        return {"status": next_state.phase.value, "reviewed_count": len(next_state.review_decisions)}
+        return {
+            "status": next_state.phase.value,
+            "reviewed_count": len(next_state.review_decisions),
+        }
 
     def adjudicate(self, item_id: str, decision: Decision) -> dict[str, Any]:
         state = self._state()
         try:
-            next_state = adjudicate(state, item_id, decision, self.clock(), expected_revision=state.revision)
+            next_state = adjudicate(
+                state, item_id, decision, self.clock(), expected_revision=state.revision
+            )
             self.store.save(next_state, expected_revision=state.revision)
         except (SessionError, StoreError) as exc:
             raise RuntimeErrorCode(getattr(exc, "code", "adjudication_failed")) from exc
-        return {"status": next_state.phase.value, "adjudicated_count": len(next_state.adjudications)}
+        return {
+            "status": next_state.phase.value,
+            "adjudicated_count": len(next_state.adjudications),
+        }
 
     def reopen(self, acknowledgement: str) -> dict[str, Any]:
         state = self._state()
@@ -246,8 +291,10 @@ class BlindLabelingRuntime:
         if state.finalization_intent is not None and (
             state.finalization_intent.challenge_sha256 != digest
             or state.finalization_intent.labelset_id != labelset_id
-            or state.finalization_intent.final_labels_sha256 != internal["semantic_hashes"]["labels"]
-            or state.finalization_intent.review_report_sha256 != internal["semantic_hashes"]["review"]
+            or state.finalization_intent.final_labels_sha256
+            != internal["semantic_hashes"]["labels"]
+            or state.finalization_intent.review_report_sha256
+            != internal["semantic_hashes"]["review"]
             or state.finalization_intent.audit_sha256 != internal["semantic_hashes"]["audit"]
         ):
             raise RuntimeErrorCode("finalization_intent_mismatch")
@@ -282,7 +329,10 @@ class BlindLabelingRuntime:
         state = self._state()
         finalized_at = self._finalized_at(state)
         if state.finalization_intent is None:
-            if state.revision != preview["draft_revision"] or self._payload_hash(state) != preview["draft_payload_sha256"]:
+            if (
+                state.revision != preview["draft_revision"]
+                or self._payload_hash(state) != preview["draft_payload_sha256"]
+            ):
                 raise RuntimeErrorCode("stale_revision")
             challenge_sha256 = str(preview["challenge"]).rsplit("challenge_sha256=", 1)[-1]
             if HEX64.fullmatch(challenge_sha256) is None:

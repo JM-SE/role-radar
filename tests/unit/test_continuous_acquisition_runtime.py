@@ -35,9 +35,7 @@ def test_authorization_is_exact_and_scheduled_activation_is_strict() -> None:
     assert missing.value.code == "live_ack_required"
 
     with pytest.raises(RuntimeCompositionError) as missing_id:
-        require_mode_authorization(
-            mode="manual-canary", acknowledgement=LIVE_ACKNOWLEDGEMENT
-        )
+        require_mode_authorization(mode="manual-canary", acknowledgement=LIVE_ACKNOWLEDGEMENT)
     assert missing_id.value.code == "canary_id_required"
 
     with pytest.raises(RuntimeCompositionError) as disabled:
@@ -90,9 +88,7 @@ def test_discovery_runtime_registers_verified_source_without_job_writes(
             return (DiscoveryCandidate("https://boards.greenhouse.io/acme", "brave", 1),)
 
     async def verify(_candidate: DiscoveryCandidate) -> VerifiedSource:
-        return VerifiedSource(
-            "greenhouse:acme", "greenhouse", "Acme", {"board_token": "acme"}, 0
-        )
+        return VerifiedSource("greenhouse:acme", "greenhouse", "Acme", {"board_token": "acme"}, 0)
 
     config = AcquisitionConfig(config_version="test")
     result = run_discovery_once(

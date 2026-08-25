@@ -168,11 +168,7 @@ def _credential_mode_allowed(metadata: _CredentialMetadata) -> bool:
     mode = stat.S_IMODE(metadata.st_mode)
     if mode in _STRICT_CREDENTIAL_MODES:
         return True
-    return (
-        mode == _SYSTEMD_CREDENTIAL_MODE
-        and metadata.st_uid == 0
-        and metadata.st_gid == 0
-    )
+    return mode == _SYSTEMD_CREDENTIAL_MODE and metadata.st_uid == 0 and metadata.st_gid == 0
 
 
 def resolve_mailbox_credentials(
@@ -217,9 +213,7 @@ def credential_ids(directory: str | os.PathLike[str] | None = None) -> frozenset
         return frozenset(
             item.name
             for item in root.iterdir()
-            if item.name
-            and HANDLE_RE.fullmatch(item.name)
-            and not item.is_symlink()
+            if item.name and HANDLE_RE.fullmatch(item.name) and not item.is_symlink()
         )
     except OSError:
         return frozenset()

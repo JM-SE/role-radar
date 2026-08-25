@@ -7,9 +7,7 @@ from urllib.parse import (
     urlunsplit,
 )
 
-TRACKING_PARAMS = frozenset(
-    {"gclid", "fbclid", "ref", "mc_cid", "mc_eid", "_ga", "yclid"}
-)
+TRACKING_PARAMS = frozenset({"gclid", "fbclid", "ref", "mc_cid", "mc_eid", "_ga", "yclid"})
 
 
 def clean_url(url: str | None) -> str | None:

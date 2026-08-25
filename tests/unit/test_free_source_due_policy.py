@@ -36,10 +36,13 @@ def test_due_policy_requires_fresh_complete_terms_acknowledgement() -> None:
         no_redistribution_ack=True,
     )
     assert validate_jobicy_terms(acceptance, now=now) is None
-    assert validate_jobicy_terms(
-        replace(acceptance, policy_version="old-policy"),
-        now=now,
-    ) == "terms_changed"
+    assert (
+        validate_jobicy_terms(
+            replace(acceptance, policy_version="old-policy"),
+            now=now,
+        )
+        == "terms_changed"
+    )
 
 
 def test_due_policy_rejects_naive_clock() -> None:

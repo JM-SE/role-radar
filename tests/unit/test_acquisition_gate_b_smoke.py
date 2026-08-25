@@ -77,9 +77,7 @@ async def test_gate_b_stops_before_next_capability_on_failure() -> None:
         calls.append("brave")
         return GateBSmokeResult("brave", "ok", None, 1, 1)
 
-    report = await service.run_sequence(
-        (("jobicy", failing), ("brave", should_not_run))
-    )
+    report = await service.run_sequence((("jobicy", failing), ("brave", should_not_run)))
 
     assert report.state == "failed"
     assert calls == ["jobicy"]
@@ -122,7 +120,9 @@ async def test_gate_b_search_accepts_empty_free_response() -> None:
     )
 
     result = await AcquisitionGateBSmokeService.run_search(
-        "brave", provider, object()  # type: ignore[arg-type]
+        "brave",
+        provider,
+        object(),  # type: ignore[arg-type]
     )
 
     assert result.state == "ok"
@@ -145,7 +145,9 @@ async def test_gate_b_rejects_search_result_overrun() -> None:
     )
 
     result = await AcquisitionGateBSmokeService.run_search(
-        "brave", provider, object()  # type: ignore[arg-type]
+        "brave",
+        provider,
+        object(),  # type: ignore[arg-type]
     )
 
     assert result.as_dict() == {

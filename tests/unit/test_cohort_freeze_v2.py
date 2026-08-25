@@ -83,9 +83,9 @@ def test_v2_is_exact_partition_and_permutation_invariant() -> None:
     assert len(first_partition.pilot) == PILOT_COUNT
     assert len(first_partition.holdout) == HOLDOUT_COUNT
     assert first_partition.pilot_sha256 == second_partition.pilot_sha256
-    assert {
-        item.item_semantic_sha256 for item in first_partition.pilot
-    }.isdisjoint(item.item_semantic_sha256 for item in first_partition.holdout)
+    assert {item.item_semantic_sha256 for item in first_partition.pilot}.isdisjoint(
+        item.item_semantic_sha256 for item in first_partition.holdout
+    )
 
 
 def test_v2_ack_shape_rejects_historical_ack() -> None:

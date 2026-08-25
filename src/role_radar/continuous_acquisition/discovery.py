@@ -136,7 +136,9 @@ class SqlAlchemyRegistrationStore:
         if run is None or run.reserved_count >= 8:
             return False
         active = self.session.scalar(
-            select(func.count()).select_from(Source).where(
+            select(func.count())
+            .select_from(Source)
+            .where(
                 Source.enabled.is_(True),
                 Source.archived_at.is_(None),
                 Source.management_origin == "discovery",
@@ -170,17 +172,57 @@ class SqlAlchemyRegistrationStore:
         source_repo = SourceRepository(self.session)
         existing = source_repo.get_by_key(verified.source_key)
         if existing is not None:
-            state = "archived" if existing.archived_at is not None else ("enabled" if existing.enabled else "disabled")
+            state = (
+                "archived"
+                if existing.archived_at is not None
+                else ("enabled" if existing.enabled else "disabled")
+            )
             disposition = f"existing_{state}"
-            self.session.add(SourceDiscoveryRegistration(run_id=self.run_id, operation_id=self.operation_id, source_id=existing.id, source_key=verified.source_key, disposition=disposition, previous_state=state, current_state=state))
+            self.session.add(
+                SourceDiscoveryRegistration(
+                    run_id=self.run_id,
+                    operation_id=self.operation_id,
+                    source_id=existing.id,
+                    source_key=verified.source_key,
+                    disposition=disposition,
+                    previous_state=state,
+                    current_state=state,
+                )
+            )
             return RegistrationResult(existing.id, disposition, verified.source_key, state)
-        source = source_repo.create_row(source_id=str(uuid4()), source_type=SourceType(verified.source_type), name=verified.name, source_key=verified.source_key, configuration=dict(verified.configuration), configuration_version=1, enabled=True, management_origin="discovery", discovery_policy_version=DISCOVERY_POLICY_VERSION, discovery_verified_at=datetime.now(UTC))
-        self.session.add(SourceDiscoveryRegistration(run_id=self.run_id, operation_id=self.operation_id, source_id=source.id, source_key=verified.source_key, disposition="created", current_state="enabled"))
+        source = source_repo.create_row(
+            source_id=str(uuid4()),
+            source_type=SourceType(verified.source_type),
+            name=verified.name,
+            source_key=verified.source_key,
+            configuration=dict(verified.configuration),
+            configuration_version=1,
+            enabled=True,
+            management_origin="discovery",
+            discovery_policy_version=DISCOVERY_POLICY_VERSION,
+            discovery_verified_at=datetime.now(UTC),
+        )
+        self.session.add(
+            SourceDiscoveryRegistration(
+                run_id=self.run_id,
+                operation_id=self.operation_id,
+                source_id=source.id,
+                source_key=verified.source_key,
+                disposition="created",
+                current_state="enabled",
+            )
+        )
         return RegistrationResult(source.id, "created", verified.source_key, "enabled")
 
 
-def verified_source(source_type: str, configuration: dict[str, str], name: str, postings: int) -> VerifiedSource:
+def verified_source(
+    source_type: str, configuration: dict[str, str], name: str, postings: int
+) -> VerifiedSource:
     if source_type not in {"greenhouse", "lever"}:
         raise ValueError("unsupported source type")
-    key = greenhouse_source_key(configuration["board_token"]) if source_type == "greenhouse" else lever_source_key(configuration)
+    key = (
+        greenhouse_source_key(configuration["board_token"])
+        if source_type == "greenhouse"
+        else lever_source_key(configuration)
+    )
     return VerifiedSource(key, source_type, name, configuration, postings)  # type: ignore[arg-type]

@@ -63,9 +63,7 @@ class SqlAlchemySourceState:
     def checkpoint(self, source_ids: tuple[str, ...]) -> tuple[SourceCheckpoint, ...]:
         if len(source_ids) != len(set(source_ids)):
             raise ValueError("source_ids_not_unique")
-        rows = list(
-            self._session.scalars(select(Source).where(Source.id.in_(source_ids)))
-        )
+        rows = list(self._session.scalars(select(Source).where(Source.id.in_(source_ids))))
         by_id = {row.id: row for row in rows}
         if set(by_id) != set(source_ids):
             raise ValueError("source_not_found")
@@ -83,9 +81,7 @@ class SqlAlchemySourceState:
             raise ValueError("source_must_be_disabled")
 
     def assert_global_disabled(self) -> None:
-        enabled = self._session.scalar(
-            select(Source.id).where(Source.enabled.is_(True)).limit(1)
-        )
+        enabled = self._session.scalar(select(Source.id).where(Source.enabled.is_(True)).limit(1))
         if enabled is not None:
             raise ValueError("source_globally_enabled")
 
@@ -265,9 +261,7 @@ def verify_jobicy_plan_terms(plan: SourcePlan) -> None:
     if not any(item.get("family") == "jobicy" for item in plan.source_configs):
         return
     evidence = load_jobicy_terms_evidence(plan.jobicy_terms_sha256 or "")
-    reviewed_at = datetime.fromisoformat(
-        (plan.jobicy_reviewed_at or "").replace("Z", "+00:00")
-    )
+    reviewed_at = datetime.fromisoformat((plan.jobicy_reviewed_at or "").replace("Z", "+00:00"))
     validate_jobicy_activation(
         evidence,
         terms_sha256=plan.jobicy_terms_sha256,
@@ -283,9 +277,7 @@ def verify_deployment_provenance(
     plan: SourcePlan, *, app_root: Path = Path("/opt/role-radar")
 ) -> None:
     """Require the deployed marker to match the approved clean provenance."""
-    expected_empty = (
-        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-    )
+    expected_empty = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     marker = app_root / ".deployed-commit"
     if marker.is_symlink() or not marker.is_file():
         raise ValueError("deployment_provenance_missing")

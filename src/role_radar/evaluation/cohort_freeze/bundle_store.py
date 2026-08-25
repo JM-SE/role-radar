@@ -146,8 +146,7 @@ class V2BundleStore:
                 "holdout-label-view.jsonl": 127,
             }
             if any(
-                sum(1 for _ in (target / name).open("rb")) != count
-                for name, count in lines.items()
+                sum(1 for _ in (target / name).open("rb")) != count for name, count in lines.items()
             ):
                 return False
             entries = (target / "checksums.sha256").read_text(encoding="ascii").splitlines()
@@ -162,9 +161,10 @@ class V2BundleStore:
                     or name in seen
                 ):
                     return False
-                if not re.fullmatch(r"[0-9a-f]{64}", digest) or sha256_bytes(
-                    (target / name).read_bytes()
-                ) != digest:
+                if (
+                    not re.fullmatch(r"[0-9a-f]{64}", digest)
+                    or sha256_bytes((target / name).read_bytes()) != digest
+                ):
                     return False
                 seen.add(name)
             return seen == set(V2_FILES) - {"checksums.sha256"}

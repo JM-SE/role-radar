@@ -395,8 +395,10 @@ def validate_live_plan_v2(plan: SourcePlan) -> datetime:
         or plan.discovery_report_sha256 is None
     ):
         raise PlanError("plan_protocol_identity_required")
-    if any(len(value) != 64 or any(char not in "0123456789abcdef" for char in value)
-           for value in (plan.discovery_report_sha256,)):
+    if any(
+        len(value) != 64 or any(char not in "0123456789abcdef" for char in value)
+        for value in (plan.discovery_report_sha256,)
+    ):
         raise PlanError("discovery_report_hash_invalid")
     if plan.selection_as_of_utc is None or plan.cutoff_utc is None:
         raise PlanError("window_required")

@@ -102,7 +102,9 @@ def load_jobicy_terms_evidence(
 
 def _validate_manifest(raw: Any, expected_digest: str) -> JobicyTermsEvidence:
     if not isinstance(raw, dict) or set(raw) != {
-        "bundle_format_version", "pages", "policy_version"
+        "bundle_format_version",
+        "pages",
+        "policy_version",
     }:
         raise JobicyEvidenceError("terms_manifest_invalid")
     if raw["bundle_format_version"] != BUNDLE_FORMAT_VERSION:
@@ -123,9 +125,7 @@ def _validate_manifest(raw: Any, expected_digest: str) -> JobicyTermsEvidence:
             or SHA256_RE.fullmatch(item["sha256"]) is None
         ):
             raise JobicyEvidenceError(
-                "terms_url_disallowed"
-                if item.get("url") != url
-                else "terms_manifest_invalid"
+                "terms_url_disallowed" if item.get("url") != url else "terms_manifest_invalid"
             )
         retrieved = _parse_zulu(item["retrieved_at"])
         values.append(JobicyPageEvidence(url, retrieved, item["sha256"]))
@@ -235,9 +235,7 @@ def _check_stat(metadata: os.stat_result, policy: EvidenceFilePolicy, *, directo
     ):
         raise JobicyEvidenceError("terms_bundle_insecure")
     expected = policy.directory_mode if directory else policy.file_mode
-    if stat.S_IMODE(metadata.st_mode) != expected or (
-        not directory and metadata.st_nlink != 1
-    ):
+    if stat.S_IMODE(metadata.st_mode) != expected or (not directory and metadata.st_nlink != 1):
         raise JobicyEvidenceError("terms_bundle_insecure")
 
 

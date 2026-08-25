@@ -45,9 +45,9 @@ def test_jobicy_fixed_latam_request_and_allowlisted_mapping() -> None:
         return httpx.Response(200, json={"jobs": [_job(7, canary="unknownField")]})
 
     async def run() -> None:
-        outcome = await JobicyCollector(
-            transport=httpx.MockTransport(handler)
-        ).collect(_snapshot(), CollectorRuntime())
+        outcome = await JobicyCollector(transport=httpx.MockTransport(handler)).collect(
+            _snapshot(), CollectorRuntime()
+        )
         assert isinstance(outcome, CollectionSuccess)
         assert outcome.status == "ok"
         assert outcome.jobs[0].external_id == "7"
@@ -77,9 +77,9 @@ def test_jobicy_empty_mixed_and_all_invalid_are_atomic() -> None:
             ) -> httpx.Response:
                 return httpx.Response(200, json=payload)
 
-            outcome = await JobicyCollector(
-                transport=httpx.MockTransport(handler)
-            ).collect(_snapshot(), CollectorRuntime())
+            outcome = await JobicyCollector(transport=httpx.MockTransport(handler)).collect(
+                _snapshot(), CollectorRuntime()
+            )
             if payload["jobs"] == []:
                 assert isinstance(outcome, CollectionSuccess)
                 assert outcome.status == "ok"
@@ -102,9 +102,9 @@ def test_jobicy_does_not_retry_wire_attempts() -> None:
         return httpx.Response(503, json={"jobs": []})
 
     async def run() -> None:
-        outcome = await JobicyCollector(
-            transport=httpx.MockTransport(handler)
-        ).collect(_snapshot(), CollectorRuntime())
+        outcome = await JobicyCollector(transport=httpx.MockTransport(handler)).collect(
+            _snapshot(), CollectorRuntime()
+        )
         assert isinstance(outcome, CollectionFailure)
         assert outcome.error_code is CollectorFailureCode.UPSTREAM
         assert calls == 1

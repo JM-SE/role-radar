@@ -140,6 +140,7 @@ def test_brave_paid_cap_allows_exact_limit_and_rejects_one_micro_usd_over(
     service = AcquisitionBudgetService(lambda: Session(db_engine), config)
     operation = AcquisitionOperation("paid-exact", "brave", "paid", "cycle", "h", 0, 5_000_000)
     assert service.reserve(operation) is not None
-    assert service.reserve(
-        AcquisitionOperation("paid-over", "brave", "paid", "cycle", "h", 1, 1)
-    ) is None
+    assert (
+        service.reserve(AcquisitionOperation("paid-over", "brave", "paid", "cycle", "h", 1, 1))
+        is None
+    )

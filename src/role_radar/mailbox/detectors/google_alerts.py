@@ -9,8 +9,7 @@ FINGERPRINT_VERSION = "google-alerts-v1"
 def match(message: BoundedMailboxMessage) -> AutoMatch | None:
     text = f"{getattr(message, 'subject', '')} {getattr(message, 'text', '')}".lower()
     if (
-        getattr(message, "sender_domain", None)
-        in {"google.com", "googlealerts-noreply.com"}
+        getattr(message, "sender_domain", None) in {"google.com", "googlealerts-noreply.com"}
         and "google alerts" in text
         and authenticated_identity(message, getattr(message, "sender_domain", ""))
     ):

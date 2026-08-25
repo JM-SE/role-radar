@@ -424,9 +424,7 @@ class LeverCollector:
             raise RawJobBoundsError("invalid")
         if location is None and isinstance(all_locations, list):
             values = [
-                value.strip()
-                for value in all_locations
-                if isinstance(value, str) and value.strip()
+                value.strip() for value in all_locations if isinstance(value, str) and value.strip()
             ]
             location = ", ".join(values) or None
         description_plain = item.get("descriptionPlain")

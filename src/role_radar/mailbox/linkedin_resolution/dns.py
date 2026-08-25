@@ -19,6 +19,7 @@ ATTESTATION_HANDLE = "f91-egress-attestation"
 MAILBOX_EGRESS_HOSTS = frozenset({"imap.gmail.com"})
 ATTESTED_EGRESS_HOSTS = LINKEDIN_HOSTS | MAILBOX_EGRESS_HOSTS
 
+
 class DNSResolutionError(RuntimeError):
     def __init__(self, code: str) -> None:
         self.code = code

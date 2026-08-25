@@ -74,7 +74,8 @@ async def test_service_rejects_non_linkedin_parser_and_closes() -> None:
             return ParseResult("generic", "1", (), "recognized", None)
 
     report = await LinkedInLinkHostAuditService(
-        provider, parser_registry=OtherParser()  # type: ignore[arg-type]
+        provider,
+        parser_registry=OtherParser(),  # type: ignore[arg-type]
     ).run()
 
     assert report.terminal_code == "parser_mismatch"

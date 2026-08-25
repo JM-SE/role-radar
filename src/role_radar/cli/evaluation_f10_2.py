@@ -118,7 +118,9 @@ def run(args: Any) -> int:
                     )
                     runtime.save_first_pass(item.opaque_id, decision)
                     state = runtime.state()
-            io.write("Warning: canary checks are imperfect; the operator remains responsible for sensitive content.\n")
+            io.write(
+                "Warning: canary checks are imperfect; the operator remains responsible for sensitive content.\n"
+            )
             while True:
                 revisit = io.read_line("Revisit item number (blank to finish): ").strip()
                 if not revisit:
@@ -154,7 +156,11 @@ def run(args: Any) -> int:
                 )
                 runtime.save_review(item_id, decision)
             state = runtime.state()
-            print(_payload({"status": state.phase.value, "reviewed_count": len(state.review_decisions)}))
+            print(
+                _payload(
+                    {"status": state.phase.value, "reviewed_count": len(state.review_decisions)}
+                )
+            )
             return 0
         if command == "adjudicate":
             state = runtime.state()
@@ -170,11 +176,19 @@ def run(args: Any) -> int:
             for item_id in decisions:
                 io.write("\nAdjudicate discrepancy\n")
                 io.write("First decision: " + _payload(decision_dict(first[item_id])) + "\n")
-                io.write("Review decision: " + _payload(decision_dict(decisions[item_id].decision)) + "\n")
+                io.write(
+                    "Review decision: "
+                    + _payload(decision_dict(decisions[item_id].decision))
+                    + "\n"
+                )
                 # The adjudication prompt still collects a complete fresh decision.
                 runtime.adjudicate(item_id, collect_decision(io, by_id[item_id], index=1, total=1))
             state = runtime.state()
-            print(_payload({"status": state.phase.value, "adjudicated_count": len(state.adjudications)}))
+            print(
+                _payload(
+                    {"status": state.phase.value, "adjudicated_count": len(state.adjudications)}
+                )
+            )
             return 0
         return 2
     except (RuntimeErrorCode, StoreError, SessionError, ValidationError, InteractionError) as exc:

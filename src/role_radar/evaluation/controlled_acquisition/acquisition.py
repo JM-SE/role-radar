@@ -63,9 +63,7 @@ class JournaledTransport(httpx.AsyncBaseTransport):
             f"{self._operation_id}:{self._source_id}:{self._ordinal}:"
             f"{request.method}:{request.url}".encode()
         ).hexdigest()
-        self._journal.record_request_intent(
-            operation_id=self._operation_id, request_id=request_id
-        )
+        self._journal.record_request_intent(operation_id=self._operation_id, request_id=request_id)
         try:
             response = await self._transport.handle_async_request(request)
         except Exception:
@@ -73,9 +71,7 @@ class JournaledTransport(httpx.AsyncBaseTransport):
                 operation_id=self._operation_id, request_id=request_id
             )
             raise
-        self._journal.record_request_result(
-            operation_id=self._operation_id, request_id=request_id
-        )
+        self._journal.record_request_result(operation_id=self._operation_id, request_id=request_id)
         return response
 
     async def aclose(self) -> None:

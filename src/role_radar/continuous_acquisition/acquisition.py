@@ -39,9 +39,16 @@ class AcquisitionService:
     budget: RequestBudget | None = None
 
     def run(self, *, slot_key: str) -> AcquisitionRunResult:
-        ordered_ids = rotate_sources(tuple(source.source_id for source in self.snapshots), day=self.as_of_utc)
+        ordered_ids = rotate_sources(
+            tuple(source.source_id for source in self.snapshots), day=self.as_of_utc
+        )
         by_id = {source.source_id: source for source in self.snapshots}
-        run = self.run_repository.claim_acquisition(slot_key=slot_key, policy_version="continuous-acquisition-v1", snapshots=self.snapshots, owner=self.owner)
+        run = self.run_repository.claim_acquisition(
+            slot_key=slot_key,
+            policy_version="continuous-acquisition-v1",
+            snapshots=self.snapshots,
+            owner=self.owner,
+        )
         self.run_repository.session.commit()
         if run.state not in {"planned", "running"}:
             return AcquisitionRunResult(
@@ -68,17 +75,40 @@ class AcquisitionService:
         for source_id in ordered_ids:
             source = by_id[source_id]
             if budget.exhausted:
-                outcomes.append(AcquisitionSourceOutcome(source_id, OperationState.TRUNCATED, usable=False, error_code="budget_exhausted"))
+                outcomes.append(
+                    AcquisitionSourceOutcome(
+                        source_id,
+                        OperationState.TRUNCATED,
+                        usable=False,
+                        error_code="budget_exhausted",
+                    )
+                )
                 break
             try:
-                self.run_repository.fence(run.id, owner=self.owner, generation=run.fencing_generation)
-                operation = self.run_repository.create_operation(run.id, source, owner=self.owner, generation=run.fencing_generation)
+                self.run_repository.fence(
+                    run.id, owner=self.owner, generation=run.fencing_generation
+                )
+                operation = self.run_repository.create_operation(
+                    run.id, source, owner=self.owner, generation=run.fencing_generation
+                )
                 self.run_repository.session.commit()
             except FenceLostError:
-                return AcquisitionRunResult(AcquisitionRunState.INDETERMINATE, 0, tuple(outcomes), terminal_code="fence_lost")
+                return AcquisitionRunResult(
+                    AcquisitionRunState.INDETERMINATE,
+                    0,
+                    tuple(outcomes),
+                    terminal_code="fence_lost",
+                )
             try:
                 if not budget.reserve():
-                    outcomes.append(AcquisitionSourceOutcome(source_id, OperationState.TRUNCATED, usable=False, error_code="budget_exhausted"))
+                    outcomes.append(
+                        AcquisitionSourceOutcome(
+                            source_id,
+                            OperationState.TRUNCATED,
+                            usable=False,
+                            error_code="budget_exhausted",
+                        )
+                    )
                     break
                 if not budget.begin_attempt():
                     break
@@ -87,7 +117,9 @@ class AcquisitionService:
                     # Preserve sync/fake compatibility while making the real
                     # async collector seam usable by existing callers.
                     collected = asyncio.run(cast(Any, collected))
-                collected_result = cast(CollectionFailure | CollectionSuccess | tuple[RawJob, ...], collected)
+                collected_result = cast(
+                    CollectionFailure | CollectionSuccess | tuple[RawJob, ...], collected
+                )
                 raw_jobs: tuple[RawJob, ...]
                 if isinstance(collected_result, CollectionFailure):
                     counters = JobCounters()
@@ -111,16 +143,46 @@ class AcquisitionService:
                 counters = JobCounters()
                 writer = OfferPersistence(self.run_repository.session, as_of_utc=self.as_of_utc)
                 for raw in raw_jobs:
-                    self.run_repository.fence(run.id, owner=self.owner, generation=run.fencing_generation)
-                    disposition = writer.persist(raw, source=source, run_id=run.id, operation_id=operation.id, assert_fence=lambda: self.run_repository.fence(run.id, owner=self.owner, generation=run.fencing_generation))
+                    self.run_repository.fence(
+                        run.id, owner=self.owner, generation=run.fencing_generation
+                    )
+                    disposition = writer.persist(
+                        raw,
+                        source=source,
+                        run_id=run.id,
+                        operation_id=operation.id,
+                        assert_fence=lambda: self.run_repository.fence(
+                            run.id, owner=self.owner, generation=run.fencing_generation
+                        ),
+                    )
                     counters = _increment(counters, disposition)
-                outcome = AcquisitionSourceOutcome(source_id, state, counters, usable=usable, error_code=error_code)
-                self.run_repository.finalize_operation(operation.id, owner=self.owner, generation=run.fencing_generation, result_state=outcome.state.value, intent_state=outcome.state.value, result_code=error_code, observed_count=counters.observed, created_count=counters.created, duplicate_count=counters.duplicate, stale_count=counters.stale, invalid_count=counters.invalid, conflict_count=counters.conflict)
+                outcome = AcquisitionSourceOutcome(
+                    source_id, state, counters, usable=usable, error_code=error_code
+                )
+                self.run_repository.finalize_operation(
+                    operation.id,
+                    owner=self.owner,
+                    generation=run.fencing_generation,
+                    result_state=outcome.state.value,
+                    intent_state=outcome.state.value,
+                    result_code=error_code,
+                    observed_count=counters.observed,
+                    created_count=counters.created,
+                    duplicate_count=counters.duplicate,
+                    stale_count=counters.stale,
+                    invalid_count=counters.invalid,
+                    conflict_count=counters.conflict,
+                )
                 outcomes.append(outcome)
                 self.run_repository.session.commit()
             except FenceLostError:
                 self.run_repository.session.rollback()
-                return AcquisitionRunResult(AcquisitionRunState.INDETERMINATE, 0, tuple(outcomes), terminal_code="fence_lost")
+                return AcquisitionRunResult(
+                    AcquisitionRunState.INDETERMINATE,
+                    0,
+                    tuple(outcomes),
+                    terminal_code="fence_lost",
+                )
             except Exception:
                 self.run_repository.session.rollback()
                 try:
@@ -135,8 +197,17 @@ class AcquisitionService:
                     self.run_repository.session.commit()
                 except FenceLostError:
                     self.run_repository.session.rollback()
-                    return AcquisitionRunResult(AcquisitionRunState.INDETERMINATE, 0, tuple(outcomes), terminal_code="fence_lost")
-                outcomes.append(AcquisitionSourceOutcome(source_id, OperationState.FAILED, usable=True, error_code="operation_failed"))
+                    return AcquisitionRunResult(
+                        AcquisitionRunState.INDETERMINATE,
+                        0,
+                        tuple(outcomes),
+                        terminal_code="fence_lost",
+                    )
+                outcomes.append(
+                    AcquisitionSourceOutcome(
+                        source_id, OperationState.FAILED, usable=True, error_code="operation_failed"
+                    )
+                )
         result = aggregate_outcomes(tuple(outcomes))
         self.run_repository.finalize_run(
             run.id,
@@ -164,11 +235,49 @@ class AcquisitionService:
 
 def _increment(counters: JobCounters, disposition: str) -> JobCounters:
     if disposition == "created":
-        return JobCounters(counters.observed + 1, counters.created + 1, counters.duplicate, counters.stale, counters.invalid, counters.conflict)
+        return JobCounters(
+            counters.observed + 1,
+            counters.created + 1,
+            counters.duplicate,
+            counters.stale,
+            counters.invalid,
+            counters.conflict,
+        )
     if disposition == "duplicate":
-        return JobCounters(counters.observed + 1, counters.created, counters.duplicate + 1, counters.stale, counters.invalid, counters.conflict)
+        return JobCounters(
+            counters.observed + 1,
+            counters.created,
+            counters.duplicate + 1,
+            counters.stale,
+            counters.invalid,
+            counters.conflict,
+        )
     if disposition == "identity_conflict":
-        return JobCounters(counters.observed + 1, counters.created, counters.duplicate, counters.stale, counters.invalid, counters.conflict + 1)
-    if disposition.startswith("freshness_") or disposition in {"provider_closed", "expired_at_selection_time"}:
-        return JobCounters(counters.observed + 1, counters.created, counters.duplicate, counters.stale + 1, counters.invalid, counters.conflict)
-    return JobCounters(counters.observed + 1, counters.created, counters.duplicate, counters.stale, counters.invalid + 1, counters.conflict)
+        return JobCounters(
+            counters.observed + 1,
+            counters.created,
+            counters.duplicate,
+            counters.stale,
+            counters.invalid,
+            counters.conflict + 1,
+        )
+    if disposition.startswith("freshness_") or disposition in {
+        "provider_closed",
+        "expired_at_selection_time",
+    }:
+        return JobCounters(
+            counters.observed + 1,
+            counters.created,
+            counters.duplicate,
+            counters.stale + 1,
+            counters.invalid,
+            counters.conflict,
+        )
+    return JobCounters(
+        counters.observed + 1,
+        counters.created,
+        counters.duplicate,
+        counters.stale,
+        counters.invalid + 1,
+        counters.conflict,
+    )

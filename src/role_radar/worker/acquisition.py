@@ -53,9 +53,7 @@ def compose_acquisition_capabilities(
     brave = tavily = None
     query_hmac: bytes | None = None
     if config.discovery is not None and (
-        config.brave_free.enabled
-        or config.tavily_free.enabled
-        or config.brave_paid.enabled
+        config.brave_free.enabled or config.tavily_free.enabled or config.brave_paid.enabled
     ):
         try:
             if resolver is None:

@@ -75,9 +75,7 @@ async def test_overflow_sentinel_is_atomic_and_not_mapped() -> None:
         calls.append((params["limit"], params["skip"]))
         skip = int(params["skip"])
         payload = (
-            [_item(999)]
-            if skip == 500
-            else [_item(index) for index in range(skip, skip + 100)]
+            [_item(999)] if skip == 500 else [_item(index) for index in range(skip, skip + 100)]
         )
         return httpx.Response(200, json=payload, headers={"content-type": "application/json"})
 

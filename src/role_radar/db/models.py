@@ -208,6 +208,7 @@ class MailboxState(Base):
 
     source: Mapped[Source] = relationship(back_populates="mailbox_state")
 
+
 class EmailReceipt(Base):
     """Terminal, privacy-preserving idempotency record for one IMAP UID."""
 
@@ -255,9 +256,7 @@ class EmailLinkProposal(Base):
             "status IN ('intake','review','quarantine','verified','rejected')",
             name="ck_email_proposals_status",
         ),
-        CheckConstraint(
-            "kind IN ('ats_direct','link','message')", name="ck_email_proposals_kind"
-        ),
+        CheckConstraint("kind IN ('ats_direct','link','message')", name="ck_email_proposals_kind"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)

@@ -88,9 +88,7 @@ def test_full_first_pass_review_and_immutable_materialization(tmp_path: Path) ->
     assert len(payloads["labels.jsonl"].splitlines()) == 50
     assert internal["labelset_id"] == labelset_id
 
-    store = LabelingStore(
-        tmp_path / "output", dataset_id=dataset_id, rubric_version=RUBRIC_VERSION
-    )
+    store = LabelingStore(tmp_path / "output", dataset_id=dataset_id, rubric_version=RUBRIC_VERSION)
     store.create(
         new_session(
             snapshot,
@@ -105,9 +103,7 @@ def test_full_first_pass_review_and_immutable_materialization(tmp_path: Path) ->
 
 def test_runtime_finalization_retry_is_idempotent(tmp_path: Path) -> None:
     source, dataset_id = _fixture(tmp_path / "source")
-    store = LabelingStore(
-        tmp_path / "output", dataset_id=dataset_id, rubric_version=RUBRIC_VERSION
-    )
+    store = LabelingStore(tmp_path / "output", dataset_id=dataset_id, rubric_version=RUBRIC_VERSION)
     runtime = BlindLabelingRuntime(
         source,
         store,
@@ -131,7 +127,6 @@ def test_runtime_finalization_retry_is_idempotent(tmp_path: Path) -> None:
     assert intent.labelset_id == first.labelset_id
     assert len(intent.draft_payload_sha256) == 64
     assert any(
-        event.kind is AuditKind.FINALIZATION_INTENT
-        for event in runtime._state().audit_events
+        event.kind is AuditKind.FINALIZATION_INTENT for event in runtime._state().audit_events
     )
     assert runtime.verify(first.labelset_id)["status"] == "verified"

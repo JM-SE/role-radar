@@ -28,7 +28,7 @@ EXPECTED_POLICY_CANONICAL_BYTES = (
     b"_`{|}~-])[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\\\\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[a-z0-9](?:"
     b'[a-z0-9-]{0,61}[a-z0-9])?\\\\.)+[a-z]{2,63}(?![a-z0-9-])","flags":258,"order":["url","emai'
     b'l"],"url_error":"display_visible_url_forbidden","url_pattern":"(?:https?://|www\\\\.|mailt'
-    b'o:)|(?<![a-z0-9_@-])(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\\\.)+[a-z]{2,63}(?::[0-9]{1,5'
+    b"o:)|(?<![a-z0-9_@-])(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\\\.)+[a-z]{2,63}(?::[0-9]{1,5"
     b'})?(?=[/?#])"},"hash_domains":{"contract":"f10.2:display-contract-v2","rendered_evidence'
     b'":"f10.2:rendered-evidence-v1"},"html":{"block_tags":["article","div","h1","h2","h3","h4'
     b'","h5","h6","p","section"],"break_tag":"br","comments_and_declarations":"discard","layou'
@@ -64,18 +64,19 @@ EXPECTED_RENDERED_EVIDENCE_SHA256 = (
 
 
 def test_policy_golden_uses_independent_literal_bytes_and_sha() -> None:
-    assert hashlib.sha256(
-        b"f10.2:display-contract-v2\x00" + EXPECTED_POLICY_CANONICAL_BYTES
-    ).hexdigest() == EXPECTED_POLICY_SHA256
+    assert (
+        hashlib.sha256(
+            b"f10.2:display-contract-v2\x00" + EXPECTED_POLICY_CANONICAL_BYTES
+        ).hexdigest()
+        == EXPECTED_POLICY_SHA256
+    )
     assert DISPLAY_POLICY_CANONICAL_BYTES == EXPECTED_POLICY_CANONICAL_BYTES
     assert DISPLAY_CONTRACT_SHA256 == EXPECTED_POLICY_SHA256
 
 
 def test_selected_html5_entity_table_digest_is_independently_pinned() -> None:
     selected = {
-        key: html.entities.html5[key]
-        for key in sorted(html.entities.html5)
-        if key.endswith(";")
+        key: html.entities.html5[key] for key in sorted(html.entities.html5) if key.endswith(";")
     }
     canonical = json.dumps(
         selected,
@@ -97,19 +98,25 @@ def test_rendered_evidence_golden_uses_independent_literal_bytes_and_sha() -> No
             "Build safe systems.",
         )
     )
-    assert _rendered_payload(
-        opaque_id="0123456789abcdef01234567",
-        title="Senior Role",
-        company="Acme Labs",
-        location="Remote",
-        description="Build safe systems.",
-    ) == EXPECTED_RENDERED_EVIDENCE_CANONICAL_BYTES
+    assert (
+        _rendered_payload(
+            opaque_id="0123456789abcdef01234567",
+            title="Senior Role",
+            company="Acme Labs",
+            location="Remote",
+            description="Build safe systems.",
+        )
+        == EXPECTED_RENDERED_EVIDENCE_CANONICAL_BYTES
+    )
     assert (
         result.display_schema,
         result.display_contract_version,
         result.display_contract_sha256,
     ) == ("f10.2-rendered-evidence-v1", "f10.2-display-v2", EXPECTED_POLICY_SHA256)
-    assert hashlib.sha256(
-        b"f10.2:rendered-evidence-v1\x00" + EXPECTED_RENDERED_EVIDENCE_CANONICAL_BYTES
-    ).hexdigest() == EXPECTED_RENDERED_EVIDENCE_SHA256
+    assert (
+        hashlib.sha256(
+            b"f10.2:rendered-evidence-v1\x00" + EXPECTED_RENDERED_EVIDENCE_CANONICAL_BYTES
+        ).hexdigest()
+        == EXPECTED_RENDERED_EVIDENCE_SHA256
+    )
     assert result.rendered_evidence_sha256 == EXPECTED_RENDERED_EVIDENCE_SHA256

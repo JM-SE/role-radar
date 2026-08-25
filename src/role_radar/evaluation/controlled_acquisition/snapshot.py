@@ -39,20 +39,26 @@ def materialize_records(
     provenance_lines: list[bytes] = []
     label_records: dict[str, dict[str, Any]] = {}
     for item in items:
-        dataset_lines.append(canonical_line(item.__dict__ if hasattr(item, "__dict__") else {
-            "ordinal": item.ordinal,
-            "opaque_id": item.opaque_id,
-            "title": item.title,
-            "company": item.company,
-            "location": item.location,
-            "description": item.description,
-            "source_url": item.source_url,
-            "application_url": item.application_url,
-            "provider_recency_at": item.provider_recency_at,
-            "recency_semantic": item.recency_semantic,
-            "selection_family": item.selection_family,
-            "selection_reason": item.selection_reason,
-        }))
+        dataset_lines.append(
+            canonical_line(
+                item.__dict__
+                if hasattr(item, "__dict__")
+                else {
+                    "ordinal": item.ordinal,
+                    "opaque_id": item.opaque_id,
+                    "title": item.title,
+                    "company": item.company,
+                    "location": item.location,
+                    "description": item.description,
+                    "source_url": item.source_url,
+                    "application_url": item.application_url,
+                    "provider_recency_at": item.provider_recency_at,
+                    "recency_semantic": item.recency_semantic,
+                    "selection_family": item.selection_family,
+                    "selection_reason": item.selection_reason,
+                }
+            )
+        )
         provenance_lines.append(
             canonical_line(
                 {
@@ -115,9 +121,7 @@ def materialize_selection(
                 ],
             }
         )
-    dataset_lines, _, label_lines = materialize_records(
-        tuple(items), dataset_seed=dataset_seed
-    )
+    dataset_lines, _, label_lines = materialize_records(tuple(items), dataset_seed=dataset_seed)
     provenance_lines = tuple(canonical_line(item) for item in provenances)
     return dataset_lines, provenance_lines, label_lines
 

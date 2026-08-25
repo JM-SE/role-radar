@@ -168,9 +168,7 @@ def _render_pilot_item(
     else:
         derived_location = _render_field(item.location)
         location = (
-            None
-            if item.location.isspace() or not derived_location.strip()
-            else derived_location
+            None if item.location.isspace() or not derived_location.strip() else derived_location
         )
     visible_bytes = sum(
         len(value.encode("utf-8"))

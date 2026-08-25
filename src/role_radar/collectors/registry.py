@@ -82,9 +82,7 @@ class SourceSnapshotModel(BaseModel):
             )
         if version == 1:
             try:
-                config = validate_configuration(
-                    self.source_type, version, dict(self.configuration)
-                )
+                config = validate_configuration(self.source_type, version, dict(self.configuration))
                 calculated_key = canonical_source_key(self.source_type, config.model_dump())
                 if source_key is not None and source_key != calculated_key:
                     raise ValueError("snapshot source key does not match configuration")

@@ -1,5 +1,4 @@
 """Atomic draft and immutable final persistence for F10.2."""
-# ruff: noqa: E501
 
 from __future__ import annotations
 
@@ -69,7 +68,9 @@ def _state_dict(state: SessionState) -> dict[str, Any]:
         "first_pass": [[key, decision_dict(value)] for key, value in state.first_pass],
         "first_pass_sha256": state.first_pass_sha256,
         "generation": state.generation,
-        "review_plan": None if state.review_plan is None else {
+        "review_plan": None
+        if state.review_plan is None
+        else {
             "generation": state.review_plan.generation,
             "first_pass_sha256": state.review_plan.first_pass_sha256,
             "item_ids": list(state.review_plan.item_ids),
@@ -100,7 +101,9 @@ def _state_dict(state: SessionState) -> dict[str, Any]:
             }
             for value in state.audit_events
         ],
-        "finalization_intent": None if intent is None else {
+        "finalization_intent": None
+        if intent is None
+        else {
             "challenge_sha256": intent.challenge_sha256,
             "draft_revision": intent.draft_revision,
             "draft_payload_sha256": intent.draft_payload_sha256,
@@ -119,9 +122,21 @@ def state_payload_hash(state: SessionState) -> str:
 
 def _state_from_dict(value: dict[str, Any]) -> SessionState:
     expected_keys = {
-        "dataset_id", "pilot_sha256", "pilot_view_sha256", "rubric_version", "rubric_sha256",
-        "protocol_version", "revision", "phase", "first_pass", "first_pass_sha256",
-        "generation", "review_plan", "review_decisions", "adjudications", "audit_events",
+        "dataset_id",
+        "pilot_sha256",
+        "pilot_view_sha256",
+        "rubric_version",
+        "rubric_sha256",
+        "protocol_version",
+        "revision",
+        "phase",
+        "first_pass",
+        "first_pass_sha256",
+        "generation",
+        "review_plan",
+        "review_decisions",
+        "adjudications",
+        "audit_events",
         "finalization_intent",
     }
     try:
@@ -130,11 +145,15 @@ def _state_from_dict(value: dict[str, Any]) -> SessionState:
         plan_value = value["review_plan"]
         if plan_value is not None and not isinstance(plan_value, dict):
             raise StoreError("draft_state_invalid")
-        plan = None if plan_value is None else ReviewPlan(
-            plan_value["generation"],
-            plan_value["first_pass_sha256"],
-            tuple(plan_value["item_ids"]),
-            plan_value["plan_sha256"],
+        plan = (
+            None
+            if plan_value is None
+            else ReviewPlan(
+                plan_value["generation"],
+                plan_value["first_pass_sha256"],
+                tuple(plan_value["item_ids"]),
+                plan_value["plan_sha256"],
+            )
         )
         events = tuple(
             AuditEvent(
@@ -152,15 +171,19 @@ def _state_from_dict(value: dict[str, Any]) -> SessionState:
         intent_value = value["finalization_intent"]
         if intent_value is not None and not isinstance(intent_value, dict):
             raise StoreError("draft_state_invalid")
-        intent = None if intent_value is None else FinalizationIntent(
-            intent_value["challenge_sha256"],
-            intent_value["draft_revision"],
-            intent_value["draft_payload_sha256"],
-            intent_value["labelset_id"],
-            intent_value["final_labels_sha256"],
-            intent_value["review_report_sha256"],
-            intent_value["audit_sha256"],
-            intent_value["finalized_at"],
+        intent = (
+            None
+            if intent_value is None
+            else FinalizationIntent(
+                intent_value["challenge_sha256"],
+                intent_value["draft_revision"],
+                intent_value["draft_payload_sha256"],
+                intent_value["labelset_id"],
+                intent_value["final_labels_sha256"],
+                intent_value["review_report_sha256"],
+                intent_value["audit_sha256"],
+                intent_value["finalized_at"],
+            )
         )
         state = SessionState(
             value["dataset_id"],
@@ -246,7 +269,11 @@ class LabelingStore:
     def load(self) -> SessionState:
         try:
             raw = json.loads(read_bounded(self.state_path, MAX_DRAFT_BYTES).decode("utf-8"))
-            if not isinstance(raw, dict) or set(raw) != {"schema_version", "payload", "payload_sha256"}:
+            if not isinstance(raw, dict) or set(raw) != {
+                "schema_version",
+                "payload",
+                "payload_sha256",
+            }:
                 raise StoreError("draft_schema_invalid")
             payload = raw["payload"]
             if not isinstance(payload, dict) or raw["schema_version"] != DRAFT_SCHEMA:
@@ -320,7 +347,9 @@ class LabelingStore:
                 raise StoreError("draft_limit_exceeded")
             atomic_write(self.state_path, encoded)
 
-    def publish_final(self, *, labelset_id: str, payloads: dict[str, bytes], internal: dict[str, Any]) -> Path:
+    def publish_final(
+        self, *, labelset_id: str, payloads: dict[str, bytes], internal: dict[str, Any]
+    ) -> Path:
         if HEX64.fullmatch(labelset_id) is None:
             raise StoreError("labelset_id_invalid")
         ensure_private_root(self.root)
@@ -329,7 +358,13 @@ class LabelingStore:
         final_root = self.session_root / "final"
         ensure_private_root(final_root)
         target = final_root / labelset_id
-        expected = {"labels.jsonl", "audit.jsonl", "review-report.json", "rubric.json", "internal-manifest.json"}
+        expected = {
+            "labels.jsonl",
+            "audit.jsonl",
+            "review-report.json",
+            "rubric.json",
+            "internal-manifest.json",
+        }
         if set(payloads) != expected:
             raise StoreError("final_files_invalid")
         full = dict(payloads)
@@ -408,8 +443,12 @@ class LabelingStore:
         directory_fd = open_private_directory(target)
         try:
             names = {
-                "labels.jsonl", "audit.jsonl", "review-report.json", "rubric.json",
-                "internal-manifest.json", "checksums.sha256",
+                "labels.jsonl",
+                "audit.jsonl",
+                "review-report.json",
+                "rubric.json",
+                "internal-manifest.json",
+                "checksums.sha256",
             }
             if set(os.listdir(directory_fd)) != names:
                 raise StoreError("final_integrity_failed")
@@ -419,7 +458,11 @@ class LabelingStore:
             parsed: list[tuple[str, str]] = []
             for entry in entries:
                 digest, separator, name = entry.partition("  ")
-                if separator != "  " or HEX64.fullmatch(digest) is None or name not in expected_names:
+                if (
+                    separator != "  "
+                    or HEX64.fullmatch(digest) is None
+                    or name not in expected_names
+                ):
                     raise StoreError("final_checksum_invalid")
                 parsed.append((name, digest))
             if [name for name, _digest in parsed] != expected_names:
@@ -439,7 +482,15 @@ class LabelingStore:
             payloads, _hashes = self._final_payloads(labelset_id)
             validate_final_bundle(payloads, labelset_id)
             return True
-        except (OSError, UnicodeError, ValueError, TypeError, KeyError, FilesystemError, StoreError):
+        except (
+            OSError,
+            UnicodeError,
+            ValueError,
+            TypeError,
+            KeyError,
+            FilesystemError,
+            StoreError,
+        ):
             return False
 
     def final_manifest(self, labelset_id: str) -> tuple[dict[str, Any], dict[str, str]]:
@@ -447,7 +498,15 @@ class LabelingStore:
             payloads, hashes = self._final_payloads(labelset_id)
             internal = validate_final_bundle(payloads, labelset_id)
             return internal, hashes
-        except (OSError, UnicodeError, ValueError, TypeError, KeyError, FilesystemError, StoreError) as exc:
+        except (
+            OSError,
+            UnicodeError,
+            ValueError,
+            TypeError,
+            KeyError,
+            FilesystemError,
+            StoreError,
+        ) as exc:
             raise StoreError("final_manifest_invalid") from exc
 
 

@@ -28,9 +28,7 @@ def test_f85_direct_upgrade_and_empty_downgrade_round_trip(tmp_path: Path) -> No
     with sqlite3.connect(database) as connection:
         tables = {
             row[0]
-            for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            )
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
         }
         assert {
             "acquisition_budget_periods",

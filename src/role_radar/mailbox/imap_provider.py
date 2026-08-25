@@ -241,12 +241,15 @@ ImapMailboxProvider = GmailImapProvider
 def _default_session(
     descriptor: MailboxDescriptor, _credentials: CredentialMaterial
 ) -> ImapSession:
-    return cast(ImapSession, imaplib.IMAP4_SSL(
-        descriptor.host,
-        descriptor.port,
-        ssl_context=None,
-        timeout=CONNECT_TIMEOUT_SECONDS,
-    ))
+    return cast(
+        ImapSession,
+        imaplib.IMAP4_SSL(
+            descriptor.host,
+            descriptor.port,
+            ssl_context=None,
+            timeout=CONNECT_TIMEOUT_SECONDS,
+        ),
+    )
 
 
 def _validate_descriptor(descriptor: MailboxDescriptor) -> None:

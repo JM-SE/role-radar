@@ -88,6 +88,7 @@ class ExternalMailboxConfig(BaseModel):
         if not isinstance(value, str) or _HANDLE.fullmatch(value) is None:
             raise ValueError("invalid credential handle")
         return value
+
     message_hmac_handle: str = Field(default="mailbox-message-hmac", max_length=128)
     content_hmac_handle: str = Field(default="mailbox-content-hmac", max_length=128)
 

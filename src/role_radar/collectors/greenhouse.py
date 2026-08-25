@@ -66,9 +66,7 @@ class GreenhouseCollector:
         self._legacy_client = client
 
     @overload
-    async def collect(
-        self, context: CollectionContext, runtime: None = None
-    ) -> list[RawJob]: ...
+    async def collect(self, context: CollectionContext, runtime: None = None) -> list[RawJob]: ...
 
     @overload
     async def collect(

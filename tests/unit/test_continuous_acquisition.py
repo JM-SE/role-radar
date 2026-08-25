@@ -124,9 +124,12 @@ def test_outcome_matrix_and_indeterminate_dominance(
     outcomes: tuple[AcquisitionSourceOutcome, ...], expected: AcquisitionRunState
 ) -> None:
     assert aggregate_outcomes(outcomes).state is expected
-    assert aggregate_outcomes(
-        (*outcomes, AcquisitionSourceOutcome("unknown", OperationState.INDETERMINATE))
-    ).state is AcquisitionRunState.INDETERMINATE
+    assert (
+        aggregate_outcomes(
+            (*outcomes, AcquisitionSourceOutcome("unknown", OperationState.INDETERMINATE))
+        ).state
+        is AcquisitionRunState.INDETERMINATE
+    )
 
 
 def test_conservation_is_explicit() -> None:
@@ -162,9 +165,7 @@ def test_slots_and_rotation_are_stable() -> None:
     assert discovery_slot(AS_OF, canary_id="fix-01").endswith(":fix-01")
     with pytest.raises(ValueError, match="canary_id_invalid"):
         acquisition_slot(AS_OF, canary_id="invalid/id")
-    assert rotate_sources(("a", "b", "c"), day=AS_OF) == rotate_sources(
-        ("c", "a", "b"), day=AS_OF
-    )
+    assert rotate_sources(("a", "b", "c"), day=AS_OF) == rotate_sources(("c", "a", "b"), day=AS_OF)
     assert rotate_sources(("a", "b"), day=AS_OF) != rotate_sources(
         ("a", "b"), day=AS_OF + timedelta(days=1)
     )
@@ -200,14 +201,23 @@ def test_source_only_registration_preserves_disabled_archived_and_empty_board(
     try:
         source_repo = SourceRepository(session)
         disabled = source_repo.create_row(
-            source_id="disabled", source_type=SourceType.GREENHOUSE, name="Disabled",
-            source_key="greenhouse:disabled", configuration={"board_token": "disabled"},
-            configuration_version=1, enabled=False,
+            source_id="disabled",
+            source_type=SourceType.GREENHOUSE,
+            name="Disabled",
+            source_key="greenhouse:disabled",
+            configuration={"board_token": "disabled"},
+            configuration_version=1,
+            enabled=False,
         )
         archived = source_repo.create_row(
-            source_id="archived", source_type=SourceType.GREENHOUSE, name="Archived",
-            source_key="greenhouse:archived", configuration={"board_token": "archived"},
-            configuration_version=1, enabled=False, archived_at=AS_OF,
+            source_id="archived",
+            source_type=SourceType.GREENHOUSE,
+            name="Archived",
+            source_key="greenhouse:archived",
+            configuration={"board_token": "archived"},
+            configuration_version=1,
+            enabled=False,
+            archived_at=AS_OF,
         )
         discovery = DiscoveryRepository(session)
         run = discovery.claim(
@@ -222,12 +232,12 @@ def test_source_only_registration_preserves_disabled_archived_and_empty_board(
         )
         store = SqlAlchemyRegistrationStore(session, run.id, operation.id)
         disabled_result = store.register(
-        VerifiedSource(
+            VerifiedSource(
                 disabled.source_key, "greenhouse", "Changed", {"board_token": "disabled"}, 1
             )
         )
         archived_result = store.register(
-        VerifiedSource(
+            VerifiedSource(
                 archived.source_key, "greenhouse", "Changed", {"board_token": "archived"}, 1
             )
         )

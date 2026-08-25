@@ -43,7 +43,5 @@ def test_fresh_and_f7_upgrade_downgrade_smoke(tmp_path: Path) -> None:
         assert connection.execute(
             "SELECT source_key, configuration_version, enabled FROM sources"
         ).fetchone() == ("greenhouse:acme", 1, 0)
-        assert connection.execute(
-            "SELECT COUNT(*) FROM source_poll_states"
-        ).fetchone() == (1,)
+        assert connection.execute("SELECT COUNT(*) FROM source_poll_states").fetchone() == (1,)
     _alembic(upgraded, "downgrade", "7f0a4c2d9e11")

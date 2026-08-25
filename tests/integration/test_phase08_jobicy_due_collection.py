@@ -80,9 +80,12 @@ async def test_jobicy_reservation_writer_and_second_due_run(
         assert state is not None
         assert state.last_request_at is not None
         assert state.last_success_at is not None
-        assert check.scalar(
-            select(JobSourceReference).where(JobSourceReference.source_id == source.id)
-        ) is not None
+        assert (
+            check.scalar(
+                select(JobSourceReference).where(JobSourceReference.source_id == source.id)
+            )
+            is not None
+        )
 
     second = service.prepare(run.id)
     assert second.counters.due == 0

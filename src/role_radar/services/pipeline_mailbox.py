@@ -122,15 +122,9 @@ class PipelineMailboxService:
             return MailboxPlan(run_id, tuple(tasks), True)
 
     async def execute(self, plan: MailboxPlan) -> MailboxExecution:
-        if (
-            not plan.scheduled
-            or (
-                self._provider_factory is None
-                and (
-                    self._descriptor_resolver is None
-                    or self._credential_resolver is None
-                )
-            )
+        if not plan.scheduled or (
+            self._provider_factory is None
+            and (self._descriptor_resolver is None or self._credential_resolver is None)
         ):
             return (
                 MailboxExecution(plan, (), "credentials")
@@ -235,9 +229,7 @@ class PipelineMailboxService:
                 parsed: ParseResult
                 message: BoundedMailboxMessage | None = None
                 error_code = item.terminal_code
-                content_hmac = (
-                    _digest(content_hmac_key, item.raw) if item.raw is not None else None
-                )
+                content_hmac = _digest(content_hmac_key, item.raw) if item.raw is not None else None
                 if error_code is None and item.raw is not None:
                     try:
                         message = parse_rfc822(item.raw)
@@ -270,9 +262,7 @@ class PipelineMailboxService:
                 for output in parsed.outputs:
                     url = getattr(output, "url", None)
                     safe_url = (
-                        _safe_ats_url(url)
-                        if output.__class__.__name__ == "LinkLead"
-                        else None
+                        _safe_ats_url(url) if output.__class__.__name__ == "LinkLead" else None
                     )
                     reason = getattr(output, "reason", "lead")
                     proposal_status = "intake" if safe_url else "review"

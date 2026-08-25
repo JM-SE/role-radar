@@ -77,8 +77,11 @@ class LiveAcknowledgementError(ValueError):
 def acknowledgement_challenge(
     *, plan_sha256: str, lookback_days: int, selection_as_of_utc: datetime
 ) -> str:
-    as_of = selection_as_of_utc.astimezone(UTC).replace(microsecond=0).isoformat().replace(
-        "+00:00", "Z"
+    as_of = (
+        selection_as_of_utc.astimezone(UTC)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
     )
     return (
         f"I ACKNOWLEDGE F10.1 LIVE ACQUISITION PLAN {plan_sha256} "
@@ -184,9 +187,7 @@ class LiveAcquisition:
             observations = await collect_sequential(
                 self.adapters.tasks(plan),
                 self.adapters.runtime,
-                runtime_factory=lambda task: self._runtime_for_task(
-                    task, operation_id
-                ),
+                runtime_factory=lambda task: self._runtime_for_task(task, operation_id),
             )
             self._transition(state, OperationState.POOL_SEALED, operation_id)
             state = OperationState.POOL_SEALED
@@ -275,6 +276,4 @@ class LiveAcquisition:
         )
 
     def _record(self, operation_id: str, kind: str, code: str) -> None:
-        self.adapters.journal.append(
-            JournalEvent(kind, code, code, {"operation_id": operation_id})
-        )
+        self.adapters.journal.append(JournalEvent(kind, code, code, {"operation_id": operation_id}))

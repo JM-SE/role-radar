@@ -64,9 +64,7 @@ class SourcePollStateRepository:
                 raise
             return existing
 
-    def reserve_jobicy(
-        self, source_id: str, *, run_id: str, now: datetime
-    ) -> PollReservation:
+    def reserve_jobicy(self, source_id: str, *, run_id: str, now: datetime) -> PollReservation:
         current = utc(now)
         row = self.get(source_id)
         if row is None:
@@ -117,9 +115,7 @@ class SourcePollStateRepository:
             return PollReservation("already_reserved", due_slot=due_slot)
         return PollReservation("reserved", reservation_id, operation_id, due_slot)
 
-    def mark_request_started(
-        self, source_id: str, *, operation_id: str, now: datetime
-    ) -> bool:
+    def mark_request_started(self, source_id: str, *, operation_id: str, now: datetime) -> bool:
         current = utc(now)
         row = self.get(source_id)
         if row is None:

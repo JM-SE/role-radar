@@ -23,10 +23,7 @@ def open_directory_chain(path: Path) -> int:
     if not path.is_absolute() or path == Path(path.anchor):
         raise FilesystemError("root_invalid")
     flags = (
-        os.O_RDONLY
-        | os.O_DIRECTORY
-        | getattr(os, "O_NOFOLLOW", 0)
-        | getattr(os, "O_CLOEXEC", 0)
+        os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
     )
     current = os.open(path.anchor, flags)
     try:
@@ -68,10 +65,7 @@ def ensure_private_root(root: Path, *, create: bool = True) -> None:
     if not root.is_absolute() or root == Path(root.anchor):
         raise FilesystemError("root_invalid")
     flags = (
-        os.O_RDONLY
-        | os.O_DIRECTORY
-        | getattr(os, "O_NOFOLLOW", 0)
-        | getattr(os, "O_CLOEXEC", 0)
+        os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
     )
     current = os.open(root.anchor, flags)
     try:
@@ -290,10 +284,7 @@ def publish_no_replace(staging: Path, target: Path) -> None:
         )
         try:
             metadata = os.fstat(staging_fd)
-            if (
-                stat.S_IMODE(metadata.st_mode) != 0o700
-                or metadata.st_uid != os.geteuid()
-            ):
+            if stat.S_IMODE(metadata.st_mode) != 0o700 or metadata.st_uid != os.geteuid():
                 raise FilesystemError("staging_not_private")
         finally:
             os.close(staging_fd)
@@ -329,7 +320,15 @@ def publish_no_replace(staging: Path, target: Path) -> None:
 
 
 __all__ = [
-    "FilesystemError", "atomic_write", "ensure_private_root", "fsync_directory", "locked",
-    "open_directory_chain", "open_private_directory", "publish_no_replace", "read_bounded",
-    "read_bounded_fd", "verify_private_file",
+    "FilesystemError",
+    "atomic_write",
+    "ensure_private_root",
+    "fsync_directory",
+    "locked",
+    "open_directory_chain",
+    "open_private_directory",
+    "publish_no_replace",
+    "read_bounded",
+    "read_bounded_fd",
+    "verify_private_file",
 ]

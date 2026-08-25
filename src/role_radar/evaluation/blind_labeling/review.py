@@ -1,5 +1,4 @@
 """Deterministic, score-blind pilot review planning."""
-# ruff: noqa: E501
 
 from __future__ import annotations
 
@@ -44,7 +43,9 @@ def build_review_plan(
     rubric_sha256: str,
 ) -> ReviewPlan:
     first_hash = first_pass_hash(snapshot, decisions)
-    maybe_ids = {item_id for item_id, decision in decisions.items() if decision.label.value == "maybe"}
+    maybe_ids = {
+        item_id for item_id, decision in decisions.items() if decision.label.value == "maybe"
+    }
     candidates = [item for item in snapshot.items if item.opaque_id not in maybe_ids]
     sampled = sorted(
         (
@@ -69,7 +70,9 @@ def build_review_plan(
         item_id
         for _digest, item_id in sorted(
             (
-                semantic_hash(DOMAIN_REVIEW_ORDER, {"generation": generation, "opaque_id": item_id}),
+                semantic_hash(
+                    DOMAIN_REVIEW_ORDER, {"generation": generation, "opaque_id": item_id}
+                ),
                 item_id,
             )
             for item_id in member_ids

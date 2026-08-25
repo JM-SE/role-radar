@@ -40,9 +40,7 @@ def test_development_loader_is_strict_and_path_free(tmp_path: Path) -> None:
 
 def test_xoauth_expiry_has_five_minute_margin() -> None:
     now = datetime(2026, 8, 9, 12, tzinfo=UTC)
-    metadata = json.dumps(
-        {"schema_version": 1, "expires_at": "2026-08-09T12:05:00Z"}
-    )
+    metadata = json.dumps({"schema_version": 1, "expires_at": "2026-08-09T12:05:00Z"})
     parse_xoauth_expiry(metadata, now=now)
     with pytest.raises(ActivationError) as error:
         parse_xoauth_expiry(

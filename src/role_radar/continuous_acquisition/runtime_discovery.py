@@ -102,7 +102,11 @@ def run_discovery_once(
                 "state": run.state,
                 "replay": True,
             },
-            EXIT_FAILED if run.state == "failed" else EXIT_INDETERMINATE if run.state == "indeterminate" else 0,
+            EXIT_FAILED
+            if run.state == "failed"
+            else EXIT_INDETERMINATE
+            if run.state == "indeterminate"
+            else 0,
         )
 
     operation = repository.intent(
@@ -133,7 +137,9 @@ def run_discovery_once(
             owner=worker,
             generation=run.fencing_generation,
             intent_state="succeeded" if terminal_state == "completed" else "failed",
-            result_state=("succeeded" if results else "empty") if terminal_state == "completed" else "failed",
+            result_state=("succeeded" if results else "empty")
+            if terminal_state == "completed"
+            else "failed",
             attempts=1,
             candidate_count=len(results),
             verified_count=sum(

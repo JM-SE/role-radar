@@ -16,6 +16,7 @@ class LeverRegion(StrEnum):
     GLOBAL = "global"
     EU = "eu"
 
+
 _BOARD_TOKEN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,127}$")
 _FORBIDDEN_KEY_PARTS = {
     "secret",
@@ -56,9 +57,7 @@ def _key_is_forbidden(key: str, *, allow_board_token: bool = False) -> bool:
 def _reject_forbidden_keys(value: Any, *, allow_board_token: bool = False) -> None:
     if isinstance(value, dict):
         for key, child in value.items():
-            if isinstance(key, str) and _key_is_forbidden(
-                key, allow_board_token=allow_board_token
-            ):
+            if isinstance(key, str) and _key_is_forbidden(key, allow_board_token=allow_board_token):
                 raise ValueError("configuration contains a forbidden key")
             _reject_forbidden_keys(child, allow_board_token=allow_board_token)
     elif isinstance(value, (list, tuple)):

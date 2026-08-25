@@ -23,9 +23,7 @@ class JobicyTermsAcceptance:
         return "JobicyTermsAcceptance(<verified>)"
 
 
-def validate_jobicy_terms(
-    acceptance: JobicyTermsAcceptance | None, *, now: datetime
-) -> str | None:
+def validate_jobicy_terms(acceptance: JobicyTermsAcceptance | None, *, now: datetime) -> str | None:
     if acceptance is None:
         return "terms_missing"
     if acceptance.terms_url != "https://jobicy.com/terms-and-conditions":

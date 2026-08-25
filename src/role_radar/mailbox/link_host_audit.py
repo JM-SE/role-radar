@@ -18,11 +18,29 @@ GREENHOUSE_HOSTS = frozenset({"boards.greenhouse.io", "job-boards.greenhouse.io"
 LEVER_HOSTS = frozenset({"jobs.lever.co", "jobs.eu.lever.co"})
 TERMINAL_CODES = frozenset(
     {
-        "live_ack_required", "empty", "source_not_found", "source_must_be_disabled",
-        "config", "credentials", "auth", "connection", "timeout", "bye", "protocol",
-        "label_not_found", "label_not_exact", "message_limit", "mime_limit", "malformed",
-        "unsupported", "template_drift", "review", "parser_mismatch", "unsafe_url",
-        "url_limit", "host_limit",
+        "live_ack_required",
+        "empty",
+        "source_not_found",
+        "source_must_be_disabled",
+        "config",
+        "credentials",
+        "auth",
+        "connection",
+        "timeout",
+        "bye",
+        "protocol",
+        "label_not_found",
+        "label_not_exact",
+        "message_limit",
+        "mime_limit",
+        "malformed",
+        "unsupported",
+        "template_drift",
+        "review",
+        "parser_mismatch",
+        "unsafe_url",
+        "url_limit",
+        "host_limit",
     }
 )
 

@@ -87,7 +87,10 @@ def calculate_readiness(
         query_required = 1 if config.discovery is not None else 0
         result.append(
             _capability(
-                "query_hmac", True, query_required, observations.get("query_hmac"),
+                "query_hmac",
+                True,
+                query_required,
+                observations.get("query_hmac"),
                 config.discovery is not None,
             )
         )
@@ -104,8 +107,11 @@ def calculate_readiness(
     )
     result.append(
         _capability(
-            "tavily", config.tavily_free.enabled,
-            1 if config.tavily_free.enabled else 0, observations.get("tavily"), True,
+            "tavily",
+            config.tavily_free.enabled,
+            1 if config.tavily_free.enabled else 0,
+            observations.get("tavily"),
+            True,
         )
     )
     result.append(
@@ -139,8 +145,11 @@ def calculate_readiness(
             )
         result.append(
             _capability(
-                f"mailbox:{alias}", True, len(handles),
-                observation, True,
+                f"mailbox:{alias}",
+                True,
+                len(handles),
+                observation,
+                True,
             )
         )
     global_codes = _ordered_unique(
@@ -151,9 +160,12 @@ def calculate_readiness(
     )
     states = {item.state for item in result}
     state = (
-        "disabled" if states == {"disabled"}
-        else "blocked" if "blocked" in states
-        else "ready" if states <= {"ready", "disabled"}
+        "disabled"
+        if states == {"disabled"}
+        else "blocked"
+        if "blocked" in states
+        else "ready"
+        if states <= {"ready", "disabled"}
         else "configured"
     )
     return ReadinessReport(

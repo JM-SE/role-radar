@@ -109,9 +109,7 @@ class LinkedInLinkHostAuditService:
         return _from_audit(selected, fetched, audit)
 
 
-def _from_audit(
-    selected: int, fetched: int, audit: LinkHostAudit
-) -> LinkedInLinkHostAuditReport:
+def _from_audit(selected: int, fetched: int, audit: LinkHostAudit) -> LinkedInLinkHostAuditReport:
     return LinkedInLinkHostAuditReport(
         audit.validated and audit.terminal_code is None,
         selected,

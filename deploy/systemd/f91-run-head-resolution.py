@@ -67,9 +67,7 @@ def _read_allowlist() -> tuple[str, ...] | None:
         addresses = sorted({str(item) for items in values for item in items})
         if not addresses or any(not _is_public(item) for item in addresses):
             return None
-        return tuple(
-            f"{item}/{'128' if ':' in item else '32'}" for item in addresses
-        )
+        return tuple(f"{item}/{'128' if ':' in item else '32'}" for item in addresses)
     except (KeyError, OSError, TypeError, ValueError, json.JSONDecodeError):
         return None
 

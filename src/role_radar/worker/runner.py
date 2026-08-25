@@ -46,9 +46,7 @@ class WorkerRunner:
             run_id = run.id
         try:
             heartbeat_stop = asyncio.Event()
-            heartbeat_task = asyncio.create_task(
-                self._heartbeat_forever(run_id, heartbeat_stop)
-            )
+            heartbeat_task = asyncio.create_task(self._heartbeat_forever(run_id, heartbeat_stop))
             try:
                 await self._pipeline.run(run_id)
             finally:

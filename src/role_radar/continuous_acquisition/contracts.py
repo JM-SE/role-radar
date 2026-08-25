@@ -89,9 +89,12 @@ class JobCounters:
     conflict: int = 0
 
     def __post_init__(self) -> None:
-        if min(
-            self.observed, self.created, self.duplicate, self.stale, self.invalid, self.conflict
-        ) < 0:
+        if (
+            min(
+                self.observed, self.created, self.duplicate, self.stale, self.invalid, self.conflict
+            )
+            < 0
+        ):
             raise ValueError("counters must be nonnegative")
 
     @property
@@ -175,7 +178,10 @@ class RequestBudget:
 
     @property
     def exhausted(self) -> bool:
-        return self.counter.reserved >= self.maximum or self._clock() >= self.started_at + self.deadline
+        return (
+            self.counter.reserved >= self.maximum
+            or self._clock() >= self.started_at + self.deadline
+        )
 
     def reserve(self, amount: int = 1) -> bool:
         if amount < 0 or self.exhausted or self.counter.reserved + amount > self.maximum:
@@ -195,7 +201,9 @@ class RequestBudget:
     def complete(self) -> None:
         self.counter = self.counter.completed_once()
 
-    def truncate(self, items: tuple[Any, ...], *, continuation: str | None = None) -> tuple[tuple[Any, ...], str | None]:
+    def truncate(
+        self, items: tuple[Any, ...], *, continuation: str | None = None
+    ) -> tuple[tuple[Any, ...], str | None]:
         self.counter = self.counter.truncate()
         return items[: self.counter.completed], continuation
 

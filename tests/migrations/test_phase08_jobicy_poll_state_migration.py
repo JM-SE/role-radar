@@ -47,8 +47,7 @@ def test_fresh_and_f85_upgrade_create_poll_state(tmp_path: Path) -> None:
     _alembic(upgraded, "upgrade", "e7a4c9f1b2d3")
     with sqlite3.connect(upgraded) as connection:
         assert connection.execute(
-            "SELECT source_id, cadence_version, policy_version, revision "
-            "FROM source_poll_states"
+            "SELECT source_id, cadence_version, policy_version, revision FROM source_poll_states"
         ).fetchone() == ("source-1", "jobicy-hourly-v1", "jobicy-latam-v1", 1)
 
 
@@ -57,9 +56,12 @@ def test_clean_downgrade_removes_state_and_activity_downgrade_fails(tmp_path: Pa
     _alembic(clean, "upgrade", "e7a4c9f1b2d3")
     _alembic(clean, "downgrade", "c35a9e7b1d44")
     with sqlite3.connect(clean) as connection:
-        assert connection.execute(
-            "SELECT name FROM sqlite_master WHERE name='source_poll_states'"
-        ).fetchone() is None
+        assert (
+            connection.execute(
+                "SELECT name FROM sqlite_master WHERE name='source_poll_states'"
+            ).fetchone()
+            is None
+        )
 
     active = tmp_path / "active.db"
     _alembic(active, "upgrade", "e7a4c9f1b2d3")
@@ -71,9 +73,7 @@ def test_clean_downgrade_removes_state_and_activity_downgrade_fails(tmp_path: Pa
             "VALUES ('poll-1','source-1','jobicy-hourly-v1','jobicy-latam-v1',"
             "datetime('now'),1,datetime('now'),datetime('now'))"
         )
-        connection.execute(
-            "UPDATE source_poll_states SET last_request_at=datetime('now')"
-        )
+        connection.execute("UPDATE source_poll_states SET last_request_at=datetime('now')")
         connection.commit()
     failed = _alembic(active, "downgrade", "c35a9e7b1d44", check=False)
     assert failed.returncode != 0

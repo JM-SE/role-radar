@@ -79,9 +79,22 @@ def validate_external_manifest_v2(manifest: Mapping[str, Any]) -> None:
     if counts != {"corpus": 177, "pilot": 50, "holdout": 127}:
         raise ValueError("external_manifest_v2_cardinality_invalid")
     forbidden = (
-        "title", "company", "description", "url", "source", "job", "run",
-        "link", "operation", "label", "score", "prompt", "payload", "secret",
-        "path", "host",
+        "title",
+        "company",
+        "description",
+        "url",
+        "source",
+        "job",
+        "run",
+        "link",
+        "operation",
+        "label",
+        "score",
+        "prompt",
+        "payload",
+        "secret",
+        "path",
+        "host",
     )
 
     def walk(value: Any) -> None:

@@ -266,7 +266,9 @@ def create_bounded_collector_provider(
     clock: Callable[[], float] | None = None,
     sleeper: Callable[[float], Awaitable[None]] | None = None,
     user_agent: str = "role-radar/0.1 (+homelab)",
-    collector_factory: Callable[[CollectorSnapshot, CollectorContext], JobCollector] = create_collector,
+    collector_factory: Callable[
+        [CollectorSnapshot, CollectorContext], JobCollector
+    ] = create_collector,
 ) -> BoundedCollectorProvider:
     """Build the registry-backed collector seam without touching the network."""
 

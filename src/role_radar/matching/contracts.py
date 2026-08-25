@@ -69,7 +69,7 @@ class JobFacts:
             "languages",
             tuple(
                 sorted(
-                (canonical_language(language), level.casefold() if level else None)
+                    (canonical_language(language), level.casefold() if level else None)
                     for language, level in self.languages
                     if language.strip()
                 )

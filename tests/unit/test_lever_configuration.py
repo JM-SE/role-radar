@@ -16,9 +16,10 @@ def test_lever_config_normalizes_public_identity_only() -> None:
         "company": "Acme",
     }
     assert canonical_source_key("lever", config.model_dump()) == "lever:eu:acme_site"
-    assert canonical_source_key(
-        "lever", {"site": "acme_site", "region": "eu", "company": "Other"}
-    ) == "lever:eu:acme_site"
+    assert (
+        canonical_source_key("lever", {"site": "acme_site", "region": "eu", "company": "Other"})
+        == "lever:eu:acme_site"
+    )
 
 
 @pytest.mark.parametrize(

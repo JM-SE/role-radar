@@ -26,7 +26,9 @@ def test_decision_validation_enforces_label_specific_reasons_and_notes() -> None
     with pytest.raises(ValidationError, match="primary_reason"):
         validate_decision(Decision(Label.APPLY, "role_mismatch"))
     with pytest.raises(ValidationError, match="note_forbidden_content"):
-        validate_decision(Decision(Label.MAYBE, "description_incomplete", note="https://example.test"))
+        validate_decision(
+            Decision(Label.MAYBE, "description_incomplete", note="https://example.test")
+        )
 
 
 def test_pilot_line_rejects_duplicate_keys_and_requires_canonical_json() -> None:

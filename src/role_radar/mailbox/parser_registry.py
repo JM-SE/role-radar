@@ -16,11 +16,14 @@ Parser = Callable[[BoundedMailboxMessage], ParseResult]
 def trusted_sender(message: BoundedMailboxMessage, domains: frozenset[str]) -> bool:
     sender = message.sender_domain or ""
     list_id = message.list_id or ""
-    return any(
-        value == candidate or value.endswith("." + candidate)
-        for value in (sender, list_id)
-        for candidate in domains
-    ) and message.auth_evidence == "pass"
+    return (
+        any(
+            value == candidate or value.endswith("." + candidate)
+            for value in (sender, list_id)
+            for candidate in domains
+        )
+        and message.auth_evidence == "pass"
+    )
 
 
 class MailboxParserRegistry:

@@ -42,9 +42,7 @@ def upgrade() -> None:
             name="ck_source_poll_states_reserved_slot_order",
         ),
     )
-    op.create_index(
-        "ix_source_poll_states_due", "source_poll_states", ["next_due_at", "source_id"]
-    )
+    op.create_index("ix_source_poll_states_due", "source_poll_states", ["next_due_at", "source_id"])
     connection.execute(
         sa.text(
             "INSERT INTO source_poll_states "

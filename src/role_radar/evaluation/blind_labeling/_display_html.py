@@ -31,9 +31,7 @@ class _Frame:
 
 
 _LITERAL_AMPERSAND_SENTINEL = "\x01"
-_HTML_NAME_CHARS = frozenset(
-    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:.-_"
-)
+_HTML_NAME_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:.-_")
 _HTML_SPACE_CHARS = " \t\n\f\r"
 
 

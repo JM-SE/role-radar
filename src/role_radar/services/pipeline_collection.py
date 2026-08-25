@@ -43,9 +43,7 @@ class CollectionResult:
     @property
     def error_code(self) -> str | None:
         return (
-            self.outcome.error_code.value
-            if isinstance(self.outcome, CollectionFailure)
-            else None
+            self.outcome.error_code.value if isinstance(self.outcome, CollectionFailure) else None
         )
 
 
@@ -129,9 +127,7 @@ class PipelineCollectionService:
             # Compatibility collectors from F2/F5 accepted only the snapshot.
             parameter_count = len(inspect.signature(method).parameters)
             value = (
-                await method(snapshot)
-                if parameter_count == 1
-                else await method(snapshot, runtime)
+                await method(snapshot) if parameter_count == 1 else await method(snapshot, runtime)
             )
             outcome = self._legacy_outcome(value) if isinstance(value, list) else value
             if not isinstance(outcome, (CollectionSuccess, CollectionFailure)):

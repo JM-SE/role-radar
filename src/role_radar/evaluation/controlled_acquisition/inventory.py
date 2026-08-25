@@ -34,9 +34,7 @@ def identities_from_readonly_rows(rows: Iterable[Any]) -> tuple[HistoricalIdenti
                 source_key=str(getattr(source, "source_key", "")),
                 external_id=getattr(row, "external_id", None),
                 official_url=normalize_identity_url(getattr(row, "source_url", None)),
-                application_url=normalize_identity_url(
-                    getattr(row, "application_url", None)
-                ),
+                application_url=normalize_identity_url(getattr(row, "application_url", None)),
             )
         )
     return tuple(identities)
@@ -57,9 +55,7 @@ def inventory_from_rows(rows: Iterable[Any]) -> HistoricalInventory:
                 source_key=str(getattr(source, "source_key", "")),
                 external_id=getattr(row, "external_id", None),
                 official_url=normalize_identity_url(getattr(row, "source_url", None)),
-                application_url=normalize_identity_url(
-                    getattr(row, "application_url", None)
-                ),
+                application_url=normalize_identity_url(getattr(row, "application_url", None)),
             )
         )
     return HistoricalInventory(identities)

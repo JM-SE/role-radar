@@ -122,8 +122,10 @@ def test_legacy_adapter_never_enables_remote_only() -> None:
 @given(st.lists(st.sampled_from(["python", "sql", "docker"]), max_size=6))
 def test_score_bounds_hold_for_duplicate_skill_inputs(skills: list[str]) -> None:
     result = score_job(
-        profile(core_skills=skills), facts(required_skills=tuple(skills)),
-        job_id="job-1", profile_id="profile-1",
+        profile(core_skills=skills),
+        facts(required_skills=tuple(skills)),
+        job_id="job-1",
+        profile_id="profile-1",
     )
     assert 0 <= result.preliminary_score <= 100
     assert sum(signal.points for signal in result.signals) == result.preliminary_score

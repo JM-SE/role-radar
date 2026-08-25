@@ -56,18 +56,36 @@ EXIT_INTERNAL: Final = 70
 LABEL_DOMAINS: Final = MappingProxyType(
     {
         "apply": (
-            "role_match", "skills_match", "seniority_match", "location_work_mode_match",
-            "compensation_match", "career_interest", "company_domain_interest", "other_positive",
+            "role_match",
+            "skills_match",
+            "seniority_match",
+            "location_work_mode_match",
+            "compensation_match",
+            "career_interest",
+            "company_domain_interest",
+            "other_positive",
         ),
         "maybe": (
-            "role_scope_unclear", "skills_fit_unclear", "seniority_fit_unclear",
-            "location_work_mode_unclear", "compensation_unclear", "authorization_language_unclear",
-            "description_incomplete", "other_uncertainty",
+            "role_scope_unclear",
+            "skills_fit_unclear",
+            "seniority_fit_unclear",
+            "location_work_mode_unclear",
+            "compensation_unclear",
+            "authorization_language_unclear",
+            "description_incomplete",
+            "other_uncertainty",
         ),
         "reject": (
-            "role_mismatch", "skills_mismatch", "seniority_mismatch", "location_work_mode_mismatch",
-            "compensation_mismatch", "authorization_language_mismatch", "schedule_contract_mismatch",
-            "career_mismatch", "company_domain_mismatch", "other_negative",
+            "role_mismatch",
+            "skills_mismatch",
+            "seniority_mismatch",
+            "location_work_mode_mismatch",
+            "compensation_mismatch",
+            "authorization_language_mismatch",
+            "schedule_contract_mismatch",
+            "career_mismatch",
+            "company_domain_mismatch",
+            "other_negative",
         ),
     }
 )
@@ -98,7 +116,9 @@ HEX64: Final = re.compile(r"^[0-9a-f]{64}$")
 OPAQUE_ID: Final = re.compile(r"^[0-9a-f]{24}$")
 CANARY_PATTERNS: Final = (
     re.compile(r"(?:https?://|www\.|\b[a-z0-9.-]+\.[a-z]{2,}(?:/|\b))", re.I),
-    re.compile(r"\b(?:pipeline|score|scoring|rank|ranking|variant|prompt|model output|llm|broker)\b", re.I),
+    re.compile(
+        r"\b(?:pipeline|score|scoring|rank|ranking|variant|prompt|model output|llm|broker)\b", re.I
+    ),
     re.compile(r"\b(?:password|secret|api key|access token|bearer|private key|credential)\b", re.I),
     re.compile(r"\b(?:sk-[A-Za-z0-9]{12,}|ghp_[A-Za-z0-9]{20,})\b"),
 )
@@ -107,7 +127,9 @@ CANARY_PATTERNS: Final = (
 def semantic_hash(domain: str, value: object) -> str:
     import json
 
-    payload = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    payload = json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False
+    )
     return hashlib.sha256(domain.encode("ascii") + b"\0" + payload.encode("utf-8")).hexdigest()
 
 

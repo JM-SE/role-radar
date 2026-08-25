@@ -65,7 +65,7 @@ def _error(value: object) -> str:
         ("&amp;lt;div&amp;gt;one&amp;lt;br&amp;gt;two&amp;lt;/div&amp;gt;", "one\ntwo"),
         ("&amp;copy; &amp;NotEqualTilde;", "© ≂̸"),
         ("Node.js Next.js ASP.NET example.com", "Node.js Next.js ASP.NET example.com"),
-        ("<unknown data-secret=\"value\">visible</unknown>", "visible"),
+        ('<unknown data-secret="value">visible</unknown>', "visible"),
         ("<!-- hidden --><!DOCTYPE html>visible", "visible"),
         ("<h1>one</h1><section>two</section><article>three</article>", "one\n\ntwo\n\nthree"),
         ("<p>one</p><p>two</p><div>three</div>", "one\n\ntwo\n\nthree"),
@@ -264,13 +264,14 @@ def test_rendered_item_aggregate_exact_limit_and_optional_location_mapping() -> 
     assert len(render_pilot_item(with_location).location or "") == (
         DISPLAY_MAX_RENDERED_VISIBLE_EVIDENCE_BYTES - 3
     )
-    rendered = render_pilot_item(
-        PilotItem("f" * 24, "Role", "Acme", "\u2003", "Description")
-    )
+    rendered = render_pilot_item(PilotItem("f" * 24, "Role", "Acme", "\u2003", "Description"))
     assert rendered.location is None
-    assert render_pilot_item(
-        PilotItem("g" * 24, "Role", "Acme", "<embed>hidden</embed>", "Description")
-    ).location is None
+    assert (
+        render_pilot_item(
+            PilotItem("g" * 24, "Role", "Acme", "<embed>hidden</embed>", "Description")
+        ).location
+        is None
+    )
 
 
 def test_policy_payload_is_recursively_immutable() -> None:

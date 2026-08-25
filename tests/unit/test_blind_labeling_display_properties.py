@@ -70,11 +70,7 @@ def test_encoded_forbidden_controls_fail_at_their_decode_depth(
     value = raw_control if depth == 0 else encoded_control
     for _ in range(max(0, depth - 1)):
         value = value.replace("&", "&amp;")
-    expected = (
-        "display_unsafe_control"
-        if depth < 3
-        else "display_decode_depth_exceeded"
-    )
+    expected = "display_unsafe_control" if depth < 3 else "display_decode_depth_exceeded"
     try:
         render_evidence(value)
     except DisplayError as exc:

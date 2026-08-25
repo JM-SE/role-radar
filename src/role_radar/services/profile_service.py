@@ -16,9 +16,7 @@ class ProfileService:
         self._session = session
         self._repository = ProfileRepository(session)
 
-    def create_version(
-        self, predecessor_id: str, profile_json: dict[str, Any]
-    ) -> CandidateProfile:
+    def create_version(self, predecessor_id: str, profile_json: dict[str, Any]) -> CandidateProfile:
         """Create exactly one active successor using predecessor CAS.
 
         The nested transaction ensures that a failed successor insert restores

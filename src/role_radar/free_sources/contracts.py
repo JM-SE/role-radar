@@ -86,8 +86,7 @@ class FreeSourceCounters:
     @property
     def balanced(self) -> bool:
         return (
-            self.due == self.attempted + self.deferred
-            and self.attempted == self.ok + self.failed
+            self.due == self.attempted + self.deferred and self.attempted == self.ok + self.failed
         )
 
     def as_dict(self) -> dict[str, int]:

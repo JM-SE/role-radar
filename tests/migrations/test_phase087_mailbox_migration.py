@@ -35,9 +35,7 @@ def test_fresh_and_f86_upgrade_create_mailbox_tables(tmp_path: Path) -> None:
             )
             tables = {
                 row[0]
-                for row in connection.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table'"
-                )
+                for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
             }
             assert {"mailbox_states", "email_receipts", "email_link_proposals"} <= tables
 
@@ -47,9 +45,12 @@ def test_clean_downgrade_and_activity_guard(tmp_path: Path) -> None:
     _alembic(clean, "upgrade", "e7a4c9f1b2d3")
     _alembic(clean, "downgrade", "d8f6a1b2c3d4")
     with sqlite3.connect(clean) as connection:
-        assert connection.execute(
-            "SELECT name FROM sqlite_master WHERE name='email_receipts'"
-        ).fetchone() is None
+        assert (
+            connection.execute(
+                "SELECT name FROM sqlite_master WHERE name='email_receipts'"
+            ).fetchone()
+            is None
+        )
 
     active = tmp_path / "active.db"
     _alembic(active, "upgrade", "e7a4c9f1b2d3")

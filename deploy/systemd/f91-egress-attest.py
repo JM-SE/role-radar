@@ -30,13 +30,7 @@ def main() -> int:
             rows = socket.getaddrinfo(host, 443, 0, socket.SOCK_STREAM)
         except OSError:
             return 3
-        addresses = sorted(
-            {
-                str(row[4][0])
-                for row in rows
-                if _is_public(row[4][0])
-            }
-        )
+        addresses = sorted({str(row[4][0]) for row in rows if _is_public(row[4][0])})
         if not addresses:
             return 3
         hosts[host] = addresses

@@ -49,9 +49,7 @@ def validate_jobicy_smoke_config(config: AcquisitionConfig) -> None:
             now=datetime.now(UTC),
         )
     except (ActivationError, OSError, ValueError) as exc:
-        raise GateBSmokeConfigurationError(
-            getattr(exc, "code", "jobicy_terms_invalid")
-        ) from exc
+        raise GateBSmokeConfigurationError(getattr(exc, "code", "jobicy_terms_invalid")) from exc
 
 
 def build_jobicy_collector() -> JobicyCollector:

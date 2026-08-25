@@ -96,9 +96,7 @@ class PilotSource:
                 ):
                     raise PilotSourceError("pilot_directory_mode")
                 file_flags = (
-                    os.O_RDONLY
-                    | getattr(os, "O_NOFOLLOW", 0)
-                    | getattr(os, "O_CLOEXEC", 0)
+                    os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
                 )
                 fd = os.open(PILOT_FILENAME, file_flags, dir_fd=dataset_fd)
                 try:

@@ -56,7 +56,7 @@ class QueryPlannerV1:
                     output.append(PlannedQuery(0, family, ProviderIntent.EXACT, f"{host} {text}"))
         for role in roles:
             for technology in technologies:
-                text = f'{role.replace("_", " ")} {technology}'
+                text = f"{role.replace('_', ' ')} {technology}"
                 for family, host in (
                     ("greenhouse_role_technology", "site:boards.greenhouse.io"),
                     ("lever_role_technology", "site:jobs.lever.co"),

@@ -28,8 +28,7 @@ def payload(*, addresses: object = None, expires_at: str | None = None) -> dict[
     return {
         "schema_version": ATTESTATION_SCHEMA,
         "policy_version": POLICY_VERSION,
-        "expires_at": expires_at
-        or (datetime.now(UTC) + timedelta(minutes=1)).isoformat(),
+        "expires_at": expires_at or (datetime.now(UTC) + timedelta(minutes=1)).isoformat(),
         "hosts": addresses
         or {
             "ar.linkedin.com": ["8.8.8.8"],

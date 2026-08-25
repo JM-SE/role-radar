@@ -50,7 +50,9 @@ def provider_recency(raw: RawJob) -> tuple[datetime | None, str | None]:
         return parse_provider_timestamp(value), "published_at" if value is not None else None
     if family == "greenhouse":
         value = data.get("updated_at")
-        return parse_provider_timestamp(value), "provider_updated_at_proxy" if value is not None else None
+        return parse_provider_timestamp(
+            value
+        ), "provider_updated_at_proxy" if value is not None else None
     if family == "lever":
         value = data.get("createdAt")
         return parse_provider_timestamp(value), "provider_created_at" if value is not None else None
@@ -70,9 +72,20 @@ def freshness_decision(
         has_provider_value = (
             (raw.source.casefold() == "greenhouse" and "updated_at" in raw.structured_data)
             or (raw.source.casefold() == "lever" and "createdAt" in raw.structured_data)
-            or (raw.source.casefold() == "jobicy" and (raw.published_at is not None or "pubDate" in raw.structured_data or "published_at" in raw.structured_data))
+            or (
+                raw.source.casefold() == "jobicy"
+                and (
+                    raw.published_at is not None
+                    or "pubDate" in raw.structured_data
+                    or "published_at" in raw.structured_data
+                )
+            )
         )
-        code = RejectionCode.INVALID_RECENCY.value if has_provider_value else RejectionCode.MISSING_RECENCY.value
+        code = (
+            RejectionCode.INVALID_RECENCY.value
+            if has_provider_value
+            else RejectionCode.MISSING_RECENCY.value
+        )
         return FreshnessDecision(False, code, None, cutoff)
     if semantic is None:
         return FreshnessDecision(False, RejectionCode.INVALID_RECENCY.value, None, cutoff)
@@ -119,7 +132,9 @@ def aggregate_outcomes(
         state = AcquisitionRunState.INDETERMINATE
     elif not outcomes or all(not item.usable for item in outcomes):
         state = AcquisitionRunState.FAILED
-    elif any(item.state.value in {"failed", "truncated"} for item in outcomes) and any(item.usable for item in outcomes):
+    elif any(item.state.value in {"failed", "truncated"} for item in outcomes) and any(
+        item.usable for item in outcomes
+    ):
         state = AcquisitionRunState.COMPLETED_PARTIAL
     elif any(item.state.value in {"failed", "truncated"} for item in outcomes):
         state = AcquisitionRunState.FAILED

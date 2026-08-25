@@ -6,12 +6,12 @@ ROOT = Path(__file__).parents[2]
 UNIT = (ROOT / "deploy/systemd/role-radar-api.service").read_text()
 ENV_EXAMPLE = (ROOT / "deploy/systemd/role-radar.env.example").read_text()
 
+
 def test_api_unit_requires_environment_file_and_expands_port() -> None:
     assert "EnvironmentFile=/etc/role-radar/role-radar.env" in UNIT
     assert "--port ${ROLE_RADAR_API_PORT}" in UNIT
     assert "--port 8000" not in UNIT
     assert "ExecStart=/bin/sh" not in UNIT
-
 
 
 def test_api_port_example_is_operational_and_bounded() -> None:

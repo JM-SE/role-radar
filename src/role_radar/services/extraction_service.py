@@ -366,15 +366,11 @@ class ExtractionService:
     def _safe_code(value: str) -> str:
         return "".join(char if char.isalnum() or char in "._:-" else "_" for char in value)[:128]
 
-    def _record_run(
-        self, run_id: str | None, job_id: str, status: ExtractionStatus
-    ) -> None:
+    def _record_run(self, run_id: str | None, job_id: str, status: ExtractionStatus) -> None:
         if run_id is None:
             return
         run_status = (
-            RunJobStatus.SUCCEEDED
-            if status == ExtractionStatus.VALID
-            else RunJobStatus.FAILED
+            RunJobStatus.SUCCEEDED if status == ExtractionStatus.VALID else RunJobStatus.FAILED
         )
         self._runs.update_run_job(
             run_id=run_id,

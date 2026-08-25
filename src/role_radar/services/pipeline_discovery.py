@@ -179,9 +179,7 @@ class PipelineDiscoveryService:
                 query_results.append(
                     QueryExecution(identity, DiscoveryQueryStatus.FAILED.value, 0, 0, 0, 0, 0)
                 )
-                self._checkpoint_query(
-                    plan.cycle_id, query_results[-1]
-                )
+                self._checkpoint_query(plan.cycle_id, query_results[-1])
                 first_error = first_error or DiscoveryErrorCode.PROVIDER_FAILED.value
                 continue
             results = list(response.hits[: self._policy.max_results_per_query])
@@ -219,7 +217,7 @@ class PipelineDiscoveryService:
                 unknown,
                 rejected,
                 verified_count,
-                )
+            )
             query_results.append(query_execution)
             self._checkpoint_query(plan.cycle_id, query_execution)
         return DiscoveryExecution(
@@ -380,11 +378,14 @@ class PipelineDiscoveryService:
         )
         for job_id in job_ids:
             for stage in ("collected", "normalized", "deduplicated"):
-                if session.scalar(
-                    select(RunJob.id).where(
-                        RunJob.run_id == run.id, RunJob.job_id == job_id, RunJob.stage == stage
+                if (
+                    session.scalar(
+                        select(RunJob.id).where(
+                            RunJob.run_id == run.id, RunJob.job_id == job_id, RunJob.stage == stage
+                        )
                     )
-                ) is None:
+                    is None
+                ):
                     session.add(
                         RunJob(
                             run_id=run.id,

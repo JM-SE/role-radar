@@ -187,8 +187,7 @@ class Pipeline:
                 not snapshots
                 or not outcomes
                 or all(
-                    result.get("status") not in {"ok", "partial"}
-                    for result in outcomes.values()
+                    result.get("status") not in {"ok", "partial"} for result in outcomes.values()
                 )
             ):
                 return self._fail(run_id, "all_sources_failed")

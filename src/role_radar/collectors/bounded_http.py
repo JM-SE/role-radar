@@ -247,9 +247,7 @@ class BoundedHttpClient:
             client = self._client
             if client is None:
                 raise RuntimeError("bounded HTTP client is not open")
-            async with client.stream(
-                "GET", path, params=list(query), headers=headers
-            ) as response:
+            async with client.stream("GET", path, params=list(query), headers=headers) as response:
                 if response.status_code >= 200 and response.status_code < 300:
                     self._validate_content_headers(response.headers, metrics)
                 decoder = (
@@ -383,14 +381,10 @@ class BoundedHttpClient:
             ) from exc
 
     @staticmethod
-    def _transfer_metrics(
-        base: TransferMetrics, wire: int, decoded: int
-    ) -> TransferMetrics:
+    def _transfer_metrics(base: TransferMetrics, wire: int, decoded: int) -> TransferMetrics:
         return TransferMetrics(base.wire_attempts, base.retries, wire, decoded)
 
-    def _validate_content_headers(
-        self, headers: httpx.Headers, metrics: TransferMetrics
-    ) -> None:
+    def _validate_content_headers(self, headers: httpx.Headers, metrics: TransferMetrics) -> None:
         content_type = headers.get("content-type", "")
         parts = [part.strip() for part in content_type.split(";")]
         media = parts[0].lower()
@@ -406,9 +400,7 @@ class BoundedHttpClient:
                 raise BoundedHttpError(CollectorFailureCode.CONTENT_TYPE, metrics=metrics)
 
     @staticmethod
-    def _decoder(
-        value: str | None, metrics: TransferMetrics
-    ) -> "_GzipDecoder | None":
+    def _decoder(value: str | None, metrics: TransferMetrics) -> "_GzipDecoder | None":
         if value is None or value.strip().lower() in {"", "identity"}:
             return None
         if value.strip().lower() != "gzip":

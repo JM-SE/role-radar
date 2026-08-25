@@ -62,15 +62,15 @@ def classify_url(url: str) -> ClassifiedCandidate:
             job_path = "/".join(clean)
         else:
             return RejectedCandidate("unsupported_greenhouse_path")
-        return GreenhouseOfficialCandidate(
-            f"https://{host}/{'/'.join(clean)}", clean[0], job_path
-        )
+        return GreenhouseOfficialCandidate(f"https://{host}/{'/'.join(clean)}", clean[0], job_path)
     if not clean or not _TOKEN.fullmatch(clean[0]) or clean[0] in _RESERVED:
         return RejectedCandidate("invalid_lever_site")
     if len(clean) == 1:
         posting_id = None
-    elif len(clean) in {2, 3} and _POSTING.fullmatch(clean[1]) and (
-        len(clean) == 2 or clean[2] == "apply"
+    elif (
+        len(clean) in {2, 3}
+        and _POSTING.fullmatch(clean[1])
+        and (len(clean) == 2 or clean[2] == "apply")
     ):
         posting_id = clean[1]
     else:

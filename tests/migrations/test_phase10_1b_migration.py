@@ -42,9 +42,7 @@ def test_fresh_upgrade_from_f87_and_clean_downgrade(tmp_path: Path) -> None:
     with sqlite3.connect(fresh) as connection:
         tables = {
             row[0]
-            for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            )
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
         }
     assert {"source_discovery_runs", "continuous_acquisition_runs", "job_identity_keys"} <= tables
 

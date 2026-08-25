@@ -81,7 +81,11 @@ def test_collector_snapshot_normalizes_v1_without_copying_revision(
     "snapshot",
     [
         SourceSnapshot(
-            "source-1", "greenhouse:acme", "greenhouse", "Acme", {"board_token": "acme", "origin": "https://evil.test"}
+            "source-1",
+            "greenhouse:acme",
+            "greenhouse",
+            "Acme",
+            {"board_token": "acme", "origin": "https://evil.test"},
         ),
         SourceSnapshot(
             "source-1", "greenhouse:wrong", "greenhouse", "Acme", {"board_token": "acme"}
@@ -119,8 +123,9 @@ class _FakeCollector:
 
 
 @pytest.mark.asyncio
-async def test_bounded_collector_provider_uses_fake_collector_and_returns_empty_without_downstream(
-) -> None:
+async def test_bounded_collector_provider_uses_fake_collector_and_returns_empty_without_downstream() -> (  # noqa: E501
+    None
+):
     transport = httpx.MockTransport(
         lambda _request: (_ for _ in ()).throw(AssertionError("network must not be used"))
     )
@@ -283,9 +288,7 @@ async def test_official_ats_verifier_accepts_empty_board_without_persisting_rows
 
     before_jobs = db_session.scalar(select(func.count()).select_from(Job))
     before_sources = db_session.scalar(select(func.count()).select_from(Source))
-    verifier = OfficialATSVerifier(
-        BoundedCollectorProvider(transport=httpx.MockTransport(handler))
-    )
+    verifier = OfficialATSVerifier(BoundedCollectorProvider(transport=httpx.MockTransport(handler)))
 
     verified = await verifier(DiscoveryCandidate(candidate_url, "tavily", 1))
 
@@ -332,8 +335,7 @@ class _FakeRunRepository:
         self.finalized_run = {"run_id": run_id, **values}
 
 
-def test_acquisition_service_runs_async_provider_sequentially_and_honors_budget(
-) -> None:
+def test_acquisition_service_runs_async_provider_sequentially_and_honors_budget() -> None:
     snapshots = (
         SourceSnapshot(
             "source-a", "greenhouse:acme", "greenhouse", "Acme", {"board_token": "acme"}
