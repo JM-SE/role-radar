@@ -27,8 +27,8 @@ def test_invalid_acknowledgements_are_block_0_before_any_downstream_call_or_muta
     command: str,
     acknowledgement: str | None,
     monkeypatch: pytest.MonkeyPatch,
-    capsys,
-) -> None:  # type: ignore[no-untyped-def]
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     calls: list[str] = []
     mutations: list[str] = []
 
@@ -57,7 +57,9 @@ def test_invalid_acknowledgements_are_block_0_before_any_downstream_call_or_muta
     assert mutations == list(before) == []
 
 
-def test_wrong_gate_acknowledgement_is_not_an_execution_switch(capsys) -> None:  # type: ignore[no-untyped-def]
+def test_wrong_gate_acknowledgement_is_not_an_execution_switch(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     args = Namespace(
         f10_1f_command="preview",
         acknowledgement="F10.1F freeze challenge_sha256=" + "d" * 64,

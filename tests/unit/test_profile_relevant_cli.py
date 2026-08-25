@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import json
 from argparse import Namespace
+from typing import cast
+
+import pytest
 
 from role_radar.cli import evaluation_f10_1f
 from role_radar.cli.main import _parser
 
 
-def _json(capsys) -> dict[str, object]:  # type: ignore[no-untyped-def]
-    return json.loads(capsys.readouterr().out)
+def _json(capsys: pytest.CaptureFixture[str]) -> dict[str, object]:
+    return cast(dict[str, object], json.loads(capsys.readouterr().out))
 
 
 def test_parser_registers_f10_1f_commands_without_required_acknowledgement() -> None:
@@ -31,7 +34,9 @@ def test_parser_registers_f10_1f_commands_without_required_acknowledgement() -> 
         assert args.f10_1f_command == command
 
 
-def test_offline_commands_have_sanitized_stable_outputs(capsys) -> None:  # type: ignore[no-untyped-def]
+def test_offline_commands_have_sanitized_stable_outputs(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     assert evaluation_f10_1f.run(Namespace(f10_1f_command="provenance")) == 0
     provenance = _json(capsys)
     assert provenance == {
@@ -64,7 +69,10 @@ def test_offline_commands_have_sanitized_stable_outputs(capsys) -> None:  # type
     }
 
 
-def test_main_dispatches_f10_1f_before_settings(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
+def test_main_dispatches_f10_1f_before_settings(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     from role_radar.cli import main as cli_main
 
     class SettingsMustNotBeConstructed:
