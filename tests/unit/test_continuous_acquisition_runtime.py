@@ -11,10 +11,10 @@ from sqlalchemy.orm import Session
 from role_radar.acquisition.configuration import AcquisitionConfig
 from role_radar.collectors.outcomes import CollectionMetrics, CollectionSuccess
 from role_radar.config import Settings
-from role_radar.continuous_acquisition.contracts import DiscoveryCandidate, VerifiedSource
 from role_radar.continuous_acquisition.providers import BoundedCollectorProvider
 from role_radar.continuous_acquisition.runtime import (
     EXIT_OK,
+    EXIT_PRECONDITION,
     LIVE_ACKNOWLEDGEMENT,
     RuntimeCompositionError,
     provider_summary,
@@ -76,20 +76,9 @@ def test_provider_summary_is_allowlisted_and_omits_secrets() -> None:
     assert "credential" not in str(summary).casefold()
 
 
-def test_discovery_runtime_registers_verified_source_without_job_writes(
+def test_legacy_discovery_runtime_is_zero_network_and_zero_write(
     db_session: Session, settings: Settings
 ) -> None:
-    class Search:
-        brave = None
-        tavily = None
-        last_status = "succeeded"
-
-        async def candidates_async(self) -> tuple[DiscoveryCandidate, ...]:
-            return (DiscoveryCandidate("https://boards.greenhouse.io/acme", "brave", 1),)
-
-    async def verify(_candidate: DiscoveryCandidate) -> VerifiedSource:
-        return VerifiedSource("greenhouse:acme", "greenhouse", "Acme", {"board_token": "acme"}, 0)
-
     config = AcquisitionConfig(config_version="test")
     result = run_discovery_once(
         db_session,
@@ -97,14 +86,15 @@ def test_discovery_runtime_registers_verified_source_without_job_writes(
         config=config,
         now=AS_OF,
         owner="runtime-test",
-        search=cast(Any, Search()),
-        verifier=verify,  # type: ignore[arg-type]
     )
 
-    assert result.exit_code == EXIT_OK
-    assert result.payload["created_count"] == 1
-    source = db_session.query(Source).filter_by(source_key="greenhouse:acme").one()
-    assert source.enabled is True
+    assert result.exit_code == EXIT_PRECONDITION
+    assert result.payload == {
+        "schema_version": "continuous-discovery-v2-result-v1",
+        "result": "blocked",
+        "code": "discovery_v2_command_required",
+    }
+    assert db_session.query(Source).count() == 0
 
 
 def test_acquisition_runtime_accepts_zero_jobs_and_replays(

@@ -23,12 +23,14 @@ from role_radar.continuous_acquisition.contracts import (
 )
 from role_radar.continuous_acquisition.providers import (
     BoundedCollectorProvider,
-    BoundedSearchRuntime,
+    BoundedSearchRuntimeV1,
     OfficialATSVerifier,
     collector_snapshot,
 )
 from role_radar.db.models import Job, Source
 from role_radar.discovery.contracts import (
+    PlannedQuery,
+    ProviderIntent,
     ProviderTier,
     SearchRequest,
     SearchResponse,
@@ -123,9 +125,7 @@ class _FakeCollector:
 
 
 @pytest.mark.asyncio
-async def test_bounded_collector_provider_uses_fake_collector_and_returns_empty_without_downstream() -> (  # noqa: E501
-    None
-):
+async def test_bounded_collector_fake_returns_empty_without_downstream() -> None:
     transport = httpx.MockTransport(
         lambda _request: (_ for _ in ()).throw(AssertionError("network must not be used"))
     )
@@ -241,7 +241,10 @@ async def test_bounded_search_runtime_caps_brave_and_tavily_and_total_hits() -> 
     brave = _SearchStub("brave", "failed")
     tavily = _SearchStub("tavily", "succeeded")
 
-    candidates = await BoundedSearchRuntime(brave=brave, tavily=tavily).run()
+    queries = tuple(
+        PlannedQuery(index, "test", ProviderIntent.EXACT, f"query-{index}") for index in range(1, 5)
+    )
+    candidates = await BoundedSearchRuntimeV1(brave=brave, tavily=tavily, queries=queries).run()
 
     assert len(brave.requests) == 4
     assert len(tavily.requests) == 4

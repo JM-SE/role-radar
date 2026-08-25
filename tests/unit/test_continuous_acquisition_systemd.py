@@ -30,7 +30,11 @@ def test_continuous_services_are_disabled_by_default_and_do_not_receive_credenti
         assert "WorkingDirectory=/ROLE_RADAR_APP_DIR" in content
         assert "EnvironmentFile=/etc/role-radar/role-radar.env" in content
         assert "ExecStart=/usr/bin/env role-radar" in content
-        assert "run --scheduled" in content
+        if name == "role-radar-continuous-discovery.service":
+            assert "continuous-discovery-v2 run-register" in content
+            assert "run --scheduled" not in content
+        else:
+            assert "run --scheduled" in content
         assert "ReadWritePaths=/ROLE_RADAR_APP_DIR/data" in content
         assert "NoNewPrivileges=true" in content
         assert "ProtectHome=true" in content

@@ -15,16 +15,10 @@ from role_radar.acquisition.configuration import (
     ProductionAcquisitionFilePolicy,
     load_acquisition_config,
 )
-from role_radar.acquisition.credentials import CredentialResolver
 from role_radar.config import Settings
-from role_radar.continuous_acquisition.providers import (
-    BoundedSearchRuntime,
-)
 from role_radar.continuous_acquisition.scheduling import daily_canary_slot
 from role_radar.db.engine import get_engine
 from role_radar.db.session import get_session_factory
-from role_radar.discovery.providers.brave import BraveSearchProvider
-from role_radar.discovery.providers.tavily import TavilySearchProvider
 
 LIVE_ACKNOWLEDGEMENT = "I_ACKNOWLEDGE_LIVE_PROVIDER_CALLS"
 CONTINUOUS_ENABLED_ENV = "ROLE_RADAR_CONTINUOUS_ENABLED"
@@ -149,37 +143,6 @@ def as_utc(now: datetime | None) -> datetime:
     if value.tzinfo is None or value.utcoffset() is None:
         raise RuntimeCompositionError("clock_not_timezone_aware")
     return value.astimezone(UTC)
-
-
-def build_search_runtime(config: AcquisitionConfig) -> BoundedSearchRuntime:
-    if config.discovery is None:
-        raise RuntimeCompositionError("query_hmac_config_missing")
-    if config.brave_paid.enabled:
-        raise RuntimeCompositionError("brave_paid_must_be_disabled")
-    if not config.brave_free.enabled and not config.tavily_free.enabled:
-        raise RuntimeCompositionError("search_provider_not_configured")
-    try:
-        resolver = CredentialResolver()
-        query_secret = resolver.resolve(config.discovery.query_hmac_handle).get_secret_value()
-        brave: BraveSearchProvider | None = None
-        tavily: TavilySearchProvider | None = None
-        if config.brave_free.enabled:
-            handle = config.brave_free.credential_handle
-            if not handle:
-                raise RuntimeCompositionError("brave_credential_missing")
-            brave = BraveSearchProvider(resolver.text(handle))
-        if config.tavily_free.enabled:
-            handle = config.tavily_free.credential_handle
-            if not handle:
-                raise RuntimeCompositionError("tavily_credential_missing")
-            tavily = TavilySearchProvider(resolver.text(handle))
-        return BoundedSearchRuntime(brave=brave, tavily=tavily, query_secret=query_secret)
-    except RuntimeCompositionError:
-        raise
-    except Exception as exc:
-        raise RuntimeCompositionError(
-            getattr(exc, "code", "credentials_unavailable"), exit_code=EXIT_CONFIGURATION
-        ) from exc
 
 
 def state_exit_code(state: str) -> int:

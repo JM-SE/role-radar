@@ -493,6 +493,9 @@ def _parser() -> argparse.ArgumentParser:
         run_continuous.add_argument("--acknowledgement")
         continuous_commands.add_parser("status")
         continuous_commands.add_parser("recover")
+    from role_radar.cli.continuous_discovery_v2 import register_continuous_discovery_v2_parser
+
+    register_continuous_discovery_v2_parser(subparsers)
     evaluation = subparsers.add_parser(
         "evaluation", help="operaciones offline/controladas de evaluación"
     )
@@ -1562,7 +1565,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.command == "evaluation":
         return _run_evaluation(args)
-    if args.command in {"continuous-discovery", "continuous-acquisition"}:
+    if args.command == "continuous-discovery-v2":
+        return _run_continuous_discovery_v2(args)
+    if args.command == "continuous-discovery":
+        return _run_legacy_discovery_deprecated()
+    if args.command == "continuous-acquisition":
         return _run_continuous_gate_a(args)
     if (
         args.command == "mailbox"
@@ -1642,6 +1649,30 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"role-radar: {exc}", file=sys.stderr)
         return 1
     return 2
+
+
+def _run_legacy_discovery_deprecated() -> int:
+    """Keep the historical command fail-closed and network-free."""
+
+    print(
+        json.dumps(
+            {
+                "schema_version": "continuous-discovery-v2-result-v1",
+                "result": "blocked",
+                "code": "discovery_v2_command_required",
+            },
+            sort_keys=True,
+        )
+    )
+    return 2
+
+
+def _run_continuous_discovery_v2(args: argparse.Namespace) -> int:
+    """Lazy, thin dispatch to the dedicated v2 CLI adapter."""
+
+    from role_radar.cli.continuous_discovery_v2 import run_continuous_discovery_v2
+
+    return run_continuous_discovery_v2(args)
 
 
 def _run_continuous_gate_a(args: argparse.Namespace) -> int:

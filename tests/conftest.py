@@ -4,7 +4,9 @@ DB de test: SQLite in-memory con StaticPool + ``create_all`` sobre el metadata
 (patrón §9/§11 de la spec F1 — velocidad; Alembic es el camino de producción).
 """
 
-from collections.abc import AsyncIterator, Iterator
+import os
+import socket
+from collections.abc import AsyncIterator, Callable, Iterator
 
 import httpx
 import pytest
@@ -17,6 +19,50 @@ from role_radar.api import deps
 from role_radar.config import Settings
 from role_radar.db.base import Base
 from role_radar.main import create_app
+
+
+@pytest.fixture(scope="session", autouse=True)
+def deny_external_network() -> Iterator[None]:
+    """Gate A session guard; explicit MockTransport seams remain available."""
+
+    if os.environ.get("ROLE_RADAR_TEST_NETWORK_DENY") != "1":
+        yield
+        return
+
+    monkeypatch = pytest.MonkeyPatch()
+    counters = {
+        "socket_connect": 0,
+        "socket_create_connection": 0,
+        "socket_getaddrinfo": 0,
+        "httpx_sync_default_transport": 0,
+        "httpx_async_default_transport": 0,
+    }
+
+    def denied(name: str) -> Callable[..., None]:
+        def _deny(*_args: object, **_kwargs: object) -> None:
+            counters[name] += 1
+            raise AssertionError("external network is denied during Gate A")
+
+        return _deny
+
+    monkeypatch.setattr(socket.socket, "connect", denied("socket_connect"))
+    monkeypatch.setattr(socket, "create_connection", denied("socket_create_connection"))
+    monkeypatch.setattr(socket, "getaddrinfo", denied("socket_getaddrinfo"))
+    monkeypatch.setattr(
+        httpx.HTTPTransport,
+        "handle_request",
+        denied("httpx_sync_default_transport"),
+    )
+    monkeypatch.setattr(
+        httpx.AsyncHTTPTransport,
+        "handle_async_request",
+        denied("httpx_async_default_transport"),
+    )
+    try:
+        yield
+    finally:
+        assert all(value == 0 for value in counters.values()), counters
+        monkeypatch.undo()
 
 
 @pytest.fixture
