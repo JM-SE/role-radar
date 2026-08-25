@@ -14,7 +14,12 @@ import json
 from dataclasses import dataclass
 from typing import Any, Final
 
-from role_radar.evaluation.fresh_acquisition.provenance import (
+from role_radar.evaluation.profile_relevance.contracts import (
+    PreviewComputationResult,
+    ProfileRelevanceInput,
+)
+from role_radar.evaluation.profile_relevance.preview_workflow import compute_preview
+from role_radar.evaluation.profile_relevant_acquisition.provenance import (
     LIVE_NAMESPACE,
     LIVE_PARTITION_SEED,
     LIVE_SELECTION_SEED,
@@ -22,11 +27,6 @@ from role_radar.evaluation.fresh_acquisition.provenance import (
     ProvenanceError,
     validate_provenance,
 )
-from role_radar.evaluation.profile_relevance.contracts import (
-    PreviewComputationResult,
-    ProfileRelevanceInput,
-)
-from role_radar.evaluation.profile_relevance.preview_workflow import compute_preview
 
 GATE_E_PREVIEW_HASH_DOMAIN: Final[str] = "role-radar:f10.1f:gate-e:preview-hash:v1"
 GATE_E_PREVIEW_CHALLENGE_DOMAIN: Final[str] = "role-radar:f10.1f:gate-e:challenge:v1"

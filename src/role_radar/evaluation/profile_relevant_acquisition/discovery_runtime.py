@@ -248,7 +248,7 @@ def persist_private_evidence(
 ) -> Path:
     """Persist private evidence under isolated root using filesystem primitive."""
 
-    from role_radar.evaluation.fresh_acquisition.filesystem import (
+    from role_radar.evaluation.filesystem import (
         atomic_write,
         ensure_private_root,
     )

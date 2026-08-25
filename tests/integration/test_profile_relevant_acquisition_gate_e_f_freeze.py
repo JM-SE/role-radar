@@ -9,8 +9,12 @@ from typing import cast
 
 import pytest
 
-from role_radar.evaluation.fresh_acquisition import gate_e
-from role_radar.evaluation.fresh_acquisition.freeze import (
+from role_radar.evaluation.profile_relevance.contracts import (
+    CanonicalPayload,
+    ProfileRelevanceInput,
+)
+from role_radar.evaluation.profile_relevant_acquisition import gate_e_preview
+from role_radar.evaluation.profile_relevant_acquisition.freeze_runtime import (
     DIRNAME_OPERATOR,
     DIRNAME_PILOT,
     DIRNAME_PRIVATE,
@@ -19,21 +23,17 @@ from role_radar.evaluation.fresh_acquisition.freeze import (
     run_freeze_transaction,
     verify_frozen_publication,
 )
-from role_radar.evaluation.fresh_acquisition.gate_e import run_gate_e_preview
-from role_radar.evaluation.fresh_acquisition.gate_f import (
+from role_radar.evaluation.profile_relevant_acquisition.gate_e_preview import run_gate_e_preview
+from role_radar.evaluation.profile_relevant_acquisition.gate_f_materialization import (
     GateFError,
     run_gate_f_materialization,
 )
-from role_radar.evaluation.fresh_acquisition.provenance import LIVE_NAMESPACE
-from role_radar.evaluation.profile_relevance.contracts import (
-    CanonicalPayload,
-    ProfileRelevanceInput,
-)
-from tests.unit.test_fresh_acquisition_provenance_store_report import _provenance
+from role_radar.evaluation.profile_relevant_acquisition.provenance import LIVE_NAMESPACE
 from tests.unit.test_profile_relevance_materialization import (
     _build_approved_and_context,
     _build_input,
 )
+from tests.unit.test_profile_relevant_acquisition_provenance_store_report import _provenance
 
 
 def _live_namespace_input() -> ProfileRelevanceInput:
@@ -50,8 +50,12 @@ def test_gate_e_runs_only_sanitized_preview_with_no_materialization_bytes(
     # The offline DTO fixture uses synthetic 32-byte seeds. Gate E's separate
     # test below asserts the live constants; this patch keeps this test focused
     # on the Gate E boundary and its no-materialization behavior.
-    monkeypatch.setattr(gate_e, "LIVE_SELECTION_SEED", inputs.sampling_policy.selection_seed)
-    monkeypatch.setattr(gate_e, "LIVE_PARTITION_SEED", inputs.partition_policy.partition_seed)
+    monkeypatch.setattr(
+        gate_e_preview, "LIVE_SELECTION_SEED", inputs.sampling_policy.selection_seed
+    )
+    monkeypatch.setattr(
+        gate_e_preview, "LIVE_PARTITION_SEED", inputs.partition_policy.partition_seed
+    )
 
     result, record = run_gate_e_preview(inputs=inputs, provenance=provenance)
 

@@ -9,8 +9,16 @@ from pathlib import Path
 import pytest
 
 from role_radar.discovery.planner_v2 import plan_profile_discovery
-from role_radar.evaluation.fresh_acquisition.capability import build_capability_seal
-from role_radar.evaluation.fresh_acquisition.provenance import (
+from role_radar.evaluation.profile_relevant_acquisition.capability_seal import (
+    build_capability_seal,
+)
+from role_radar.evaluation.profile_relevant_acquisition.discovery_runtime import (
+    ReportOnlyError,
+    ReportOnlyRuntimeConfig,
+    persist_private_evidence,
+    run_report_only_discovery,
+)
+from role_radar.evaluation.profile_relevant_acquisition.provenance import (
     ALEMBIC_HEAD_F10_1B,
     LIVE_CORPUS_TOTAL,
     LIVE_HOLDOUT,
@@ -26,13 +34,10 @@ from role_radar.evaluation.fresh_acquisition.provenance import (
     build_provenance_bundle,
     validate_provenance,
 )
-from role_radar.evaluation.fresh_acquisition.report_only import (
-    ReportOnlyError,
-    ReportOnlyRuntimeConfig,
-    persist_private_evidence,
-    run_report_only_discovery,
+from role_radar.evaluation.profile_relevant_acquisition.store import (
+    ProfileRelevantAcquisitionStore,
+    StoreError,
 )
-from role_radar.evaluation.fresh_acquisition.store import FreshAcquisitionStore, StoreError
 from tests.unit.test_discovery_planner_v2 import policy, terms
 
 
@@ -122,7 +127,7 @@ def _provenance_with(**overrides: str) -> ProvenanceBundle:
 
 
 def test_private_store_is_namespace_bound_and_idempotent(tmp_path: Path) -> None:
-    store = FreshAcquisitionStore(tmp_path / "f10-1f")
+    store = ProfileRelevantAcquisitionStore(tmp_path / "f10-1f")
     dataset_id = "a" * 64
     pool = (b'{"external_id":"1"}\n',)
     manifest = {"schema": "sealed-pool", "count": 1}
@@ -158,7 +163,7 @@ def test_private_store_is_namespace_bound_and_idempotent(tmp_path: Path) -> None
     assert cap_conflict.value.code == "store_capability_conflict"
 
     with pytest.raises(StoreError) as namespace:
-        FreshAcquisitionStore(tmp_path / "other", namespace="not-live")
+        ProfileRelevantAcquisitionStore(tmp_path / "other", namespace="not-live")
     assert namespace.value.code == "store_namespace_mismatch"
 
 

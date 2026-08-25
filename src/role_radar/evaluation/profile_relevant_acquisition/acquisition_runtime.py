@@ -31,16 +31,18 @@ from role_radar.collectors.protocols import CollectorRuntime, SourceSnapshot
 from role_radar.collectors.registry import CollectorContext
 from role_radar.domain.dto import RawJob
 from role_radar.evaluation.controlled_acquisition.protocols import PLAN_VERSION_V2
-from role_radar.evaluation.fresh_acquisition.filesystem import (
+from role_radar.evaluation.filesystem import (
     atomic_write,
     bounded_read,
     ensure_private_root,
     resolve_nofollow,
 )
-from role_radar.evaluation.fresh_acquisition.journal import (
+from role_radar.evaluation.profile_relevant_acquisition.journal import (
     AcquisitionJournal,
-    JournaledAsyncTransport,
     JournalError,
+)
+from role_radar.evaluation.profile_relevant_acquisition.journaled_transport import (
+    JournaledAsyncTransport,
 )
 
 FORBIDDEN_JOURNALED_TRANSPORT: Final[str] = (

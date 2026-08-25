@@ -16,14 +16,14 @@ from role_radar.collectors.registry import CollectorContext
 from role_radar.domain.dto import RawJob
 from role_radar.evaluation.controlled_acquisition.protocols import PLAN_VERSION_V2
 from role_radar.evaluation.controlled_acquisition.source_plan import SourcePlan
-from role_radar.evaluation.fresh_acquisition.acquisition import (
+from role_radar.evaluation.profile_relevant_acquisition.acquisition_runtime import (
     AcquisitionError,
     AcquisitionScaffoldConfig,
     SourceCheckpoint,
     assert_mixed_board_sealed,
     run_gate_d_broad_acquisition,
 )
-from role_radar.evaluation.fresh_acquisition.journal import AcquisitionJournal
+from role_radar.evaluation.profile_relevant_acquisition.journal import AcquisitionJournal
 
 
 class MockTransport(httpx.AsyncBaseTransport):

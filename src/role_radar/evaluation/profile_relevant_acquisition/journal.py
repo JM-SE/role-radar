@@ -30,7 +30,7 @@ from typing import Any, Final
 import httpx
 
 from role_radar.collectors.policy import RETRYABLE_STATUSES
-from role_radar.evaluation.fresh_acquisition.filesystem import (
+from role_radar.evaluation.filesystem import (
     FilesystemError,
     atomic_write,
     bounded_read,
@@ -50,14 +50,6 @@ STATUS_CLASS_NON_RETRYABLE: Final[str] = "non_retryable"
 
 class JournalError(ValueError):
     def __init__(self, code: str) -> None:
-        self.code: str = code
-        super().__init__(code)
-
-
-class JournaledTransportError(RuntimeError):
-    """Detail-free sentinel for indeterminate wire attempt."""
-
-    def __init__(self, code: str = "indeterminate") -> None:
         self.code: str = code
         super().__init__(code)
 
@@ -404,203 +396,6 @@ class AcquisitionJournal:
                 raise JournalError("journal_reconcile_mismatch_faulted")
 
 
-# -- transport --
-
-
-class JournaledAsyncTransport(httpx.AsyncBaseTransport):
-    """Wraps delegate, fsyncs bounded intent before and outcome after proven terminal.
-
-    Injected via CollectorContext.transport, below BoundedHttpClient. Before each
-    delegate handle_async_request, fsyncs bounded intent. After delegate returns,
-    fsyncs bounded outcome only after proven terminal status and stream completion.
-    No headers/body/credentials/exception text stored.
-
-    Pending/indeterminate blocks further delegate calls for that source.
-    """
-
-    def __init__(
-        self,
-        *,
-        delegate: httpx.AsyncBaseTransport,
-        journal: AcquisitionJournal,
-        source_id: str,
-        operation_id: str | None = None,
-    ) -> None:
-        if not isinstance(delegate, httpx.AsyncBaseTransport):
-            raise JournalError("journal_delegate_invalid")
-        # forbid old JournaledTransport wrapping
-        if delegate.__class__.__name__ == "JournaledTransport" and (
-            "controlled_acquisition" in delegate.__class__.__module__
-        ):
-            raise JournalError("forbidden_journaled_transport")
-        if not source_id or not source_id.strip():
-            raise JournalError("journal_source_invalid")
-        op = operation_id if operation_id is not None else journal.operation_id
-        if op != journal.operation_id:
-            raise JournalError("journal_operation_mismatch")
-        self._delegate = delegate
-        self._journal = journal
-        self._source_id = source_id
-        self._operation_id = op
-        self._ordinal_counter: int = 0
-        self._budget_ordinal: int = 0
-
-    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
-        if self._journal.is_blocked(self._source_id):
-            raise JournaledTransportError("indeterminate")
-
-        self._ordinal_counter += 1
-        self._budget_ordinal += 1
-        ordinal = self._journal.next_ordinal(self._source_id)
-        # ensure our local counter aligns with journal (monotonic)
-        if ordinal != self._ordinal_counter and self._ordinal_counter == 1:
-            # first call may diverge if journal pre-populated; trust journal
-            self._ordinal_counter = ordinal
-
-        fingerprint = _fingerprint(request)
-
-        try:
-            self._journal.record_intent(
-                source_id=self._source_id,
-                ordinal=ordinal,
-                destination_fingerprint=fingerprint,
-                budget_ordinal=self._budget_ordinal,
-            )
-        except JournalError:
-            raise
-        except Exception as exc:
-            raise JournalError("journal_intent_failed") from exc
-
-        try:
-            response = await self._delegate.handle_async_request(request)
-        except BaseException:
-            # Any delegate/stream exception leaves intent pending/indeterminate
-            # emit detail-free sentinel, no outcome recorded, block further calls
-            raise JournaledTransportError("indeterminate") from None
-
-        # Prove terminal status and stream completion before persisting outcome
-        try:
-            status_code = response.status_code
-        except Exception:
-            raise JournaledTransportError("indeterminate") from None
-
-        status_class, retryable = _classify_status(int(status_code))
-
-        # Stream completion proof: for buffered responses is_stream_consumed True
-        # For streaming, we wrap the response to defer outcome until stream completes.
-        # If response is already buffered, we can record outcome immediately.
-        # Otherwise patch aiter_bytes/aiter_raw to record after successful iteration.
-
-        is_consumed = bool(getattr(response, "is_stream_consumed", False))
-        is_closed = bool(getattr(response, "is_closed", False))
-
-        if is_consumed or is_closed or getattr(response, "_content", None) is not None:
-            # Already buffered or content available — consider stream complete
-            try:
-                # Validate content is readable without storing
-                _ = response.content if hasattr(response, "content") else b""
-            except Exception:
-                raise JournaledTransportError("indeterminate") from None
-            try:
-                self._journal.record_outcome(
-                    source_id=self._source_id,
-                    ordinal=ordinal,
-                    status_code=int(status_code),
-                    status_class=status_class,
-                    retryable=retryable,
-                )
-            except JournalError:
-                raise
-            except Exception as exc:
-                raise JournalError("journal_outcome_failed") from exc
-            return response
-
-        # Streaming path: wrap iterators to record outcome after successful exhaustion
-        original_aiter_bytes = getattr(response, "aiter_bytes", None)
-        original_aiter_raw = getattr(response, "aiter_raw", None)
-        original_aiter_text = getattr(response, "aiter_text", None)
-        journal = self._journal
-        source_id = self._source_id
-
-        outcome_recorded = False
-
-        def _maybe_record() -> None:
-            nonlocal outcome_recorded
-            if outcome_recorded:
-                return
-            journal.record_outcome(
-                source_id=source_id,
-                ordinal=ordinal,
-                status_code=int(status_code),
-                status_class=status_class,
-                retryable=retryable,
-            )
-            outcome_recorded = True
-
-        if callable(original_aiter_bytes):
-
-            async def _wrapped_bytes():  # type: ignore[no-untyped-def]
-                try:
-                    async for chunk in original_aiter_bytes():
-                        yield chunk
-                    _maybe_record()
-                except BaseException:
-                    raise JournaledTransportError("indeterminate") from None
-
-            response.aiter_bytes = _wrapped_bytes  # type: ignore[assignment,method-assign]
-
-        if callable(original_aiter_raw):
-
-            async def _wrapped_raw():  # type: ignore[no-untyped-def]
-                try:
-                    async for chunk in original_aiter_raw():
-                        yield chunk
-                    _maybe_record()
-                except BaseException:
-                    raise JournaledTransportError("indeterminate") from None
-
-            response.aiter_raw = _wrapped_raw  # type: ignore[assignment,method-assign]
-
-        if callable(original_aiter_text):
-
-            async def _wrapped_text():  # type: ignore[no-untyped-def]
-                try:
-                    async for chunk in original_aiter_text():
-                        yield chunk
-                    _maybe_record()
-                except BaseException:
-                    raise JournaledTransportError("indeterminate") from None
-
-            response.aiter_text = _wrapped_text  # type: ignore[assignment,method-assign]
-
-        # Also handle direct .aread() / .read() paths by wrapping content access:
-        # We record outcome eagerly only if stream later completes; but for safety
-        # we keep pending until stream iteration finishes. Caller (BoundedHttpClient)
-        # iterates via aiter_raw, so wrapper above suffices. We still attempt to
-        # record on close as fallback.
-
-        original_aclose = getattr(response, "aclose", None)
-        if callable(original_aclose):
-
-            async def _wrapped_aclose():  # type: ignore[no-untyped-def]
-                try:
-                    result = await original_aclose()
-                except BaseException:
-                    raise JournaledTransportError("indeterminate") from None
-                # do not auto-record on close unless stream was consumed
-                return result
-
-            response.aclose = _wrapped_aclose  # type: ignore[method-assign]
-
-        return response
-
-    async def aclose(self) -> None:
-        try:
-            await self._delegate.aclose()
-        except BaseException:
-            raise JournaledTransportError("indeterminate") from None
-
-
 __all__ = [
     "FINGERPRINT_LEN",
     "MAX_INTENT_BYTES",
@@ -610,8 +405,6 @@ __all__ = [
     "AcquisitionJournal",
     "JournalCounts",
     "JournalError",
-    "JournaledAsyncTransport",
-    "JournaledTransportError",
     "WireIntent",
     "WireOutcome",
     "_classify_status",

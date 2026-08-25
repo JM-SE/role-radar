@@ -146,7 +146,7 @@ def run_gate_f_materialization(
 
 def verify_gate_f_hash_domains() -> None:
     """Fail if domains collide with Gate E or each other."""
-    from role_radar.evaluation.fresh_acquisition.gate_e import (
+    from role_radar.evaluation.profile_relevant_acquisition.gate_e_preview import (
         GATE_E_PREVIEW_CHALLENGE_DOMAIN,
         GATE_E_PREVIEW_HASH_DOMAIN,
     )

@@ -7,11 +7,13 @@ from pathlib import Path
 import httpx
 import pytest
 
-from role_radar.evaluation.fresh_acquisition.journal import (
+from role_radar.evaluation.profile_relevant_acquisition.journal import (
     AcquisitionJournal,
+    JournalError,
+)
+from role_radar.evaluation.profile_relevant_acquisition.journaled_transport import (
     JournaledAsyncTransport,
     JournaledTransportError,
-    JournalError,
 )
 
 

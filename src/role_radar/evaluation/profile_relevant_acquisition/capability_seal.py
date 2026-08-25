@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
 
-from role_radar.evaluation.fresh_acquisition.filesystem import (
+from role_radar.evaluation.filesystem import (
     FilesystemError,
     bounded_read,
     fenced_lock,

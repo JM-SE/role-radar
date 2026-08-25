@@ -12,7 +12,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Final
 
-from role_radar.evaluation.fresh_acquisition.filesystem import (
+from role_radar.evaluation.filesystem import (
     FilesystemError,
     atomic_write,
     bounded_read,
@@ -22,7 +22,7 @@ from role_radar.evaluation.fresh_acquisition.filesystem import (
     sha256_bytes,
     write_no_replace,
 )
-from role_radar.evaluation.fresh_acquisition.provenance import LIVE_NAMESPACE, LIVE_ROOT
+from role_radar.evaluation.profile_relevant_acquisition.provenance import LIVE_NAMESPACE, LIVE_ROOT
 
 DATASET_ID_RE: Final[re.Pattern[str]] = re.compile(r"^[0-9a-f]{64}$")
 MANIFEST_NAME: Final[str] = "manifest.json"
@@ -69,7 +69,7 @@ def _canonical(value: Any) -> bytes:
         raise StoreError("store_canonical_invalid") from exc
 
 
-class FreshAcquisitionStore:
+class ProfileRelevantAcquisitionStore:
     """Sole F10.1F domain store — composes filesystem primitive."""
 
     def __init__(self, root: Path, namespace: str = LIVE_NAMESPACE) -> None:
@@ -238,4 +238,4 @@ class FreshAcquisitionStore:
         return cap.is_file() and not cap.is_symlink() and self.verify(dataset_id)
 
 
-__all__ = ["FreshAcquisitionStore", "StoreError"]
+__all__ = ["ProfileRelevantAcquisitionStore", "StoreError"]

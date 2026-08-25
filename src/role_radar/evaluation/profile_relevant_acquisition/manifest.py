@@ -14,7 +14,7 @@ import json
 from dataclasses import dataclass
 from typing import Any, Final
 
-from role_radar.evaluation.fresh_acquisition.filesystem import sha256_bytes
+from role_radar.evaluation.filesystem import sha256_bytes
 from role_radar.evaluation.profile_relevance.hashing import (
     blind_order_key as _blind_order_key,
 )

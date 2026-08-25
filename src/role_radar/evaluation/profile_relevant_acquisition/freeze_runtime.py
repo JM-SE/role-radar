@@ -32,7 +32,20 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
 
-from role_radar.evaluation.fresh_acquisition.capability import (
+from role_radar.evaluation.filesystem import (
+    FilesystemError,
+    bounded_read,
+    canonical_json_bytes,
+    ensure_private_root,
+    fenced_lock,
+    resolve_nofollow,
+    write_no_replace,
+)
+from role_radar.evaluation.profile_relevance.contracts import (
+    CanonicalPayload,
+    MaterializedPayloads,
+)
+from role_radar.evaluation.profile_relevant_acquisition.capability_seal import (
     KIND_PILOT,
     KIND_PRIVATE,
     KIND_SEALED_HOLDOUT,
@@ -42,16 +55,7 @@ from role_radar.evaluation.fresh_acquisition.capability import (
     verify_capability_set,
     write_capability_seal,
 )
-from role_radar.evaluation.fresh_acquisition.filesystem import (
-    FilesystemError,
-    bounded_read,
-    canonical_json_bytes,
-    ensure_private_root,
-    fenced_lock,
-    resolve_nofollow,
-    write_no_replace,
-)
-from role_radar.evaluation.fresh_acquisition.manifest import (
+from role_radar.evaluation.profile_relevant_acquisition.manifest import (
     DatasetManifest,
     ManifestError,
     SealedPoolManifest,
@@ -61,16 +65,12 @@ from role_radar.evaluation.fresh_acquisition.manifest import (
     compute_payloads_sha256,
     verify_manifest_chain,
 )
-from role_radar.evaluation.fresh_acquisition.provenance import (
+from role_radar.evaluation.profile_relevant_acquisition.provenance import (
     LIVE_NAMESPACE,
     LIVE_ROOT,
     ProvenanceBundle,
     ProvenanceError,
     validate_provenance,
-)
-from role_radar.evaluation.profile_relevance.contracts import (
-    CanonicalPayload,
-    MaterializedPayloads,
 )
 
 SCHEMA_FREEZE_RECEIPT: Final[str] = "f10.1f-freeze-receipt-v1"

@@ -5,7 +5,31 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-PACKAGE = Path("src/role_radar/evaluation/fresh_acquisition")
+PACKAGE = Path("src/role_radar/evaluation/profile_relevant_acquisition")
+EXPECTED_MODULES = {
+    "contracts.py",
+    "policy.py",
+    "canonical.py",
+    "input_adapters.py",
+    "preflight.py",
+    "provenance.py",
+    "historical_exclusion.py",
+    "discovery_runtime.py",
+    "source_plan.py",
+    "acquisition_preregistration.py",
+    "journal.py",
+    "journaled_transport.py",
+    "acquisition_runtime.py",
+    "parent_pool.py",
+    "gate_e_preview.py",
+    "gate_f_materialization.py",
+    "manifest.py",
+    "store.py",
+    "capability_seal.py",
+    "freeze_runtime.py",
+    "output.py",
+    "__init__.py",
+}
 
 
 def _imports(path: Path) -> set[str]:
@@ -19,12 +43,19 @@ def _imports(path: Path) -> set[str]:
     return values
 
 
+def test_profile_relevant_package_has_exact_spec_modules() -> None:
+    assert {path.name for path in PACKAGE.glob("*.py")} == EXPECTED_MODULES
+
+
 def test_gate_e_has_no_materialization_import_or_call() -> None:
-    path = PACKAGE / "gate_e.py"
+    path = PACKAGE / "gate_e_preview.py"
     source = path.read_text(encoding="utf-8")
     imports = _imports(path)
 
-    assert not any("materialization" in value or value.endswith("gate_f") for value in imports)
+    assert not any(
+        "materialization" in value or value.endswith(("gate_f", "gate_f_materialization"))
+        for value in imports
+    )
     tree = ast.parse(source, filename=str(path))
     names = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
     assert "materialize_payload_bytes" not in names
@@ -33,12 +64,13 @@ def test_gate_e_has_no_materialization_import_or_call() -> None:
 
 
 def test_freeze_has_no_gate_or_materialization_dependency() -> None:
-    path = PACKAGE / "freeze.py"
+    path = PACKAGE / "freeze_runtime.py"
     source = path.read_text(encoding="utf-8")
     imports = _imports(path)
 
     assert not any(
-        value.endswith(("gate_e", "gate_f")) or value.endswith("profile_relevance.materialization")
+        value.endswith(("gate_e", "gate_f", "gate_e_preview", "gate_f_materialization"))
+        or value.endswith("profile_relevance.materialization")
         for value in imports
     )
     tree = ast.parse(source, filename=str(path))
@@ -48,7 +80,7 @@ def test_freeze_has_no_gate_or_materialization_dependency() -> None:
     assert "run_gate_f_materialization" not in names
 
 
-def test_fresh_package_does_not_import_historical_or_normal_persistence_paths() -> None:
+def test_profile_relevant_package_does_not_import_historical_or_normal_persistence_paths() -> None:
     forbidden_imports = (
         "role_radar.evaluation.cohort_freeze",
         "role_radar.evaluation.blind_labeling",
@@ -73,4 +105,13 @@ def test_only_gate_f_calls_profile_relevance_materializer() -> None:
             for node in ast.walk(tree)
         ):
             callers.add(path.name)
-    assert callers == {"gate_f.py"}
+    assert callers == {"gate_f_materialization.py"}
+
+
+def test_journal_transport_is_extracted_to_transport_module() -> None:
+    journal = ast.parse((PACKAGE / "journal.py").read_text(encoding="utf-8"))
+    transport = ast.parse((PACKAGE / "journaled_transport.py").read_text(encoding="utf-8"))
+    journal_classes = {node.name for node in journal.body if isinstance(node, ast.ClassDef)}
+    transport_classes = {node.name for node in transport.body if isinstance(node, ast.ClassDef)}
+    assert "JournaledAsyncTransport" not in journal_classes
+    assert "JournaledAsyncTransport" in transport_classes

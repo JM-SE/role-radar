@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from role_radar.evaluation.fresh_acquisition.filesystem import (
+from role_radar.evaluation.filesystem import (
     FilesystemError,
     atomic_write,
     bounded_read,

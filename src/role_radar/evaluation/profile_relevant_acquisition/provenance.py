@@ -310,7 +310,7 @@ def validate_provenance(bundle: ProvenanceBundle) -> None:
 def load_provenance_bytes(path: Path) -> ProvenanceBundle:
     """Strict loader for persisted provenance file (bounded, no symlink)."""
 
-    from role_radar.evaluation.fresh_acquisition.filesystem import bounded_read
+    from role_radar.evaluation.filesystem import bounded_read
 
     raw = bounded_read(path)
     try:
