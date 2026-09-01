@@ -146,19 +146,19 @@ def test_private_store_is_namespace_bound_and_idempotent(tmp_path: Path) -> None
     pool = (b'{"external_id":"1"}\n',)
     manifest = {"schema": "sealed-pool", "count": 1}
 
-    target = store.publish_sealed_pool(
+    target = store._publish_sealed_pool_for_test(
         dataset_id=dataset_id, pool_lines=pool, manifest=manifest, test_only_adapter=adapter
     )
     assert store.verify(dataset_id)
     assert (
-        store.publish_sealed_pool(
+        store._publish_sealed_pool_for_test(
             dataset_id=dataset_id, pool_lines=pool, manifest=manifest, test_only_adapter=adapter
         )
         == target
     )
 
     with pytest.raises(StoreError) as conflict:
-        store.publish_sealed_pool(
+        store._publish_sealed_pool_for_test(
             dataset_id=dataset_id,
             pool_lines=(b"different\n",),
             manifest=manifest,
@@ -175,17 +175,17 @@ def test_private_store_is_namespace_bound_and_idempotent(tmp_path: Path) -> None
         artifact_count=1,
     )
     seal_object = json.loads(seal.canonical_bytes)
-    cap = store.publish_capability_seal(
+    cap = store._publish_capability_seal_for_test(
         dataset_id=dataset_id, seal=seal_object, test_only_adapter=adapter
     )
     assert (
-        store.publish_capability_seal(
+        store._publish_capability_seal_for_test(
             dataset_id=dataset_id, seal=seal_object, test_only_adapter=adapter
         )
         == cap
     )
     with pytest.raises(StoreError) as cap_conflict:
-        store.publish_capability_seal(
+        store._publish_capability_seal_for_test(
             dataset_id=dataset_id, seal={"changed": True}, test_only_adapter=adapter
         )
     assert cap_conflict.value.code == "store_capability_conflict"
@@ -198,7 +198,7 @@ def test_private_store_is_namespace_bound_and_idempotent(tmp_path: Path) -> None
 def test_store_publication_is_not_a_second_live_authority(tmp_path: Path) -> None:
     store = ProfileRelevantAcquisitionStore(tmp_path / "f10-1f", "synthetic-f10-1f")
     with pytest.raises(StoreError) as blocked:
-        store.publish_sealed_pool(
+        store._publish_sealed_pool_for_test(
             dataset_id="a" * 64,
             pool_lines=(b"{}\n",),
             manifest={"schema": "sealed-pool"},

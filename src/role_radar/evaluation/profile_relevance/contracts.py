@@ -581,8 +581,10 @@ class MaterializedPayloads:
             self.materialization_context_sha256,
             self.materialization_binding_sha256,
         ):
-            if not isinstance(value, str) or len(value) != 64 or any(
-                char not in "0123456789abcdef" for char in value
+            if (
+                not isinstance(value, str)
+                or len(value) != 64
+                or any(char not in "0123456789abcdef" for char in value)
             ):
                 raise ValueError("materialized payload hash invalid")
         if group_hashes != self.group_hashes:

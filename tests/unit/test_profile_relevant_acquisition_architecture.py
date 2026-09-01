@@ -27,7 +27,6 @@ EXPECTED_MODULES = {
     "journal.py",
     "journaled_transport.py",
     "acquisition_runtime.py",
-    "coordinator.py",
     "gate_d_runtime.py",
     "parent_pool.py",
     "gate_e_preview.py",
@@ -56,6 +55,14 @@ def _imports(path: Path) -> set[str]:
 
 def test_profile_relevant_package_has_exact_spec_modules() -> None:
     assert {path.name for path in PACKAGE.glob("*.py")} == EXPECTED_MODULES
+
+
+def test_product_has_no_all_gate_coordinator_or_dispatcher() -> None:
+    assert not (PACKAGE / "coordinator.py").exists()
+    for path in PACKAGE.glob("*.py"):
+        source = path.read_text(encoding="utf-8")
+        assert "run_authoritative_f10_1f" not in source
+        assert "CoordinatorSteps" not in source
 
 
 def test_gate_e_has_no_materialization_import_or_call() -> None:

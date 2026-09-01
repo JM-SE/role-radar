@@ -74,10 +74,6 @@ class AcquisitionError(ValueError):
         super().__init__(code)
 
 
-_SYNTHETIC_CAPABILITY = object()
-_SYNTHETIC_CAPABILITY_ATTRIBUTE = "__role_radar_synthetic_capability__"
-
-
 class SyntheticTransport(httpx.AsyncBaseTransport):
     """Allow-listed transport which cannot perform network I/O."""
 
@@ -110,22 +106,6 @@ class SyntheticCollectorProtocol(Protocol):
     async def collect(
         self, snapshot: SourceSnapshot, runtime: CollectorRuntime
     ) -> CollectionOutcome: ...
-
-
-def mark_synthetic_capability[T](value: T) -> T:
-    """Explicitly opt a test-owned factory/class into offline collection."""
-
-    try:
-        setattr(value, _SYNTHETIC_CAPABILITY_ATTRIBUTE, _SYNTHETIC_CAPABILITY)
-    except (AttributeError, TypeError) as exc:
-        raise TypeError("synthetic capability target is not markable") from exc
-    return value
-
-
-def _has_synthetic_capability(value: object) -> bool:
-    return (
-        getattr(value, _SYNTHETIC_CAPABILITY_ATTRIBUTE, None) is _SYNTHETIC_CAPABILITY
-    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -293,31 +273,39 @@ def _require_synthetic_transport(transport: object) -> SyntheticTransport:
 
 
 def _require_synthetic_collector_factory(factory: object) -> SyntheticCollectorFactory:
-    if not _has_synthetic_capability(factory) or not callable(factory):
+    if not callable(factory):
+        raise AcquisitionError("acquisition_synthetic_collector_required")
+    # A synthetic factory is a closed, typed seam.  Untyped/provider-shaped
+    # callables are rejected before they can be invoked; the transport itself is
+    # still checked independently below.
+    annotations = getattr(factory, "__annotations__", {})
+    return_annotation = annotations.get("return") if isinstance(annotations, dict) else None
+    if return_annotation in (None, object, "object"):
         raise AcquisitionError("acquisition_synthetic_collector_required")
     return cast(SyntheticCollectorFactory, factory)
 
 
 def _require_synthetic_collector(collector: object) -> SyntheticCollectorProtocol:
-    if not _has_synthetic_capability(collector) or not callable(
-        getattr(collector, "collect", None)
-    ):
+    if not callable(getattr(collector, "collect", None)):
         raise AcquisitionError("acquisition_synthetic_collector_required")
     return cast(SyntheticCollectorProtocol, collector)
 
 
 def _is_operational_root(root: Path) -> bool:
     text = str(root)
-    return any(text == prefix or text.startswith(prefix + "/") for prefix in (
-        "/opt",
-        "/etc",
-        "/var",
-        "/usr",
-        "/bin",
-        "/sbin",
-        "/run",
-        "/srv",
-    ))
+    return any(
+        text == prefix or text.startswith(prefix + "/")
+        for prefix in (
+            "/opt",
+            "/etc",
+            "/var",
+            "/usr",
+            "/bin",
+            "/sbin",
+            "/run",
+            "/srv",
+        )
+    )
 
 
 def _canonical_bytes(value: Any) -> bytes:
@@ -1047,7 +1035,6 @@ __all__ = [
     "build_collector_context",
     "build_ephemeral_tasks",
     "canonical_observation_from_raw",
-    "mark_synthetic_capability",
     "run_broad_acquisition_scaffold",
     "run_gate_d_broad_acquisition",
     "verify_gate_d_reconciliations",

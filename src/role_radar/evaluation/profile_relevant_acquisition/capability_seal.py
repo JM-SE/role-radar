@@ -24,7 +24,6 @@ from typing import Any, Final
 from role_radar.evaluation.filesystem import (
     FilesystemError,
     bounded_read,
-    fenced_lock,
     resolve_nofollow,
     write_no_replace,
 )
@@ -217,12 +216,8 @@ def capability_seal_path(root: Path, dataset_id: str, kind: str) -> Path:
         raise CapabilityError(exc.code) from exc
 
 
-def write_capability_seal(seal: CapabilitySeal) -> Path:
-    """No-replace write of one seal; idempotent for identical bytes.
-
-    Caller either holds the freeze fence or accepts standalone sealing via
-    :func:`seal_capability`.
-    """
+def _write_capability_seal(seal: CapabilitySeal) -> Path:
+    """Write one seal for the freeze transaction only."""
     path = capability_seal_path(Path(seal.root), seal.dataset_id, seal.kind)
     try:
         write_no_replace(path, seal.canonical_bytes)
@@ -233,15 +228,6 @@ def write_capability_seal(seal: CapabilitySeal) -> Path:
     except OSError as exc:
         raise CapabilityError("capability_chmod_failed") from exc
     return path
-
-
-def seal_capability(seal: CapabilitySeal) -> Path:
-    """Standalone sealing under the root fence."""
-    try:
-        with fenced_lock(Path(seal.root)):
-            return write_capability_seal(seal)
-    except FilesystemError as exc:
-        raise CapabilityError(exc.code) from exc
 
 
 def _field_str(obj: Mapping[str, Any], key: str, code: str) -> str:
@@ -376,8 +362,6 @@ __all__ = [
     "CapabilitySeal",
     "build_capability_seal",
     "capability_seal_path",
-    "seal_capability",
     "verify_capability_seal",
     "verify_capability_set",
-    "write_capability_seal",
 ]

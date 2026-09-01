@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -38,6 +39,7 @@ from role_radar.evaluation.filesystem import (
     canonical_json_bytes,
     ensure_private_root,
     fenced_lock,
+    open_existing_private_root_for_verify,
     resolve_nofollow,
     write_no_replace,
 )
@@ -50,10 +52,10 @@ from role_radar.evaluation.profile_relevant_acquisition.capability_seal import (
     KIND_PRIVATE,
     KIND_SEALED_HOLDOUT,
     CapabilityError,
+    _write_capability_seal,
     build_capability_seal,
     verify_capability_seal,
     verify_capability_set,
-    write_capability_seal,
 )
 from role_radar.evaluation.profile_relevant_acquisition.contracts import (
     ArtifactClass,
@@ -153,8 +155,7 @@ def _require_positive_int(value: int, code: str) -> None:
 def _is_synthetic_forbidden_root(root: Path) -> bool:
     text = str(root)
     return any(
-        text == prefix or text.startswith(prefix + "/")
-        for prefix in SYNTHETIC_FORBIDDEN_ROOTS
+        text == prefix or text.startswith(prefix + "/") for prefix in SYNTHETIC_FORBIDDEN_ROOTS
     )
 
 
@@ -632,7 +633,6 @@ def run_freeze_transaction(
     root: Path,
     bindings: FreezeBindings,
     f_handoff: F10_1FHandoff | None = None,
-    payloads: MaterializedPayloads | None = None,
     provenance: ProvenanceBundle,
     test_only_adapter: SyntheticTestAdapter | None = None,
     approval: ExternalApprovalBinding | None = None,
@@ -653,8 +653,6 @@ def run_freeze_transaction(
         raise FreezeError(exc.code) from exc
     if not isinstance(f_handoff, F10_1FHandoff):
         raise FreezeError("freeze_f_handoff_required")
-    if payloads is not None and payloads != f_handoff.payloads:
-        raise FreezeError("freeze_payload_replacement_rejected")
     if test_only_adapter is not None and f_handoff.artifact_class is not ArtifactClass.SYNTHETIC:
         raise FreezeError("freeze_f_artifact_class_boundary")
     if approval is not None and f_handoff.artifact_class is not ArtifactClass.APPROVED_PRODUCTION:
@@ -849,7 +847,7 @@ def run_freeze_transaction(
             )
             for kind, seal in seals.items():
                 try:
-                    write_capability_seal(seal)
+                    _write_capability_seal(seal)
                     verify_capability_seal(
                         root=root,
                         dataset_id=bindings.dataset_id,
@@ -911,7 +909,7 @@ def verify_frozen_publication(
     *,
     root: Path,
     benchmark: FrozenBenchmark,
-    payloads: MaterializedPayloads | None = None,
+    payloads: MaterializedPayloads,
     test_only_adapter: SyntheticTestAdapter | None = None,
     approval: ExternalApprovalBinding | None = None,
     approval_verifier: ExternalApprovalVerifier | None = None,
@@ -931,7 +929,8 @@ def verify_frozen_publication(
         )
         if test_only_adapter is not None and _is_synthetic_forbidden_root(root):
             return False
-        ensure_private_root(root)
+        root_fd = open_existing_private_root_for_verify(root)
+        os.close(root_fd)
         dataset_dir = _ds_path(root, benchmark.dataset_id)
         if not dataset_dir.is_dir() or dataset_dir.is_symlink():
             return False
@@ -965,27 +964,26 @@ def verify_frozen_publication(
         )
         if recomputed_receipt != benchmark.receipt.receipt_sha256:
             return False
-        if payloads is not None:
-            _validate_payload_groups(payloads)
-            for dirname, group, expected in (
-                (
-                    DIRNAME_PRIVATE,
-                    payloads.private_payloads,
-                    benchmark.receipt.private_payloads_sha256,
-                ),
-                (
-                    DIRNAME_OPERATOR,
-                    payloads.operator_payloads,
-                    benchmark.receipt.operator_payloads_sha256,
-                ),
-                (DIRNAME_PILOT, payloads.pilot_payloads, benchmark.receipt.pilot_payloads_sha256),
-                (
-                    DIRNAME_SEALED_HOLDOUT,
-                    payloads.holdout_payloads,
-                    benchmark.receipt.holdout_payloads_sha256,
-                ),
-            ):
-                _verify_group_from_disk(root, benchmark.dataset_id, dirname, group, expected)
+        _validate_payload_groups(payloads)
+        for dirname, group, expected in (
+            (
+                DIRNAME_PRIVATE,
+                payloads.private_payloads,
+                benchmark.receipt.private_payloads_sha256,
+            ),
+            (
+                DIRNAME_OPERATOR,
+                payloads.operator_payloads,
+                benchmark.receipt.operator_payloads_sha256,
+            ),
+            (DIRNAME_PILOT, payloads.pilot_payloads, benchmark.receipt.pilot_payloads_sha256),
+            (
+                DIRNAME_SEALED_HOLDOUT,
+                payloads.holdout_payloads,
+                benchmark.receipt.holdout_payloads_sha256,
+            ),
+        ):
+            _verify_group_from_disk(root, benchmark.dataset_id, dirname, group, expected)
         verify_capability_set(
             root=root,
             dataset_id=benchmark.dataset_id,

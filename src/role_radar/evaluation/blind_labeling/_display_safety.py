@@ -84,8 +84,11 @@ def validate_final(value: str) -> str:
     _validate_controls(value, allow_lf_tab=True)
     if len(value.encode("utf-8")) > DISPLAY_MAX_FIELD_OUTPUT_BYTES:
         raise DisplayError(DISPLAY_ERROR_OUTPUT_TOO_LARGE)
-    if DISPLAY_VISIBLE_URL_PATTERN.search(value) is not None:
-        raise DisplayError(DISPLAY_ERROR_VISIBLE_URL_FORBIDDEN)
+    url_match = DISPLAY_VISIBLE_URL_PATTERN.search(value)
+    if url_match is not None:
+        matched = url_match.group()
+        if matched.casefold() != "mailto:" or value[url_match.end() :].strip():
+            raise DisplayError(DISPLAY_ERROR_VISIBLE_URL_FORBIDDEN)
     if DISPLAY_VISIBLE_EMAIL_PATTERN.search(value) is not None:
         raise DisplayError(DISPLAY_ERROR_VISIBLE_EMAIL_FORBIDDEN)
     return value

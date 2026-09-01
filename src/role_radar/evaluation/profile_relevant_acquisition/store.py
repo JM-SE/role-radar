@@ -87,7 +87,7 @@ class ProfileRelevantAcquisitionStore:
         except FilesystemError as exc:
             raise StoreError(exc.code) from exc
 
-    def publish_sealed_pool(
+    def _publish_sealed_pool_for_test(
         self,
         *,
         dataset_id: str,
@@ -152,7 +152,7 @@ class ProfileRelevantAcquisitionStore:
         except FilesystemError as exc:
             raise StoreError(exc.code) from exc
 
-    def publish_capability_seal(
+    def _publish_capability_seal_for_test(
         self,
         *,
         dataset_id: str,

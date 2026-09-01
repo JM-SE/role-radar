@@ -31,6 +31,16 @@ HISTORICAL_ROOTS: Final[tuple[str, ...]] = (
     "/opt/role-radar/data/evaluation/f10.1c",
     "/opt/role-radar/data/evaluation/f10.1e",
 )
+FORBIDDEN_ROOT_PREFIXES: Final[tuple[str, ...]] = (
+    "/etc",
+    "/opt",
+    "/usr",
+    "/var",
+    "/bin",
+    "/sbin",
+    "/run",
+    "/srv",
+)
 
 
 class FilesystemError(ValueError):
@@ -60,8 +70,14 @@ def _check_not_historical(path: Path) -> None:
     for hist in HISTORICAL_ROOTS:
         if text == hist or text.startswith(hist + "/"):
             raise FilesystemError("filesystem_historical_root_rejected")
-        # also reject alias via resolved equality (no symlink follow needed)
-        pass  # string prefix check above is sufficient; no symlink traversal
+            # also reject alias via resolved equality (no symlink follow needed)
+            pass  # string prefix check above is sufficient; no symlink traversal
+
+
+def _check_not_operational(path: Path) -> None:
+    text = str(path)
+    if any(text == prefix or text.startswith(prefix + "/") for prefix in FORBIDDEN_ROOT_PREFIXES):
+        raise FilesystemError("filesystem_production_root_rejected")
 
 
 def _check_component(name: str) -> None:
@@ -82,6 +98,7 @@ def ensure_private_root(root: Path) -> Path:
 
     _require_absolute(root)
     _check_not_historical(root)
+    _check_not_operational(root)
     # Walk from anchor, no-follow — create missing with 0o700, no chmod of existing system dirs
     current = Path(root.anchor)
     for part in root.parts[1:]:
@@ -113,6 +130,45 @@ def ensure_private_root(root: Path) -> Path:
             raise FilesystemError("filesystem_chmod_failed") from exc
     _reject_symlink(root)
     return root
+
+
+def open_existing_private_root_for_verify(root: Path) -> int:
+    """Open an already-existing private root without changing it.
+
+    This is deliberately separate from :func:`ensure_private_root`: verification
+    must never create, chmod, repair, or otherwise mutate a candidate tree.
+    The returned descriptor pins the directory for the caller's read-only pass.
+    """
+    _require_absolute(root)
+    _check_not_historical(root)
+    _check_not_operational(root)
+    current = Path(root.anchor)
+    fd: int | None = None
+    try:
+        fd = os.open(current, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        for part in root.parts[1:]:
+            _check_component(part)
+            next_fd = os.open(
+                part,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                dir_fd=fd,
+            )
+            os.close(fd)
+            fd = next_fd
+        metadata = os.fstat(fd)
+        if metadata.st_uid != os.geteuid() or stat.S_IMODE(metadata.st_mode) != 0o700:
+            raise FilesystemError("filesystem_root_not_private")
+        return fd
+    except FilesystemError:
+        if fd is not None:
+            os.close(fd)
+        raise
+    except OSError as exc:
+        if fd is not None:
+            os.close(fd)
+        if exc.errno == errno.ELOOP:
+            raise FilesystemError("filesystem_symlink_rejected") from exc
+        raise FilesystemError("filesystem_root_missing") from exc
 
 
 def _fsync_file(path: Path) -> None:
@@ -175,7 +231,8 @@ def fenced_lock(root: Path) -> Iterator[None]:
 def resolve_nofollow(root: Path, *parts: str) -> Path:
     """Join and validate no-follow path under root."""
 
-    ensure_private_root(root)
+    root_fd = open_existing_private_root_for_verify(root)
+    os.close(root_fd)
     target = root
     for part in parts:
         _check_component(part)
@@ -198,21 +255,35 @@ def resolve_nofollow(root: Path, *parts: str) -> Path:
 def bounded_read(path: Path, *, max_bytes: int = MAX_READ_BYTES) -> bytes:
     """Read with no-follow and bounded size; rejects symlink."""
 
-    _reject_symlink(path)
     try:
-        st = path.stat()
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        st = os.fstat(fd)
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            raise FilesystemError("filesystem_symlink_rejected") from exc
+        raise FilesystemError("filesystem_read_failed") from exc
+    try:
+        if not stat.S_ISREG(st.st_mode):
+            raise FilesystemError("filesystem_not_regular_file")
+        if st.st_size > max_bytes:
+            raise FilesystemError("filesystem_read_bound_exceeded")
+        chunks: list[bytes] = []
+        total = 0
+        while True:
+            chunk = os.read(fd, min(1024 * 1024, max_bytes - total + 1))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+            if total > max_bytes:
+                raise FilesystemError("filesystem_read_bound_exceeded")
+        data = b"".join(chunks)
+        if len(data) > max_bytes:
+            raise FilesystemError("filesystem_read_bound_exceeded")
     except OSError as exc:
         raise FilesystemError("filesystem_read_failed") from exc
-    if not stat.S_ISREG(st.st_mode):
-        raise FilesystemError("filesystem_not_regular_file")
-    if st.st_size > max_bytes:
-        raise FilesystemError("filesystem_read_bound_exceeded")
-    try:
-        data = path.read_bytes()
-    except OSError as exc:
-        raise FilesystemError("filesystem_read_failed") from exc
-    if len(data) > max_bytes:
-        raise FilesystemError("filesystem_read_bound_exceeded")
+    finally:
+        os.close(fd)
     return data
 
 
@@ -446,6 +517,7 @@ __all__ = [
     "canonical_json_bytes",
     "ensure_private_root",
     "fenced_lock",
+    "open_existing_private_root_for_verify",
     "resolve_nofollow",
     "sha256_bytes",
     "sha256_file",

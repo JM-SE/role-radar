@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from role_radar.evaluation.blind_display_boundary import DisplayError, render_materialized_field
 from role_radar.evaluation.profile_relevance.contracts import (
     ApprovedPreview,
     CanonicalPayload,
@@ -84,6 +85,18 @@ def _payload_bytes(payload: dict[str, Any]) -> bytes:
     # Canonical JSON plus single trailing LF as logical JSON payload
     raw = canonical_json_bytes(payload)
     return raw + b"\n"
+
+
+def _safe_display_value(value: object, *, required: bool = True) -> str | None:
+    """Apply the single approved blind-display contract to materialized views."""
+
+    if value is None and not required:
+        return None
+    try:
+        rendered = render_materialized_field(value)
+    except (DisplayError, TypeError) as exc:
+        raise PayloadFieldForbiddenError("payload_field_forbidden") from exc
+    return rendered
 
 
 def materialize_payload_bytes(
@@ -260,11 +273,11 @@ def materialize_payload_bytes(
         if obs is None:
             raise MaterializationContextInvalidError("materialization_context_invalid")
         rec: dict[str, Any] = {
-            "company": obs.company_sampling_key,
-            "description": obs.description,
-            "location": obs.location,
+            "company": _safe_display_value(obs.company_sampling_key),
+            "description": _safe_display_value(obs.description),
+            "location": _safe_display_value(obs.location, required=False),
             "opaque_id": opaque_map[sem],
-            "title": obs.title,
+            "title": _safe_display_value(obs.title),
         }
         # Allowlist check
         if set(rec.keys()) != PILOT_VIEW_ALLOWED_FIELDS:
@@ -278,11 +291,11 @@ def materialize_payload_bytes(
         if obs is None:
             raise MaterializationContextInvalidError("materialization_context_invalid")
         rec = {
-            "company": obs.company_sampling_key,
-            "description": obs.description,
-            "location": obs.location,
+            "company": _safe_display_value(obs.company_sampling_key),
+            "description": _safe_display_value(obs.description),
+            "location": _safe_display_value(obs.location, required=False),
             "opaque_id": opaque_map[sem],
-            "title": obs.title,
+            "title": _safe_display_value(obs.title),
         }
         if set(rec.keys()) != PILOT_VIEW_ALLOWED_FIELDS:
             raise PayloadSchemaInvalidError("payload_schema_invalid")

@@ -38,8 +38,6 @@ def run_gate_f_runtime(
     test_only_adapter: SyntheticTestAdapter | None = None,
     approval: ExternalApprovalBinding | None = None,
     approval_verifier: ExternalApprovalVerifier | None = None,
-    expected_challenge_sha256: str | None = None,
-    expected_provenance_sha256: str | None = None,
 ) -> RuntimeEvidence:
     if not isinstance(challenge, ChallengeArtifact) or challenge.gate != "F":
         raise GateFError("gate_f_wrong_challenge")
@@ -78,14 +76,6 @@ def run_gate_f_runtime(
         raise GateFError("gate_f_policy_mismatch")
     if challenge.seed_inputs != provenance.seed_inputs:
         raise GateFError("gate_f_seed_mismatch")
-    if expected_challenge_sha256 is not None and challenge.challenge_sha256 != (
-        expected_challenge_sha256
-    ):
-        raise GateFError("gate_f_stale_challenge")
-    if expected_provenance_sha256 is not None and provenance.provenance_sha256 != (
-        expected_provenance_sha256
-    ):
-        raise GateFError("gate_f_stale_provenance")
     if not callable(materializer):
         raise GateFError("gate_f_materializer_invalid")
     if any(hasattr(materializer, name) for name in ("handle_async_request", "connect", "execute")):

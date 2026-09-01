@@ -34,8 +34,6 @@ def run_gate_e_runtime(
     test_only_adapter: SyntheticTestAdapter | None = None,
     approval: ExternalApprovalBinding | None = None,
     approval_verifier: ExternalApprovalVerifier | None = None,
-    expected_challenge_sha256: str | None = None,
-    expected_provenance_sha256: str | None = None,
 ) -> PreviewComputationResult:
     if not isinstance(challenge, ChallengeArtifact) or challenge.gate != "E":
         raise GateEError("gate_e_wrong_challenge")
@@ -86,14 +84,6 @@ def run_gate_e_runtime(
         raise GateEError("gate_e_selection_seed_mismatch")
     if inputs.partition_policy.partition_seed != challenge.seed_inputs.partition_seed:
         raise GateEError("gate_e_partition_seed_mismatch")
-    if expected_challenge_sha256 is not None and challenge.challenge_sha256 != (
-        expected_challenge_sha256
-    ):
-        raise GateEError("gate_e_stale_challenge")
-    if expected_provenance_sha256 is not None and provenance.provenance_sha256 != (
-        expected_provenance_sha256
-    ):
-        raise GateEError("gate_e_stale_provenance")
     # This pure branch is the only production-artifact execution allowed in
     # R1; it cannot reach acquisition, persistence, or a materializer.
     return compute_preview(inputs)

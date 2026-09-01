@@ -176,17 +176,6 @@ def test_freeze_publishes_manifest_capabilities_and_receipt_once(tmp_path: Path)
         test_only_adapter=synthetic_test_adapter(),
     )
 
-    with pytest.raises(FreezeError) as replacement:
-        run_freeze_transaction(
-            root=root,
-            bindings=bindings,
-            f_handoff=f_handoff,
-            payloads=object(),  # type: ignore[arg-type]
-            provenance=provenance,
-            test_only_adapter=synthetic_test_adapter(),
-        )
-    assert replacement.value.code == "freeze_payload_replacement_rejected"
-
     dataset = root / benchmark.dataset_id
     assert (dataset / "manifest.json").is_file()
     assert (dataset / "sealed_pool_manifest.json").is_file()
@@ -237,7 +226,6 @@ def test_freeze_legacy_publication_requires_explicit_boundary(tmp_path: Path) ->
         run_freeze_transaction(
             root=tmp_path / "f10-1f",
             bindings=object(),  # type: ignore[arg-type]
-            payloads=object(),  # type: ignore[arg-type]
             provenance=object(),  # type: ignore[arg-type]
         )
     assert getattr(blocked.value, "code", "") == "freeze_execution_authorization_required"
@@ -248,7 +236,6 @@ def test_freeze_rejects_materialized_payloads_without_f_handoff(tmp_path: Path) 
         run_freeze_transaction(
             root=tmp_path / "f10-1f",
             bindings=object(),  # type: ignore[arg-type]
-            payloads=object(),  # type: ignore[arg-type]
             provenance=object(),  # type: ignore[arg-type]
             test_only_adapter=synthetic_test_adapter(),
         )

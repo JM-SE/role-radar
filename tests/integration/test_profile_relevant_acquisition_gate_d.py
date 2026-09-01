@@ -21,7 +21,6 @@ from role_radar.evaluation.profile_relevant_acquisition.acquisition_runtime impo
     SourceCheckpoint,
     SyntheticTransport,
     assert_mixed_board_sealed,
-    mark_synthetic_capability,
     run_gate_d_broad_acquisition,
 )
 from role_radar.evaluation.profile_relevant_acquisition.contracts import (
@@ -44,7 +43,6 @@ class MockTransport(httpx.AsyncBaseTransport):
         return httpx.Response(200, request=request, content=b'{"jobs":[]}')
 
 
-@mark_synthetic_capability
 class FakeBroadCollector:
     def __init__(self, transport: httpx.AsyncBaseTransport) -> None:
         self.transport = transport
@@ -96,7 +94,6 @@ class FakeBroadCollector:
         )
 
 
-@mark_synthetic_capability
 def _fake_collector(_snapshot: SourceSnapshot, context: CollectorContext) -> FakeBroadCollector:
     assert context.transport is not None
     return FakeBroadCollector(context.transport)
@@ -332,7 +329,6 @@ async def test_gate_d_rejects_caller_root_override_before_factory(tmp_path: Path
     )
     factory_calls = 0
 
-    @mark_synthetic_capability
     def factory(_snapshot: SourceSnapshot, _context: CollectorContext) -> FakeBroadCollector:
         nonlocal factory_calls
         factory_calls += 1

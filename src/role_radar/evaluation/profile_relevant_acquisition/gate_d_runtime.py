@@ -33,8 +33,6 @@ def run_gate_d_runtime(
     test_only_adapter: SyntheticTestAdapter | None = None,
     approval: ExternalApprovalBinding | None = None,
     approval_verifier: ExternalApprovalVerifier | None = None,
-    expected_challenge_sha256: str | None = None,
-    expected_provenance_sha256: str | None = None,
 ) -> RuntimeEvidence:
     if not isinstance(challenge, ChallengeArtifact) or challenge.gate != "D":
         raise GateDError("gate_d_wrong_challenge")
@@ -73,14 +71,6 @@ def run_gate_d_runtime(
         raise GateDError("gate_d_policy_mismatch")
     if challenge.seed_inputs != provenance.seed_inputs:
         raise GateDError("gate_d_seed_mismatch")
-    if expected_challenge_sha256 is not None and challenge.challenge_sha256 != (
-        expected_challenge_sha256
-    ):
-        raise GateDError("gate_d_stale_challenge")
-    if expected_provenance_sha256 is not None and provenance.provenance_sha256 != (
-        expected_provenance_sha256
-    ):
-        raise GateDError("gate_d_stale_provenance")
     if not callable(delegate):
         raise GateDError("gate_d_delegate_invalid")
     if any(hasattr(delegate, name) for name in ("handle_async_request", "connect", "execute")):
