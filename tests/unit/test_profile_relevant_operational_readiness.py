@@ -9,7 +9,11 @@ from role_radar.evaluation.profile_relevant_acquisition.challenge_loader import 
     build_challenge_bytes,
     load_challenge_bytes,
 )
-from role_radar.evaluation.profile_relevant_acquisition.contracts import ArtifactClass
+from role_radar.evaluation.profile_relevant_acquisition.contracts import (
+    ArtifactClass,
+    ChallengeArtifact,
+    ProvenanceArtifact,
+)
 from role_radar.evaluation.profile_relevant_acquisition.gate_c_runtime import (
     GateCError,
     run_gate_c_runtime,
@@ -34,7 +38,7 @@ PARTITION = "b" * 64
 HASH = "c" * 64
 
 
-def _artifacts(gate: str):
+def _artifacts(gate: str) -> tuple[ChallengeArtifact, ProvenanceArtifact]:
     provenance = load_provenance_bytes(
         build_provenance_bytes(
             operation_id="op",
