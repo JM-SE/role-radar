@@ -70,6 +70,9 @@ def register_f10_1f_parser(subparsers: Any) -> argparse.ArgumentParser:
     provenance = commands.add_parser("provenance")
     provenance.add_argument("--file")
     provenance.add_argument("--artifact-root")
+    preflight = commands.add_parser("preflight")
+    preflight.add_argument("--file")
+    preflight.add_argument("--artifact-root")
     commands.add_parser("status")
 
     verify = commands.add_parser("verify")
@@ -133,6 +136,25 @@ def _run_provenance(args: Any) -> int:
     return 0
 
 
+def _run_preflight(args: Any) -> int:
+    """Run read-only Gate B packet validation before normal runtime setup."""
+
+    from role_radar.evaluation.profile_relevant_acquisition.gate_b_preflight import (
+        run_gate_b_preflight,
+    )
+
+    report = run_gate_b_preflight(
+        path=Path(args.file) if isinstance(getattr(args, "file", None), str) else None,
+        artifact_root=(
+            Path(args.artifact_root)
+            if isinstance(getattr(args, "artifact_root", None), str)
+            else None
+        ),
+    )
+    print(json.dumps(report.as_dict(), ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+    return 0 if report.result == "ready" else 2
+
+
 def _run_status(_args: Any) -> int:
     """Report gate state without constructing any runtime or store."""
 
@@ -187,6 +209,7 @@ def run(args: Any) -> int:
 
     command = cast(str, getattr(args, "f10_1f_command", "unknown"))
     handlers: dict[str, Callable[[Any], int]] = {
+        "preflight": _run_preflight,
         "provenance": _run_provenance,
         "status": _run_status,
         "verify": _run_verify,
