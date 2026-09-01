@@ -89,6 +89,11 @@ def register_f10_1f_parser(subparsers: Any) -> argparse.ArgumentParser:
         command.add_argument("--artifact")
         command.add_argument("--file")
         command.add_argument("--dataset-id")
+        if name == "run-report-only":
+            command.add_argument("--authorization")
+            command.add_argument("--gate-b-packet")
+            command.add_argument("--plan")
+            command.add_argument("--evidence-root")
 
     return parent
 
@@ -201,6 +206,56 @@ def _run_gated_placeholder(args: Any) -> int:
     command = cast(str, getattr(args, "f10_1f_command", "unknown"))
     if command not in GATED_COMMANDS:
         return _run_blocked_verify("command_invalid")
+    if command == "run-report-only":
+        # The normal CLI has no artifact decoder or provider factory by design.
+        # Tests and a future separately authorized adapter may inject already
+        # verified objects; absent references remain pre-runtime BLOCK-0.
+        required = ("authorization", "gate_b_packet", "plan", "evidence_root")
+        if not all(getattr(args, item, None) is not None for item in required):
+            return _print_block(command, "gate_c_authorization_required")
+        # Object injection is intentionally the only executable adapter: this
+        # keeps artifact decoding and normal Settings/DB composition outside
+        # this route and makes live providers impossible to obtain implicitly.
+        injected = tuple(
+            getattr(args, item, None)
+            for item in (
+                "authorization_object",
+                "accepted_b_object",
+                "plan_object",
+                "provider",
+            )
+        )
+        if all(item is not None for item in injected):
+            from role_radar.discovery.planner_v2 import DiscoveryQueryPlanV2
+            from role_radar.evaluation.profile_relevant_acquisition.gate_c_authorization import (
+                AcceptedGateBBinding,
+                GateCAuthorization,
+            )
+            from role_radar.evaluation.profile_relevant_acquisition.gate_c_service import (
+                GateCServiceError,
+                OfflineOfficialProvider,
+                execute_gate_c_report_only,
+            )
+
+            try:
+                result = execute_gate_c_report_only(
+                    authorization=cast(GateCAuthorization, injected[0]),
+                    accepted_b=cast(AcceptedGateBBinding, injected[1]),
+                    plan=cast(DiscoveryQueryPlanV2, injected[2]),
+                    provider=cast(OfflineOfficialProvider, injected[3]),
+                    evidence_root=Path(args.evidence_root),
+                )
+            except (GateCServiceError, ValueError) as exc:
+                return _print_block(command, getattr(exc, "code", "gate_c_report_failed"))
+            print(
+                _payload(
+                    command,
+                    "completed",
+                    "gate_c_report_only_completed",
+                    **result.public.as_dict(),
+                )
+            )
+            return 0
     return _print_block(command, live_execution="disabled")
 
 

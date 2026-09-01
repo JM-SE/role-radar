@@ -38,6 +38,8 @@ EXPECTED_MODULES = {
     "capability_seal.py",
     "freeze_runtime.py",
     "gate_b_preflight.py",
+    "gate_c_authorization.py",
+    "gate_c_service.py",
     "output.py",
     "__init__.py",
 }

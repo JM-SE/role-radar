@@ -46,13 +46,15 @@ def test_invalid_acknowledgements_are_block_0_before_any_downstream_call_or_muta
     assert evaluation_f10_1f.run(args) == 2
     payload = json.loads(capsys.readouterr().out)
 
-    assert payload == {
-        "code": "BLOCK-0",
+    expected = {
+        "code": "gate_c_authorization_required" if command == "run-report-only" else "BLOCK-0",
         "command": command,
-        "live_execution": "disabled",
         "result": "blocked",
         "schema_version": "f10.1f-cli-v1",
     }
+    if command != "run-report-only":
+        expected["live_execution"] = "disabled"
+    assert payload == expected
     assert calls == []
     assert mutations == list(before) == []
 
