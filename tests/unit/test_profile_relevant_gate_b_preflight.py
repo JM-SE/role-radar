@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import cast
@@ -62,6 +63,7 @@ def test_valid_explicit_packet_returns_ready_without_writing(tmp_path: Path) -> 
         "code_commit_sha256": HASH,
         "policy_sha256": HASH,
         "profile_sha256": HASH,
+        "packet_sha256": hashlib.sha256(build_packet_bytes(packet)).hexdigest(),
         "result": "ready",
         "schema_version": "f10.1f-gate-b-packet-v1",
     }

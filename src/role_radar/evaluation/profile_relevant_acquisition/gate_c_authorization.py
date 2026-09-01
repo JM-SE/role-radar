@@ -12,6 +12,7 @@ from typing import Final
 
 from role_radar.evaluation.profile_relevant_acquisition.gate_b_preflight import (
     GateBPacket,
+    PreflightReport,
     canonical_packet_bytes,
 )
 
@@ -67,6 +68,7 @@ def _root(value: object) -> None:
 class AcceptedGateBBinding:
     packet: GateBPacket
     packet_sha256: str
+    report: PreflightReport
 
     def __post_init__(self) -> None:
         if not isinstance(self.packet, GateBPacket):
@@ -74,6 +76,18 @@ class AcceptedGateBBinding:
         _hash(self.packet_sha256, "gate_b_packet_hash_invalid")
         if self.packet_sha256 != gate_b_packet_sha256(self.packet):
             raise GateCAuthorizationError("gate_b_packet_hash_mismatch")
+        if not isinstance(self.report, PreflightReport):
+            raise GateCAuthorizationError("gate_b_report_required")
+        if self.report.result != "ready" or self.report.code != "gate_b_packet_ready":
+            raise GateCAuthorizationError("gate_b_report_not_ready")
+        if self.report.packet_sha256 != self.packet_sha256:
+            raise GateCAuthorizationError("gate_b_report_hash_mismatch")
+        if (
+            self.report.code_commit_sha256 != self.packet.code_commit_sha256
+            or self.report.profile_sha256 != self.packet.profile_sha256
+            or self.report.policy_sha256 != self.packet.policy_sha256
+        ):
+            raise GateCAuthorizationError("gate_b_report_binding_mismatch")
 
 
 @dataclass(frozen=True, slots=True)
@@ -212,7 +226,18 @@ def authorize_gate_c(
     if check >= _utc(authorization.expires_at_utc, "authorization_expiry_invalid"):
         raise GateCAuthorizationError("authorization_expired")
     packet = accepted_b.packet
+    report = accepted_b.report
     p = authorization.provenance
+    if report.result != "ready" or report.code != "gate_b_packet_ready":
+        raise GateCAuthorizationError("gate_b_report_not_ready")
+    if report.packet_sha256 != accepted_b.packet_sha256:
+        raise GateCAuthorizationError("gate_b_report_hash_mismatch")
+    if (
+        report.code_commit_sha256 != packet.code_commit_sha256
+        or report.profile_sha256 != packet.profile_sha256
+        or report.policy_sha256 != packet.policy_sha256
+    ):
+        raise GateCAuthorizationError("gate_b_report_binding_mismatch")
     comparisons = (
         (p.gate_b_packet_sha256, accepted_b.packet_sha256, "gate_b_packet_hash_mismatch"),
         (p.candidate_commit_sha256, packet.code_commit_sha256, "candidate_commit_mismatch"),

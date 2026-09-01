@@ -7,6 +7,7 @@ roots, namespaces, or runtime state.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from dataclasses import dataclass
@@ -140,6 +141,7 @@ class PreflightReport:
     code_commit_sha256: str | None = None
     profile_sha256: str | None = None
     policy_sha256: str | None = None
+    packet_sha256: str | None = None
 
     def as_dict(self) -> dict[str, object]:
         payload: dict[str, object] = {
@@ -153,6 +155,7 @@ class PreflightReport:
                     "code_commit_sha256": self.code_commit_sha256,
                     "policy_sha256": self.policy_sha256,
                     "profile_sha256": self.profile_sha256,
+                    "packet_sha256": self.packet_sha256,
                 }
             )
         return payload
@@ -217,6 +220,7 @@ def run_gate_b_preflight(*, path: Path | None, artifact_root: Path | None) -> Pr
             code_commit_sha256=packet.code_commit_sha256,
             profile_sha256=packet.profile_sha256,
             policy_sha256=packet.policy_sha256,
+            packet_sha256=hashlib.sha256(canonical_packet_bytes(packet)).hexdigest(),
         )
     except GateBPreflightError as exc:
         return PreflightReport(result=RESULT_BLOCKED, code=exc.code)
