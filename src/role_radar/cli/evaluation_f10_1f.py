@@ -95,12 +95,13 @@ def _run_provenance(args: Any) -> int:
     filename = getattr(args, "file", None)
     if filename is not None:
         try:
+            from role_radar.evaluation.filesystem import bounded_read_cli
             from role_radar.evaluation.profile_relevant_acquisition.provenance_loader import (
                 ProvenanceLoadError,
                 load_provenance_bytes,
             )
 
-            artifact = load_provenance_bytes(Path(filename).read_bytes())
+            artifact = load_provenance_bytes(bounded_read_cli(Path(filename)))
             if artifact.artifact_class.value != "approved_production":
                 return _print_block("provenance", "artifact_class_not_approved")
             print(

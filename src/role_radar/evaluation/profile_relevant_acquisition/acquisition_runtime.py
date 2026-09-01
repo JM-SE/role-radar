@@ -37,6 +37,12 @@ from role_radar.evaluation.filesystem import (
     ensure_private_root,
     resolve_nofollow,
 )
+from role_radar.evaluation.profile_relevant_acquisition.contracts import (
+    AuthorizationError,
+    ExternalApprovalBinding,
+    SyntheticTestAdapter,
+    require_execution_boundary,
+)
 from role_radar.evaluation.profile_relevant_acquisition.journal import (
     AcquisitionJournal,
     JournalError,
@@ -169,6 +175,13 @@ def _validate_prereg_binding(config: AcquisitionScaffoldConfig) -> None:
             raise AcquisitionError("acquisition_binding_invalid")
 
 
+def _reject_live_transport_for_test_adapter(transport: object) -> None:
+    module = getattr(type(transport), "__module__", "")
+    name = getattr(type(transport), "__name__", "")
+    if module == "httpx" and name not in {"MockTransport"}:
+        raise AcquisitionError("acquisition_production_transport_rejected")
+
+
 def _canonical_bytes(value: Any) -> bytes:
     try:
         return json.dumps(
@@ -257,7 +270,20 @@ def build_collector_context(
     *,
     transport: httpx.AsyncBaseTransport,
     budget: Any | None = None,
+    test_only_adapter: SyntheticTestAdapter | None = None,
+    approval: ExternalApprovalBinding | None = None,
 ) -> CollectorContext:
+    try:
+        require_execution_boundary(
+            artifact_sha256=approval.artifact_sha256 if approval is not None else "",
+            test_only_adapter=test_only_adapter,
+            approval=approval,
+            code="acquisition_execution_authorization_required",
+        )
+    except AuthorizationError as exc:
+        raise AcquisitionError(exc.code) from exc
+    if test_only_adapter is not None:
+        _reject_live_transport_for_test_adapter(transport)
     if not isinstance(transport, httpx.AsyncBaseTransport):
         raise AcquisitionError("acquisition_transport_invalid")
     if transport.__class__.__name__ == "JournaledTransport" and (
@@ -271,7 +297,18 @@ def build_ephemeral_tasks(
     *,
     source_plan: Any,
     context: CollectorContext,
+    test_only_adapter: SyntheticTestAdapter | None = None,
+    approval: ExternalApprovalBinding | None = None,
 ) -> tuple[Any, ...]:
+    try:
+        require_execution_boundary(
+            artifact_sha256=approval.artifact_sha256 if approval is not None else "",
+            test_only_adapter=test_only_adapter,
+            approval=approval,
+            code="acquisition_execution_authorization_required",
+        )
+    except AuthorizationError as exc:
+        raise AcquisitionError(exc.code) from exc
     plan_version: str | None = None
     maybe_version = getattr(source_plan, "plan_version", None)
     if maybe_version is not None:
@@ -304,15 +341,38 @@ async def run_broad_acquisition_scaffold(
     collector_runtime: CollectorRuntime | None = None,
     budget: Any | None = None,
     before_after: Callable[[], tuple[dict[str, Any], dict[str, Any]]] | None = None,
+    test_only_adapter: SyntheticTestAdapter | None = None,
+    approval: ExternalApprovalBinding | None = None,
 ) -> AcquisitionScaffoldResult:
+    try:
+        require_execution_boundary(
+            artifact_sha256=config.provenance_sha256,
+            test_only_adapter=test_only_adapter,
+            approval=approval,
+            code="acquisition_execution_authorization_required",
+        )
+    except AuthorizationError as exc:
+        raise AcquisitionError(exc.code) from exc
+    if test_only_adapter is not None:
+        _reject_live_transport_for_test_adapter(transport)
     _validate_prereg_binding(config)
     if before_after is not None:
         before, _ = before_after()
         before_copy = dict(before)
     else:
         before_copy = None
-    context = build_collector_context(transport=transport, budget=budget)
-    tasks = build_ephemeral_tasks(source_plan=source_plan, context=context)
+    context = build_collector_context(
+        transport=transport,
+        budget=budget,
+        test_only_adapter=test_only_adapter,
+        approval=approval,
+    )
+    tasks = build_ephemeral_tasks(
+        source_plan=source_plan,
+        context=context,
+        test_only_adapter=test_only_adapter,
+        approval=approval,
+    )
     if collector_runtime is not None:
         from role_radar.collectors.registry import create_collector
 
@@ -572,6 +632,8 @@ async def run_gate_d_broad_acquisition(
     checkpoints: dict[str, SourceCheckpoint] | None = None,
     before_after: Callable[[], tuple[dict[str, Any], dict[str, Any]]] | None = None,
     collector_factory: Callable[[SourceSnapshot, CollectorContext], Any] | None = None,
+    test_only_adapter: SyntheticTestAdapter | None = None,
+    approval: ExternalApprovalBinding | None = None,
 ) -> GateDResult:
     """Broad acquisition within approved bounds; no relevance filtering/backfill.
 
@@ -584,6 +646,17 @@ async def run_gate_d_broad_acquisition(
     - Replay skips only when known-complete attempts and checkpoint reconcile.
     - Journal + CollectionRunBudget + checkpoint + manifest reconcile equations verified.
     """
+    try:
+        require_execution_boundary(
+            artifact_sha256=config.provenance_sha256,
+            test_only_adapter=test_only_adapter,
+            approval=approval,
+            code="acquisition_execution_authorization_required",
+        )
+    except AuthorizationError as exc:
+        raise AcquisitionError(exc.code) from exc
+    if test_only_adapter is not None:
+        _reject_live_transport_for_test_adapter(delegate)
     _validate_prereg_binding(config)
     if before_after is not None:
         before, _ = before_after()
@@ -603,8 +676,18 @@ async def run_gate_d_broad_acquisition(
     root = evidence_root if evidence_root is not None else config.evidence_root
 
     # Build ephemeral tasks with a base context (no transport yet; per-source transport below)
-    base_context = build_collector_context(transport=delegate, budget=effective_budget)
-    tasks = build_ephemeral_tasks(source_plan=source_plan, context=base_context)
+    base_context = build_collector_context(
+        transport=delegate,
+        budget=effective_budget,
+        test_only_adapter=test_only_adapter,
+        approval=approval,
+    )
+    tasks = build_ephemeral_tasks(
+        source_plan=source_plan,
+        context=base_context,
+        test_only_adapter=test_only_adapter,
+        approval=approval,
+    )
 
     # No source replacement: task count must equal plan config count if plan exposes it
     plan_configs = None

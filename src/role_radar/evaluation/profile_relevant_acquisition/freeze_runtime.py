@@ -55,6 +55,12 @@ from role_radar.evaluation.profile_relevant_acquisition.capability_seal import (
     verify_capability_set,
     write_capability_seal,
 )
+from role_radar.evaluation.profile_relevant_acquisition.contracts import (
+    AuthorizationError,
+    ExternalApprovalBinding,
+    SyntheticTestAdapter,
+    require_execution_boundary,
+)
 from role_radar.evaluation.profile_relevant_acquisition.manifest import (
     DatasetManifest,
     ManifestError,
@@ -66,8 +72,6 @@ from role_radar.evaluation.profile_relevant_acquisition.manifest import (
     verify_manifest_chain,
 )
 from role_radar.evaluation.profile_relevant_acquisition.provenance import (
-    LIVE_NAMESPACE,
-    LIVE_ROOT,
     ProvenanceBundle,
     ProvenanceError,
     validate_provenance,
@@ -96,6 +100,7 @@ HOLDOUT_BINDING_LOGICAL_NAME: Final[str] = "holdout_binding"
 
 DATASET_ID_RE: Final[re.Pattern[str]] = re.compile(r"^[0-9a-f]{64}$")
 LOGICAL_NAME_RE: Final[re.Pattern[str]] = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+NAMESPACE_RE: Final[re.Pattern[str]] = re.compile(r"^[a-z0-9][a-z0-9\-]+[a-z0-9]$")
 MAX_TOTAL_PAYLOAD_BYTES: Final[int] = 64 * 1024 * 1024
 
 # Recursive denylist for sanitized external output — exact keys only.
@@ -157,6 +162,8 @@ class FreezeBindings:
     corpus_count: int
     pilot_count: int
     holdout_count: int
+    per_board_cap: int
+    per_company_cap: int
     namespace: str
     root: str
 
@@ -178,8 +185,10 @@ class FreezeBindings:
             _require_positive_int(getattr(self, name), "freeze_binding_count_invalid")
         if self.corpus_count != self.pilot_count + self.holdout_count:
             raise FreezeError("freeze_cardinality_mismatch")
-        if not isinstance(self.namespace, str) or self.namespace != LIVE_NAMESPACE:
-            raise FreezeError("freeze_namespace_mismatch")
+        for value in (self.per_board_cap, self.per_company_cap):
+            _require_positive_int(value, "freeze_cap_invalid")
+        if not isinstance(self.namespace, str) or NAMESPACE_RE.fullmatch(self.namespace) is None:
+            raise FreezeError("freeze_namespace_invalid")
         if not isinstance(self.root, str) or not self.root.startswith("/"):
             raise FreezeError("freeze_root_invalid")
 
@@ -605,8 +614,23 @@ def run_freeze_transaction(
     bindings: FreezeBindings,
     payloads: MaterializedPayloads,
     provenance: ProvenanceBundle,
+    test_only_adapter: SyntheticTestAdapter | None = None,
+    approval: ExternalApprovalBinding | None = None,
 ) -> FrozenBenchmark:
     """Execute the one immutable publish/verify/capability-seal transaction."""
+    try:
+        require_execution_boundary(
+            artifact_sha256=provenance.provenance_sha256
+            if isinstance(provenance, ProvenanceBundle)
+            else "",
+            test_only_adapter=test_only_adapter,
+            approval=approval,
+            code="freeze_execution_authorization_required",
+        )
+    except AuthorizationError as exc:
+        raise FreezeError(exc.code) from exc
+    if test_only_adapter is not None and str(root).startswith("/opt/"):
+        raise FreezeError("freeze_production_root_rejected")
     # -- revalidation of upstream bindings (never originates design values) --
     if not isinstance(provenance, ProvenanceBundle):
         raise FreezeError("freeze_provenance_invalid")
@@ -618,14 +642,25 @@ def run_freeze_transaction(
         raise FreezeError("freeze_provenance_mismatch")
     if provenance.inventory_sha256 != bindings.inventory_sha256:
         raise FreezeError("freeze_inventory_mismatch")
+    if (
+        provenance.corpus_total != bindings.corpus_count
+        or provenance.pilot_count != bindings.pilot_count
+        or provenance.holdout_count != bindings.holdout_count
+    ):
+        raise FreezeError("freeze_cardinality_mismatch")
+    if (
+        provenance.per_board_cap != bindings.per_board_cap
+        or provenance.per_company_cap != bindings.per_company_cap
+    ):
+        raise FreezeError("freeze_cap_mismatch")
     if provenance.namespace != bindings.namespace:
         raise FreezeError("freeze_lineage_mismatch")
+    if provenance.root != bindings.root:
+        raise FreezeError("freeze_root_binding_mismatch")
     if DATASET_ID_RE.fullmatch(bindings.dataset_id) is None:
         raise FreezeError("freeze_dataset_id_invalid")
-    # Root binding: exact match required; live deployments additionally pin /opt.
+    # Root binding: exact match required; no default or legacy root is used.
     if str(root) != bindings.root:
-        raise FreezeError("freeze_root_mismatch")
-    if str(root).startswith("/opt/") and str(root) != LIVE_ROOT:
         raise FreezeError("freeze_root_mismatch")
     try:
         ensure_private_root(root)
@@ -830,6 +865,8 @@ def verify_frozen_publication(
     root: Path,
     benchmark: FrozenBenchmark,
     payloads: MaterializedPayloads | None = None,
+    test_only_adapter: SyntheticTestAdapter | None = None,
+    approval: ExternalApprovalBinding | None = None,
 ) -> bool:
     """Read-only post-freeze verification of the published tree and seals.
 
@@ -837,6 +874,14 @@ def verify_frozen_publication(
     every group checksum is recomputed against the receipt-bound hashes.
     """
     try:
+        require_execution_boundary(
+            artifact_sha256=benchmark.receipt.receipt_sha256,
+            test_only_adapter=test_only_adapter,
+            approval=approval,
+            code="freeze_verify_authorization_required",
+        )
+        if test_only_adapter is not None and str(root).startswith("/opt/"):
+            return False
         ensure_private_root(root)
         dataset_dir = _ds_path(root, benchmark.dataset_id)
         if not dataset_dir.is_dir() or dataset_dir.is_symlink():

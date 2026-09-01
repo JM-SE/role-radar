@@ -21,6 +21,12 @@ from role_radar.evaluation.profile_relevance.contracts import (
 )
 from role_radar.evaluation.profile_relevance.materialization import materialize_payload_bytes
 from role_radar.evaluation.profile_relevance.preview_workflow import compute_preview
+from role_radar.evaluation.profile_relevant_acquisition.contracts import (
+    AuthorizationError,
+    ExternalApprovalBinding,
+    SyntheticTestAdapter,
+    require_execution_boundary,
+)
 
 GATE_F_MATERIALIZATION_HASH_DOMAIN: Final[str] = "role-radar:f10.1f:gate-f:materialization-hash:v1"
 GATE_F_MATERIALIZATION_CHALLENGE_DOMAIN: Final[str] = "role-radar:f10.1f:gate-f:challenge:v1"
@@ -116,12 +122,25 @@ def run_gate_f_materialization(
     *,
     approved_preview: ApprovedPreview,
     materialization_context: MaterializationContext,
+    test_only_adapter: SyntheticTestAdapter | None = None,
+    approval: ExternalApprovalBinding | None = None,
 ) -> MaterializedPayloads:
     """Validate, recompute with exact equality, then materialize payload bytes.
 
     This is the sole live gate permitted to call ``materialize_payload_bytes``.
     """
     ap = _validate_approved_preview(approved_preview)
+    try:
+        require_execution_boundary(
+            artifact_sha256=ap.preview_input_sha256,
+            test_only_adapter=test_only_adapter,
+            approval=approval,
+            code="gate_f_execution_authorization_required",
+        )
+    except AuthorizationError as exc:
+        raise GateFError(exc.code) from exc
+    if approval is not None and approval.approval_binding_sha256 != ap.approval_binding_sha256:
+        raise GateFError("gate_f_approval_binding_mismatch")
     ctx = _validate_materialization_context(materialization_context)
     _recompute_and_require_exact_equality(approved_preview=ap, materialization_context=ctx)
     # Materialization recomputes/verifies bindings again before byte construction.

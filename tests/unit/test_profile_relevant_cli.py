@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from argparse import Namespace
+from pathlib import Path
 from typing import cast
 
 import pytest
@@ -88,3 +89,20 @@ def test_main_dispatches_f10_1f_before_settings(
         "result": "blocked",
         "schema_version": "f10.1f-cli-v1",
     }
+
+
+def test_provenance_file_read_rejects_absolute_symlink_and_oversized_paths(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    root = tmp_path
+    allowed = root / "artifact.json"
+    allowed.write_bytes(b"{}\n")
+    (root / "link.json").symlink_to(allowed)
+    (root / "large.json").write_bytes(b"x" * (128 * 1024 + 1))
+    monkeypatch.chdir(root)
+
+    for filename in (str(allowed), "link.json", "large.json"):
+        assert evaluation_f10_1f.run(Namespace(f10_1f_command="provenance", file=filename)) == 2
+        assert _json(capsys)["code"] == "provenance_invalid"

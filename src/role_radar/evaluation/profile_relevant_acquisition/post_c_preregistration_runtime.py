@@ -44,6 +44,8 @@ def run_post_c_preregistration_runtime(
         provenance.lineage_id
     ):
         raise PostCPreregistrationError("post_c_lineage_mismatch")
+    if challenge.policy_sha256 != provenance.policy_sha256:
+        raise PostCPreregistrationError("post_c_policy_mismatch")
     if seeds != provenance.seed_inputs or seeds != challenge.seed_inputs:
         raise PostCPreregistrationError("post_c_seed_mismatch")
     if expected_challenge_sha256 is not None and challenge.challenge_sha256 != (

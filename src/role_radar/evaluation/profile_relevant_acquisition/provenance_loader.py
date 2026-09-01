@@ -9,8 +9,10 @@ from typing import Any, Final
 
 from role_radar.evaluation.profile_relevant_acquisition.contracts import (
     ArtifactClass,
+    ExternalApprovalBinding,
     ProvenanceArtifact,
     SeedInputs,
+    require_execution_boundary,
 )
 
 MAX_PROVENANCE_BYTES: Final[int] = 128 * 1024
@@ -81,7 +83,9 @@ def _object(raw: bytes) -> dict[str, Any]:
     return value
 
 
-def load_provenance_bytes(raw: bytes) -> ProvenanceArtifact:
+def load_provenance_bytes(
+    raw: bytes, *, approval: ExternalApprovalBinding | None = None
+) -> ProvenanceArtifact:
     value = _object(raw)
     if value["schema_version"] != PROVENANCE_SCHEMA:
         raise ProvenanceLoadError("provenance_schema_invalid")
@@ -126,6 +130,18 @@ def load_provenance_bytes(raw: bytes) -> ProvenanceArtifact:
     del unsigned["provenance_sha256"]
     if supplied_digest != provenance_hash(_canonical(unsigned)):
         raise ProvenanceLoadError("provenance_hash_mismatch")
+    if artifact_class is ArtifactClass.APPROVED_PRODUCTION:
+        try:
+            require_execution_boundary(
+                artifact_sha256=supplied_digest,
+                test_only_adapter=None,
+                approval=approval,
+                code="provenance_external_approval_required",
+            )
+        except ValueError as exc:
+            raise ProvenanceLoadError(
+                getattr(exc, "code", "provenance_external_approval_required")
+            ) from exc
     try:
         return ProvenanceArtifact(
             schema_version=PROVENANCE_SCHEMA,
@@ -158,6 +174,9 @@ def build_provenance_bytes(
 ) -> bytes:
     """Build explicit synthetic/test bytes without supplying defaults."""
 
+    if artifact_class is ArtifactClass.APPROVED_PRODUCTION:
+        raise ProvenanceLoadError("provenance_approved_class_builder_forbidden")
+
     value = {
         "artifact_class": artifact_class.value,
         "commit_sha256": commit_sha256,
@@ -178,10 +197,12 @@ def build_provenance_bytes(
     return raw
 
 
-def load_provenance(value: Mapping[str, object]) -> ProvenanceArtifact:
+def load_provenance(
+    value: Mapping[str, object], *, approval: ExternalApprovalBinding | None = None
+) -> ProvenanceArtifact:
     if not isinstance(value, Mapping):
         raise ProvenanceLoadError("provenance_object_invalid")
-    return load_provenance_bytes(_canonical(dict(value)) + b"\n")
+    return load_provenance_bytes(_canonical(dict(value)) + b"\n", approval=approval)
 
 
 __all__ = [

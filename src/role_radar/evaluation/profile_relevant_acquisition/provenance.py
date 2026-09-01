@@ -1,8 +1,8 @@
 """Pre-Gate-C provenance bundle — immutable, validated before any Gate C request.
 
 Binds exact commit/diff/status, lock identity, Alembic head, profile/policy/plan
-hashes, source-independent formulas, caps, cardinalities (LIVE 200/60/140),
-window, namespace, inventory hash, and proof old hashes unchanged.
+hashes, source-independent formulas, explicit caps/cardinalities, window,
+namespace, root, inventory hash, and proof old hashes unchanged.
 
 No defaults for unresolved values; source-specific matrices remain not-yet-applicable.
 No live network, no historical holdout read.
@@ -22,14 +22,6 @@ HEX64_RE: Final[re.Pattern[str]] = re.compile(r"^[0-9a-f]{64}$")
 HEX40_RE: Final[re.Pattern[str]] = re.compile(r"^[0-9a-f]{40}$")
 NAMESPACE_RE: Final[re.Pattern[str]] = re.compile(r"^[a-z0-9][a-z0-9\-]+[a-z0-9]$")
 
-# Live prereg — frozen global targets (pre-Gate-C)
-LIVE_CORPUS_TOTAL: Final[int] = 200
-LIVE_PILOT: Final[int] = 60
-LIVE_HOLDOUT: Final[int] = 140
-LIVE_PER_BOARD_CAP: Final[int] = 4
-LIVE_PER_COMPANY_CAP: Final[int] = 2
-LIVE_NAMESPACE: Final[str] = "f10-1f-20260825-a7f3c9"
-LIVE_ROOT: Final[str] = "/opt/role-radar/data/evaluation/f10.1f/a7f3c9"
 SCHEMA_PROVENANCE: Final[str] = "f10.1f-provenance-pre-gate-c-v1"
 DOMAIN_PROVENANCE: Final[str] = "role-radar:f10.1f:provenance:pre-gate-c:v1"
 ALEMBIC_HEAD_F10_1B: Final[str] = "f101b_continuous"
@@ -114,24 +106,25 @@ class ProvenanceBundle:
     def __post_init__(self) -> None:
         if self.schema_version != SCHEMA_PROVENANCE:
             raise ProvenanceError("provenance_schema_invalid")
-        if self.corpus_total != LIVE_CORPUS_TOTAL:
+        for name in (
+            "corpus_total",
+            "pilot_count",
+            "holdout_count",
+            "per_board_cap",
+            "per_company_cap",
+        ):
+            value = getattr(self, name)
+            if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+                raise ProvenanceError("provenance_cardinality_invalid")
+        if self.corpus_total != self.pilot_count + self.holdout_count:
             raise ProvenanceError("provenance_cardinality_mismatch")
-        if self.pilot_count != LIVE_PILOT:
-            raise ProvenanceError("provenance_cardinality_mismatch")
-        if self.holdout_count != LIVE_HOLDOUT:
-            raise ProvenanceError("provenance_cardinality_mismatch")
-        if self.per_board_cap != LIVE_PER_BOARD_CAP:
-            raise ProvenanceError("provenance_cap_mismatch")
-        if self.per_company_cap != LIVE_PER_COMPANY_CAP:
-            raise ProvenanceError("provenance_cap_mismatch")
-        if self.namespace != LIVE_NAMESPACE:
-            raise ProvenanceError("provenance_namespace_mismatch")
-        if self.root != LIVE_ROOT:
-            raise ProvenanceError("provenance_root_mismatch")
         if self.source_plan_hash is not None:
             raise ProvenanceError("provenance_source_plan_must_be_null_pre_gate_c")
         if NAMESPACE_RE.fullmatch(self.namespace) is None:
             raise ProvenanceError("provenance_namespace_invalid")
+        if not isinstance(self.root, str) or not self.root.startswith("/"):
+            raise ProvenanceError("provenance_root_invalid")
+        _validate_root_not_historical(self.root)
         if not isinstance(self.canonical_bytes, bytes):
             raise ProvenanceError("provenance_bytes_invalid")
 
@@ -170,6 +163,13 @@ def build_provenance_bundle(
     old_artifact_hashes: Mapping[str, str],
     selection_seed: str,
     partition_seed: str,
+    per_board_cap: int,
+    per_company_cap: int,
+    corpus_total: int,
+    pilot_count: int,
+    holdout_count: int,
+    namespace: str,
+    root: str,
 ) -> ProvenanceBundle:
     """Construct and hash bundle; fails closed if any binding invalid."""
 
@@ -190,6 +190,16 @@ def build_provenance_bundle(
     _require_hex64(inventory_sha256, "provenance_inventory_invalid")
     _require_hex64(selection_seed, "provenance_selection_seed_invalid")
     _require_hex64(partition_seed, "provenance_partition_seed_invalid")
+    if not isinstance(namespace, str) or NAMESPACE_RE.fullmatch(namespace) is None:
+        raise ProvenanceError("provenance_namespace_invalid")
+    if not isinstance(root, str) or not root.startswith("/"):
+        raise ProvenanceError("provenance_root_invalid")
+    _validate_root_not_historical(root)
+    for value in (per_board_cap, per_company_cap, corpus_total, pilot_count, holdout_count):
+        if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+            raise ProvenanceError("provenance_cardinality_invalid")
+    if corpus_total != pilot_count + holdout_count:
+        raise ProvenanceError("provenance_cardinality_mismatch")
     sel_hash = hashlib.sha256(selection_seed.encode("ascii")).hexdigest()
     par_hash = hashlib.sha256(partition_seed.encode("ascii")).hexdigest()
     _require_hex64(sel_hash, "provenance_seed_invalid")
@@ -204,31 +214,30 @@ def build_provenance_bundle(
         raise ProvenanceError("provenance_window_invalid")
     if cutoff_utc < window_start_utc or cutoff_utc > window_end_utc:
         raise ProvenanceError("provenance_cutoff_invalid")
-    _validate_root_not_historical(LIVE_ROOT)
     old_sorted = tuple(sorted(old_artifact_hashes.items()))
     payload: dict[str, Any] = {
         "alembic_head": alembic_head,
         "commit_sha": commit_sha,
-        "corpus_total": LIVE_CORPUS_TOTAL,
+        "corpus_total": corpus_total,
         "cutoff_utc": cutoff_utc,
         "diff_sha256": diff_sha256,
         "discovery_policy_sha256": discovery_policy_sha256,
         "display_contract_sha256": display_contract_sha256,
-        "holdout_count": LIVE_HOLDOUT,
+        "holdout_count": holdout_count,
         "inventory_sha256": inventory_sha256,
         "lock_sha256": lock_sha256,
-        "namespace": LIVE_NAMESPACE,
+        "namespace": namespace,
         "old_artifact_hashes": [[k, v] for k, v in old_sorted],
         "partition_formula_sha256": partition_formula_sha256,
         "partition_seed_sha256": hashlib.sha256(partition_seed.encode("ascii")).hexdigest(),
-        "per_board_cap": LIVE_PER_BOARD_CAP,
-        "per_company_cap": LIVE_PER_COMPANY_CAP,
-        "pilot_count": LIVE_PILOT,
+        "per_board_cap": per_board_cap,
+        "per_company_cap": per_company_cap,
+        "pilot_count": pilot_count,
         "planner_sha256": planner_sha256,
         "profile_binding_sha256": profile_binding_sha256,
         "query_plan_sha256": query_plan_sha256,
         "relevance_policy_sha256": relevance_policy_sha256,
-        "root": LIVE_ROOT,
+        "root": root,
         "sampling_formula_sha256": sampling_formula_sha256,
         "schema_version": SCHEMA_PROVENANCE,
         "selection_seed": selection_seed,
@@ -257,16 +266,16 @@ def build_provenance_bundle(
         query_plan_sha256=query_plan_sha256,
         sampling_formula_sha256=sampling_formula_sha256,
         partition_formula_sha256=partition_formula_sha256,
-        per_board_cap=LIVE_PER_BOARD_CAP,
-        per_company_cap=LIVE_PER_COMPANY_CAP,
-        corpus_total=LIVE_CORPUS_TOTAL,
-        pilot_count=LIVE_PILOT,
-        holdout_count=LIVE_HOLDOUT,
+        per_board_cap=per_board_cap,
+        per_company_cap=per_company_cap,
+        corpus_total=corpus_total,
+        pilot_count=pilot_count,
+        holdout_count=holdout_count,
         window_start_utc=window_start_utc,
         window_end_utc=window_end_utc,
         cutoff_utc=cutoff_utc,
-        namespace=LIVE_NAMESPACE,
-        root=LIVE_ROOT,
+        namespace=namespace,
+        root=root,
         inventory_sha256=inventory_sha256,
         old_artifact_hashes=old_sorted,
         selection_seed_sha256=hashlib.sha256(selection_seed.encode("ascii")).hexdigest(),
@@ -281,14 +290,39 @@ def validate_provenance(bundle: ProvenanceBundle) -> None:
 
     if not isinstance(bundle, ProvenanceBundle):
         raise ProvenanceError("provenance_bundle_invalid")
+    # ``dataclasses.replace`` bypasses ``__post_init__``; rerun the complete
+    # explicit-value validation before accepting a replayed bundle.
+    try:
+        bundle.__post_init__()
+    except ProvenanceError:
+        raise
+    except (TypeError, ValueError) as exc:
+        raise ProvenanceError("provenance_bundle_invalid") from exc
     # recompute canonical and hash
-    payload: dict[str, Any] = json.loads(bundle.canonical_bytes.decode("utf-8"))
+    try:
+        payload: dict[str, Any] = json.loads(bundle.canonical_bytes.decode("utf-8"))
+    except (TypeError, ValueError, UnicodeError) as exc:
+        raise ProvenanceError("provenance_canonical_invalid") from exc
+    if not isinstance(payload, dict):
+        raise ProvenanceError("provenance_canonical_invalid")
     recomputed = _canonical_bytes(payload)
     if recomputed != bundle.canonical_bytes:
         raise ProvenanceError("provenance_canonical_mismatch")
     expected = _domain_hash(DOMAIN_PROVENANCE, bundle.canonical_bytes)
     if expected != bundle.provenance_sha256:
         raise ProvenanceError("provenance_hash_mismatch")
+    for key, expected_value in (
+        ("namespace", bundle.namespace),
+        ("root", bundle.root),
+        ("corpus_total", bundle.corpus_total),
+        ("pilot_count", bundle.pilot_count),
+        ("holdout_count", bundle.holdout_count),
+        ("per_board_cap", bundle.per_board_cap),
+        ("per_company_cap", bundle.per_company_cap),
+        ("source_plan_hash", bundle.source_plan_hash),
+    ):
+        if payload.get(key) != expected_value:
+            raise ProvenanceError("provenance_binding_mismatch")
     # re-check no source plan pre-Gate-C
     if bundle.source_plan_hash is not None:
         raise ProvenanceError("provenance_source_plan_must_be_null_pre_gate_c")
@@ -333,6 +367,13 @@ def load_provenance_bytes(path: Path) -> ProvenanceBundle:
         "old_artifact_hashes",
         "selection_seed",
         "partition_seed",
+        "per_board_cap",
+        "per_company_cap",
+        "corpus_total",
+        "pilot_count",
+        "holdout_count",
+        "namespace",
+        "root",
     ]
     for key in required:
         if key not in data:
@@ -359,6 +400,13 @@ def load_provenance_bytes(path: Path) -> ProvenanceBundle:
         old_artifact_hashes=old,
         selection_seed=str(data["selection_seed"]),
         partition_seed=str(data["partition_seed"]),
+        per_board_cap=int(data["per_board_cap"]),
+        per_company_cap=int(data["per_company_cap"]),
+        corpus_total=int(data["corpus_total"]),
+        pilot_count=int(data["pilot_count"]),
+        holdout_count=int(data["holdout_count"]),
+        namespace=str(data["namespace"]),
+        root=str(data["root"]),
     )
     # verify canonical matches persisted provenance_sha256 if present
     if data.get("provenance_sha256") and data["provenance_sha256"] != bundle.provenance_sha256:
@@ -369,13 +417,6 @@ def load_provenance_bytes(path: Path) -> ProvenanceBundle:
 __all__ = [
     "ALEMBIC_HEAD_F10_1B",
     "DOMAIN_PROVENANCE",
-    "LIVE_CORPUS_TOTAL",
-    "LIVE_HOLDOUT",
-    "LIVE_NAMESPACE",
-    "LIVE_PER_BOARD_CAP",
-    "LIVE_PER_COMPANY_CAP",
-    "LIVE_PILOT",
-    "LIVE_ROOT",
     "SCHEMA_PROVENANCE",
     "ProvenanceBundle",
     "ProvenanceError",

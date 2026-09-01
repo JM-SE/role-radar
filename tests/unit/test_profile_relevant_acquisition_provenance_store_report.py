@@ -20,13 +20,6 @@ from role_radar.evaluation.profile_relevant_acquisition.discovery_runtime import
 )
 from role_radar.evaluation.profile_relevant_acquisition.provenance import (
     ALEMBIC_HEAD_F10_1B,
-    LIVE_CORPUS_TOTAL,
-    LIVE_HOLDOUT,
-    LIVE_NAMESPACE,
-    LIVE_PER_BOARD_CAP,
-    LIVE_PER_COMPANY_CAP,
-    LIVE_PILOT,
-    LIVE_ROOT,
     ProvenanceBundle,
     ProvenanceError,
     build_provenance_bundle,
@@ -39,7 +32,7 @@ from role_radar.evaluation.profile_relevant_acquisition.store import (
 from tests.unit.test_discovery_planner_v2 import policy, terms
 
 
-def _provenance() -> ProvenanceBundle:
+def _provenance(*, root: str = "/tmp/role-radar-f10-1f-test") -> ProvenanceBundle:
     values = {
         "diff_sha256": "d" * 64,
         "status_sha256": "e" * 64,
@@ -63,17 +56,23 @@ def _provenance() -> ProvenanceBundle:
         old_artifact_hashes={"lock": "0" * 64},
         selection_seed="a" * 64,
         partition_seed="b" * 64,
+        per_board_cap=4,
+        per_company_cap=2,
+        corpus_total=4,
+        pilot_count=2,
+        holdout_count=2,
+        namespace="synthetic-f10-1f",
+        root=root,
         **values,
     )
 
 
-def test_provenance_uses_live_constants_and_null_pre_gate_c_source_plan() -> None:
+def test_provenance_requires_explicit_design_and_null_pre_gate_c_source_plan() -> None:
     bundle = _provenance()
 
-    assert (LIVE_CORPUS_TOTAL, LIVE_PILOT, LIVE_HOLDOUT) == (200, 60, 140)
-    assert (LIVE_PER_BOARD_CAP, LIVE_PER_COMPANY_CAP) == (4, 2)
-    assert bundle.namespace == LIVE_NAMESPACE
-    assert bundle.root == LIVE_ROOT
+    assert (bundle.corpus_total, bundle.pilot_count, bundle.holdout_count) == (4, 2, 2)
+    assert (bundle.per_board_cap, bundle.per_company_cap) == (4, 2)
+    assert bundle.namespace == "synthetic-f10-1f"
     assert bundle.source_plan_hash is None
     assert json.loads(bundle.canonical_bytes)["source_plan_hash"] is None
     validate_provenance(bundle)
@@ -121,13 +120,20 @@ def _provenance_with(**overrides: str) -> ProvenanceBundle:
         window_end_utc="2026-08-25T01:00:00Z",
         cutoff_utc="2026-08-25T00:30:00Z",
         old_artifact_hashes={"lock": "0" * 64},
+        per_board_cap=4,
+        per_company_cap=2,
+        corpus_total=4,
+        pilot_count=2,
+        holdout_count=2,
+        namespace="synthetic-f10-1f",
+        root="/tmp/role-radar-f10-1f-test",
         **values,
         **kwargs,
     )
 
 
 def test_private_store_is_namespace_bound_and_idempotent(tmp_path: Path) -> None:
-    store = ProfileRelevantAcquisitionStore(tmp_path / "f10-1f")
+    store = ProfileRelevantAcquisitionStore(tmp_path / "f10-1f", "synthetic-f10-1f")
     dataset_id = "a" * 64
     pool = (b'{"external_id":"1"}\n',)
     manifest = {"schema": "sealed-pool", "count": 1}
@@ -149,7 +155,7 @@ def test_private_store_is_namespace_bound_and_idempotent(tmp_path: Path) -> None
 
     seal = build_capability_seal(
         dataset_id=dataset_id,
-        namespace=LIVE_NAMESPACE,
+        namespace="synthetic-f10-1f",
         root=str(store.root),
         kind="private",
         payloads_sha256="b" * 64,
@@ -163,8 +169,8 @@ def test_private_store_is_namespace_bound_and_idempotent(tmp_path: Path) -> None
     assert cap_conflict.value.code == "store_capability_conflict"
 
     with pytest.raises(StoreError) as namespace:
-        ProfileRelevantAcquisitionStore(tmp_path / "other", namespace="not-live")
-    assert namespace.value.code == "store_namespace_mismatch"
+        ProfileRelevantAcquisitionStore(tmp_path / "other", namespace="NOT_VALID")
+    assert namespace.value.code == "store_namespace_invalid"
 
 
 def test_report_only_is_zero_mutation_and_sanitizes_evidence(tmp_path: Path) -> None:

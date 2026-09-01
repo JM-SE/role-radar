@@ -10,7 +10,9 @@ from typing import Any, Final
 from role_radar.evaluation.profile_relevant_acquisition.contracts import (
     ArtifactClass,
     ChallengeArtifact,
+    ExternalApprovalBinding,
     SeedInputs,
+    require_execution_boundary,
 )
 
 MAX_CHALLENGE_BYTES: Final[int] = 64 * 1024
@@ -81,7 +83,12 @@ def _object(raw: bytes) -> dict[str, Any]:
     return value
 
 
-def load_challenge_bytes(raw: bytes, *, expected_gate: str | None = None) -> ChallengeArtifact:
+def load_challenge_bytes(
+    raw: bytes,
+    *,
+    expected_gate: str | None = None,
+    approval: ExternalApprovalBinding | None = None,
+) -> ChallengeArtifact:
     """Parse exactly one canonical challenge and verify its domain hash.
 
     The optional gate argument is an assertion, not a conversion mechanism:
@@ -140,6 +147,18 @@ def load_challenge_bytes(raw: bytes, *, expected_gate: str | None = None) -> Cha
     digest = challenge_hash(_canonical(unsigned))
     if supplied_digest != digest:
         raise ChallengeLoadError("challenge_hash_mismatch")
+    if artifact_class is ArtifactClass.APPROVED_PRODUCTION:
+        try:
+            require_execution_boundary(
+                artifact_sha256=supplied_digest,
+                test_only_adapter=None,
+                approval=approval,
+                code="challenge_external_approval_required",
+            )
+        except ValueError as exc:
+            raise ChallengeLoadError(
+                getattr(exc, "code", "challenge_external_approval_required")
+            ) from exc
     try:
         return ChallengeArtifact(
             schema_version=CHALLENGE_SCHEMA,
@@ -171,6 +190,9 @@ def build_challenge_bytes(
 ) -> bytes:
     """Build explicit synthetic/test bytes without any runtime defaults."""
 
+    if artifact_class is ArtifactClass.APPROVED_PRODUCTION:
+        raise ChallengeLoadError("challenge_approved_class_builder_forbidden")
+
     value = {
         "artifact_class": artifact_class.value,
         "gate": gate,
@@ -192,13 +214,18 @@ def build_challenge_bytes(
 
 
 def load_challenge(
-    value: Mapping[str, object], *, expected_gate: str | None = None
+    value: Mapping[str, object],
+    *,
+    expected_gate: str | None = None,
+    approval: ExternalApprovalBinding | None = None,
 ) -> ChallengeArtifact:
     """Strict mapping adapter; it never fills missing fields or coerces gates."""
 
     if not isinstance(value, Mapping):
         raise ChallengeLoadError("challenge_object_invalid")
-    return load_challenge_bytes(_canonical(dict(value)) + b"\n", expected_gate=expected_gate)
+    return load_challenge_bytes(
+        _canonical(dict(value)) + b"\n", expected_gate=expected_gate, approval=approval
+    )
 
 
 __all__ = [

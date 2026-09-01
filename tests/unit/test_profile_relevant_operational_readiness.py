@@ -159,3 +159,86 @@ def test_invalid_artifact_or_production_dependency_never_delegates() -> None:
         )
     assert exc.value.code == "gate_c_wrong_challenge"
     assert calls == []
+
+
+def test_post_c_policy_binding_mismatch_never_delegates() -> None:
+    challenge, provenance = _artifacts("post-C")
+    calls: list[str] = []
+    altered = type(provenance)(
+        provenance.schema_version,
+        provenance.operation_id,
+        provenance.lineage_id,
+        provenance.commit_sha256,
+        provenance.window_sha256,
+        provenance.namespace_sha256,
+        "d" * 64,
+        provenance.artifact_class,
+        provenance.seed_inputs,
+        provenance.provenance_sha256,
+        provenance.canonical_bytes,
+    )
+    with pytest.raises(ValueError) as exc:
+        run_post_c_preregistration_runtime(
+            challenge=challenge,
+            provenance=altered,
+            seeds=provenance.seed_inputs,
+            delegate=lambda: calls.append("called"),
+            offline_harness=True,
+        )
+    assert getattr(exc.value, "code", "") == "post_c_policy_mismatch"
+    assert calls == []
+
+
+def test_gate_f_forbidden_callable_never_runs() -> None:
+    challenge, provenance = _artifacts("F")
+    calls: list[str] = []
+
+    class ForbiddenCallable:
+        execute = object()
+
+        def __call__(self) -> None:
+            calls.append("called")
+
+    with pytest.raises(ValueError) as exc:
+        run_gate_f_runtime(
+            challenge=challenge,
+            provenance=provenance,
+            materializer=ForbiddenCallable(),
+            offline_harness=True,
+        )
+    assert getattr(exc.value, "code", "") == "gate_f_production_dependency_forbidden"
+    assert calls == []
+
+
+def test_builders_cannot_self_label_approved_production() -> None:
+    with pytest.raises(ChallengeLoadError) as challenge_error:
+        build_challenge_bytes(
+            gate="C",
+            operation_id="op",
+            lineage_id="lineage",
+            artifact_class=ArtifactClass.APPROVED_PRODUCTION,
+            selection_seed=SELECTION,
+            partition_seed=PARTITION,
+            policy_sha256=HASH,
+            payload_sha256=HASH,
+        )
+    assert challenge_error.value.code == "challenge_approved_class_builder_forbidden"
+
+    from role_radar.evaluation.profile_relevant_acquisition.provenance_loader import (
+        ProvenanceLoadError,
+        build_provenance_bytes,
+    )
+
+    with pytest.raises(ProvenanceLoadError) as provenance_error:
+        build_provenance_bytes(
+            operation_id="op",
+            lineage_id="lineage",
+            commit_sha256=HASH,
+            window_sha256=HASH,
+            namespace_sha256=HASH,
+            policy_sha256=HASH,
+            artifact_class=ArtifactClass.APPROVED_PRODUCTION,
+            selection_seed=SELECTION,
+            partition_seed=PARTITION,
+        )
+    assert provenance_error.value.code == "provenance_approved_class_builder_forbidden"

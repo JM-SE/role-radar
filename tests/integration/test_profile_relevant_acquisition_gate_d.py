@@ -23,6 +23,9 @@ from role_radar.evaluation.profile_relevant_acquisition.acquisition_runtime impo
     assert_mixed_board_sealed,
     run_gate_d_broad_acquisition,
 )
+from role_radar.evaluation.profile_relevant_acquisition.contracts import (
+    synthetic_test_adapter,
+)
 from role_radar.evaluation.profile_relevant_acquisition.journal import AcquisitionJournal
 
 
@@ -135,6 +138,7 @@ async def test_gate_d_mixed_board_enters_pool_without_product_persistence(tmp_pa
         journal=journal,
         before_after=before_after,
         collector_factory=_fake_collector,
+        test_only_adapter=synthetic_test_adapter(),
     )
 
     assert delegate.calls == 1
@@ -195,6 +199,20 @@ async def test_gate_d_pending_journal_blocks_replay_without_delegate_call(tmp_pa
             journal=journal,
             checkpoints={source_id: SourceCheckpoint(source_id, 1, "d" * 64)},
             collector_factory=_fake_collector,
+            test_only_adapter=synthetic_test_adapter(),
         )
     assert exc.value.code == "acquisition_source_blocked_pending"
+    assert delegate.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_gate_d_legacy_network_requires_explicit_boundary(tmp_path: Path) -> None:
+    delegate = MockTransport()
+    with pytest.raises(AcquisitionError) as exc:
+        await run_gate_d_broad_acquisition(
+            config=_config(tmp_path / "evidence"),
+            source_plan=object(),
+            delegate=delegate,
+        )
+    assert exc.value.code == "acquisition_execution_authorization_required"
     assert delegate.calls == 0

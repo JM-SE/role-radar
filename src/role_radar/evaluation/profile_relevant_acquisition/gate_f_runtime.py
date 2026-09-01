@@ -63,6 +63,8 @@ def run_gate_f_runtime(
         raise GateFError("gate_f_stale_provenance")
     if not callable(materializer):
         raise GateFError("gate_f_materializer_invalid")
+    if any(hasattr(materializer, name) for name in ("handle_async_request", "connect", "execute")):
+        raise GateFError("gate_f_production_dependency_forbidden")
     try:
         materializer()
     except Exception as exc:

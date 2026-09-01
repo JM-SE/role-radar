@@ -216,6 +216,63 @@ def bounded_read(path: Path, *, max_bytes: int = MAX_READ_BYTES) -> bytes:
     return data
 
 
+def bounded_read_cli(path: Path, *, max_bytes: int = MAX_READ_BYTES) -> bytes:
+    """Read a CLI-supplied artifact below the current directory, safely.
+
+    CLI artifact paths are intentionally relative and cannot escape the
+    invocation directory.  Every existing component is checked without
+    following links and the final open uses ``O_NOFOLLOW`` as the race-safe
+    final check.  This keeps the thin CLI from becoming a general filesystem
+    reader or a production-root selector.
+    """
+
+    if not isinstance(path, Path) or path.is_absolute():
+        raise FilesystemError("filesystem_cli_path_invalid")
+    parts = path.parts
+    if not parts or any(part in (".", "..") for part in parts):
+        raise FilesystemError("filesystem_cli_path_invalid")
+    root = Path.cwd()
+    candidate = root.joinpath(*parts)
+    current = root
+    for part in parts[:-1]:
+        _check_component(part)
+        current = current / part
+        _reject_symlink(current)
+        if not current.is_dir():
+            raise FilesystemError("filesystem_cli_path_invalid")
+    _check_component(parts[-1])
+    try:
+        fd = os.open(candidate, os.O_RDONLY | os.O_NOFOLLOW)
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            raise FilesystemError("filesystem_symlink_rejected") from exc
+        raise FilesystemError("filesystem_read_failed") from exc
+    try:
+        try:
+            st = os.fstat(fd)
+        except OSError as exc:
+            raise FilesystemError("filesystem_stat_failed") from exc
+        if not stat.S_ISREG(st.st_mode):
+            raise FilesystemError("filesystem_not_regular_file")
+        if st.st_size > max_bytes:
+            raise FilesystemError("filesystem_read_bound_exceeded")
+        chunks: list[bytes] = []
+        total = 0
+        while True:
+            chunk = os.read(fd, min(1024 * 1024, max_bytes - total + 1))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+            if total > max_bytes:
+                raise FilesystemError("filesystem_read_bound_exceeded")
+        return b"".join(chunks)
+    except OSError as exc:
+        raise FilesystemError("filesystem_read_failed") from exc
+    finally:
+        os.close(fd)
+
+
 def atomic_write(path: Path, data: bytes, *, max_bytes: int = MAX_READ_BYTES) -> None:
     """Atomic write via staging + rename + fsync; caller holds fence if needed."""
 
@@ -338,6 +395,7 @@ __all__ = [
     "FilesystemError",
     "atomic_write",
     "bounded_read",
+    "bounded_read_cli",
     "canonical_json_bytes",
     "ensure_private_root",
     "fenced_lock",

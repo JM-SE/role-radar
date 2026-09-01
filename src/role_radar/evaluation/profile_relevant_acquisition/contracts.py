@@ -255,15 +255,87 @@ class DecisionStatus:
             raise OperationalContractError("decision_executable_status_invalid")
 
 
+_SYNTHETIC_MARKER = object()
+
+
+class SyntheticTestAdapter:
+    """An explicit, non-production execution adapter for offline tests."""
+
+    __slots__ = ()
+
+    def __init__(self, marker: object = _SYNTHETIC_MARKER) -> None:
+        if marker is not _SYNTHETIC_MARKER:
+            raise OperationalContractError("synthetic_adapter_invalid")
+
+
+def synthetic_test_adapter() -> SyntheticTestAdapter:
+    return SyntheticTestAdapter()
+
+
+@dataclass(frozen=True, slots=True)
+class ExternalApprovalBinding:
+    """Opaque external approval record required for production execution."""
+
+    artifact_sha256: str
+    approval_binding_sha256: str
+    issuer: str
+    opaque_token: bytes
+
+    def __post_init__(self) -> None:
+        for value in (self.artifact_sha256, self.approval_binding_sha256):
+            if (
+                not isinstance(value, str)
+                or len(value) != 64
+                or any(char not in "0123456789abcdef" for char in value)
+            ):
+                raise OperationalContractError("approval_hash_invalid")
+        if not isinstance(self.issuer, str) or not self.issuer.strip():
+            raise OperationalContractError("approval_issuer_invalid")
+        if not isinstance(self.opaque_token, bytes) or len(self.opaque_token) < 16:
+            raise OperationalContractError("approval_token_invalid")
+
+
+ApprovedProductionAuthorization = ExternalApprovalBinding
+
+
+class AuthorizationError(ValueError):
+    def __init__(self, code: str) -> None:
+        self.code = code
+        super().__init__(code)
+
+
+def require_execution_boundary(
+    *,
+    artifact_sha256: str,
+    test_only_adapter: SyntheticTestAdapter | None,
+    approval: ExternalApprovalBinding | None,
+    code: str,
+) -> None:
+    """Require either an explicit offline adapter or a matching approval."""
+
+    if test_only_adapter is not None:
+        if not isinstance(test_only_adapter, SyntheticTestAdapter) or approval is not None:
+            raise AuthorizationError(code)
+        return
+    if (
+        not isinstance(approval, ExternalApprovalBinding)
+        or approval.artifact_sha256 != artifact_sha256
+    ):
+        raise AuthorizationError(code)
+
+
 __all__ = [
     "AcquisitionObservation",
     "ApprovedPreview",
+    "ApprovedProductionAuthorization",
     "ArtifactClass",
     "ArtifactOrigin",
+    "AuthorizationError",
     "CanonicalPayload",
     "ChallengeArtifact",
     "ConstraintPolicy",
     "DecisionStatus",
+    "ExternalApprovalBinding",
     "FrozenProfile",
     "GateDecision",
     "HistoricalIdentityExclusion",
@@ -289,5 +361,8 @@ __all__ = [
     "SelectedItem",
     "SelectionResult",
     "SourceIdentity",
+    "SyntheticTestAdapter",
     "TransitionPrerequisite",
+    "require_execution_boundary",
+    "synthetic_test_adapter",
 ]

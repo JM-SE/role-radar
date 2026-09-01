@@ -22,7 +22,8 @@ from role_radar.evaluation.filesystem import (
     sha256_bytes,
     write_no_replace,
 )
-from role_radar.evaluation.profile_relevant_acquisition.provenance import LIVE_NAMESPACE, LIVE_ROOT
+
+NAMESPACE_RE: Final[re.Pattern[str]] = re.compile(r"^[a-z0-9][a-z0-9\-]+[a-z0-9]$")
 
 DATASET_ID_RE: Final[re.Pattern[str]] = re.compile(r"^[0-9a-f]{64}$")
 MANIFEST_NAME: Final[str] = "manifest.json"
@@ -37,8 +38,8 @@ class StoreError(ValueError):
 
 
 def _require_namespace(namespace: str) -> None:
-    if namespace != LIVE_NAMESPACE:
-        raise StoreError("store_namespace_mismatch")
+    if not isinstance(namespace, str) or NAMESPACE_RE.fullmatch(namespace) is None:
+        raise StoreError("store_namespace_invalid")
 
 
 def _require_root(root: Path) -> None:
@@ -47,13 +48,8 @@ def _require_root(root: Path) -> None:
     text = str(root)
     if text.startswith("/opt/role-radar/data/evaluation/snapshot"):
         raise StoreError("store_historical_root_rejected")
-    legacy_f101 = "/opt/role-radar/data/evaluation/f10.1/"
-    if text.startswith(legacy_f101) and text != LIVE_ROOT and not text.startswith(LIVE_ROOT):
-        raise StoreError("store_historical_root_rejected")
-    # For live deployments, root must equal LIVE_ROOT; for offline tests any non-historical
-    # absolute path is allowed (injectable). Enforce live equality only if under /opt.
-    if text.startswith("/opt/") and text != LIVE_ROOT:
-        raise StoreError("store_root_mismatch")
+    if text.startswith("/opt/"):
+        raise StoreError("store_production_root_rejected")
 
 
 def _canonical(value: Any) -> bytes:
@@ -72,7 +68,7 @@ def _canonical(value: Any) -> bytes:
 class ProfileRelevantAcquisitionStore:
     """Sole F10.1F domain store — composes filesystem primitive."""
 
-    def __init__(self, root: Path, namespace: str = LIVE_NAMESPACE) -> None:
+    def __init__(self, root: Path, namespace: str) -> None:
         _require_namespace(namespace)
         _require_root(root)
         try:

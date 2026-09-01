@@ -20,7 +20,6 @@ from role_radar.evaluation.profile_relevance.contracts import (
 )
 from role_radar.evaluation.profile_relevance.preview_workflow import compute_preview
 from role_radar.evaluation.profile_relevant_acquisition.provenance import (
-    LIVE_NAMESPACE,
     ProvenanceBundle,
     ProvenanceError,
     validate_provenance,
@@ -118,8 +117,8 @@ def _validate_inputs_gate_e(
 
     if inputs.sealed_snapshot.state != "sealed":
         raise GateEError("gate_e_snapshot_not_sealed")
-    if inputs.sealed_snapshot.namespace != LIVE_NAMESPACE:
-        raise GateEError("gate_e_namespace_mismatch")
+    if not inputs.sealed_snapshot.namespace.strip():
+        raise GateEError("gate_e_namespace_invalid")
     if inputs.sealed_snapshot.namespace != provenance.namespace:
         raise GateEError("gate_e_namespace_mismatch")
     # Seeds are explicit F10.1E inputs.  This boundary validates their exact
