@@ -489,6 +489,23 @@ def _run_evaluation(args: argparse.Namespace) -> int:
         return run(args)
     if args.evaluation_command != "f10-1":
         return 2
+    # These commands belong to the historical F10.1 implementation.  Keep
+    # their parser and internal test seams available, but remove operator
+    # reachability before settings, database, filesystem, or providers are
+    # constructed.  F10.1F never delegates to this namespace.
+    if args.f10_1_command in {"discover", "acquire", "verify"}:
+        print(
+            json.dumps(
+                {
+                    "schema_version": "f10.1-historical-cli-v1",
+                    "result": "blocked",
+                    "code": "historical_command_non_executable",
+                    "historical": True,
+                },
+                sort_keys=True,
+            )
+        )
+        return 2
     from role_radar.acquisition.configuration import ProductionAcquisitionFilePolicy
     from role_radar.acquisition.jobicy_terms_evidence import JobicyEvidenceError
     from role_radar.evaluation.controlled_acquisition.configuration import (

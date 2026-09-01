@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import inspect
 from pathlib import Path
 
 PACKAGE = Path("src/role_radar/evaluation/profile_relevant_acquisition")
@@ -169,3 +170,37 @@ def test_journal_transport_is_extracted_to_transport_module() -> None:
     transport_classes = {node.name for node in transport.body if isinstance(node, ast.ClassDef)}
     assert "JournaledAsyncTransport" not in journal_classes
     assert "JournaledAsyncTransport" in transport_classes
+
+
+def test_execution_capable_seams_have_typed_authorization_and_no_boolean_escape() -> None:
+    guarded = {
+        "acquisition_runtime.py": (
+            "build_collector_context",
+            "build_ephemeral_tasks",
+            "run_broad_acquisition_scaffold",
+            "run_gate_d_broad_acquisition",
+        ),
+        "freeze_runtime.py": ("run_freeze_transaction", "verify_frozen_publication"),
+        "gate_f_materialization.py": ("run_gate_f_materialization",),
+    }
+    for filename, names in guarded.items():
+        module = __import__(
+            f"role_radar.evaluation.profile_relevant_acquisition.{filename.removesuffix('.py')}",
+            fromlist=list(names),
+        )
+        source = (PACKAGE / filename).read_text(encoding="utf-8")
+        assert "offline_harness" not in source
+        for name in names:
+            parameters = inspect.signature(getattr(module, name)).parameters
+            assert "test_only_adapter" in parameters
+            assert "approval" in parameters
+            assert "approval_verifier" in parameters
+            assert "require_execution_boundary" in source
+
+
+def test_f10_1f_has_no_stale_date_or_default_execution_values() -> None:
+    source = "\n".join(path.read_text(encoding="utf-8") for path in PACKAGE.glob("*.py"))
+    assert "2026-08-25" not in source
+    assert "20260825" not in source
+    assert "CollectionRunBudget(maximum=100)" not in source
+    assert "Path.cwd()" not in source

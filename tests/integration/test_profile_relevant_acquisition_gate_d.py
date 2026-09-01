@@ -196,6 +196,7 @@ async def test_gate_d_pending_journal_blocks_replay_without_delegate_call(tmp_pa
             config=_config(root),
             source_plan=source_plan,
             delegate=delegate,
+            budget=CollectionRunBudget(maximum=1),
             journal=journal,
             checkpoints={source_id: SourceCheckpoint(source_id, 1, "d" * 64)},
             collector_factory=_fake_collector,

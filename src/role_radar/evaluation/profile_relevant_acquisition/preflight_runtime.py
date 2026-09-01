@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from role_radar.evaluation.profile_relevant_acquisition.challenge_loader import (
@@ -10,6 +11,8 @@ from role_radar.evaluation.profile_relevant_acquisition.challenge_loader import 
 )
 from role_radar.evaluation.profile_relevant_acquisition.contracts import (
     ChallengeArtifact,
+    ExternalApprovalBinding,
+    ExternalApprovalVerifier,
     ProvenanceArtifact,
 )
 from role_radar.evaluation.profile_relevant_acquisition.provenance_loader import (
@@ -32,7 +35,14 @@ class PreflightEvidence:
 
 
 def run_preflight(
-    *, provenance_bytes: bytes, challenge_bytes: bytes | None = None, expected_gate: str = "C"
+    *,
+    provenance_bytes: bytes,
+    challenge_bytes: bytes | None = None,
+    expected_gate: str = "C",
+    approval: ExternalApprovalBinding | None = None,
+    approval_verifier: ExternalApprovalVerifier
+    | Callable[[ExternalApprovalBinding, str], bool]
+    | None = None,
 ) -> PreflightEvidence:
     """Load only bounded artifacts and verify their independent bindings.
 
@@ -42,11 +52,20 @@ def run_preflight(
     """
 
     try:
-        provenance = load_provenance_bytes(provenance_bytes)
+        provenance = load_provenance_bytes(
+            provenance_bytes,
+            approval=approval,
+            approval_verifier=approval_verifier,
+        )
         challenge = (
             None
             if challenge_bytes is None
-            else load_challenge_bytes(challenge_bytes, expected_gate=expected_gate)
+            else load_challenge_bytes(
+                challenge_bytes,
+                expected_gate=expected_gate,
+                approval=approval,
+                approval_verifier=approval_verifier,
+            )
         )
     except (ChallengeLoadError, ProvenanceLoadError) as exc:
         raise PreflightError(exc.code) from exc

@@ -12,8 +12,12 @@ from collections.abc import Callable
 from role_radar.evaluation.profile_relevant_acquisition.contracts import (
     ArtifactClass,
     ChallengeArtifact,
+    ExternalApprovalBinding,
+    ExternalApprovalVerifier,
     ProvenanceArtifact,
     RuntimeEvidence,
+    SyntheticTestAdapter,
+    require_execution_boundary,
 )
 
 
@@ -28,20 +32,37 @@ def run_gate_c_runtime(
     challenge: ChallengeArtifact,
     provenance: ProvenanceArtifact,
     delegate: Callable[[], object],
-    offline_harness: bool = False,
+    test_only_adapter: SyntheticTestAdapter | None = None,
+    approval: ExternalApprovalBinding | None = None,
+    approval_verifier: ExternalApprovalVerifier
+    | Callable[[ExternalApprovalBinding, str], bool]
+    | None = None,
     expected_challenge_sha256: str | None = None,
     expected_provenance_sha256: str | None = None,
 ) -> RuntimeEvidence:
-    if not offline_harness:
-        raise GateCError("gate_c_offline_harness_required")
     if not isinstance(challenge, ChallengeArtifact) or challenge.gate != "C":
         raise GateCError("gate_c_wrong_challenge")
     if not isinstance(provenance, ProvenanceArtifact):
         raise GateCError("gate_c_provenance_invalid")
-    if challenge.artifact_class is not ArtifactClass.SYNTHETIC:
+    if (
+        challenge.artifact_class is ArtifactClass.LIVE_SHAPED
+        or provenance.artifact_class is ArtifactClass.LIVE_SHAPED
+    ):
         raise GateCError("gate_c_artifact_class_not_synthetic")
-    if provenance.artifact_class is not ArtifactClass.SYNTHETIC:
+    if challenge.artifact_class is not provenance.artifact_class:
+        raise GateCError("gate_c_artifact_class_mismatch")
+    if test_only_adapter is not None and challenge.artifact_class is not ArtifactClass.SYNTHETIC:
         raise GateCError("gate_c_artifact_class_not_synthetic")
+    try:
+        require_execution_boundary(
+            artifact_sha256=challenge.challenge_sha256,
+            test_only_adapter=test_only_adapter,
+            approval=approval,
+            approval_verifier=approval_verifier,
+            code="gate_c_execution_authorization_required",
+        )
+    except ValueError as exc:
+        raise GateCError(getattr(exc, "code", "gate_c_execution_authorization_required")) from exc
     if (challenge.operation_id, challenge.lineage_id) != (
         provenance.operation_id,
         provenance.lineage_id,

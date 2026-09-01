@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any, Final
 
 from role_radar.evaluation.profile_relevant_acquisition.contracts import (
     ArtifactClass,
     ChallengeArtifact,
     ExternalApprovalBinding,
+    ExternalApprovalVerifier,
     SeedInputs,
     require_execution_boundary,
 )
@@ -88,6 +89,9 @@ def load_challenge_bytes(
     *,
     expected_gate: str | None = None,
     approval: ExternalApprovalBinding | None = None,
+    approval_verifier: ExternalApprovalVerifier
+    | Callable[[ExternalApprovalBinding, str], bool]
+    | None = None,
 ) -> ChallengeArtifact:
     """Parse exactly one canonical challenge and verify its domain hash.
 
@@ -153,6 +157,7 @@ def load_challenge_bytes(
                 artifact_sha256=supplied_digest,
                 test_only_adapter=None,
                 approval=approval,
+                approval_verifier=approval_verifier,
                 code="challenge_external_approval_required",
             )
         except ValueError as exc:
@@ -218,13 +223,19 @@ def load_challenge(
     *,
     expected_gate: str | None = None,
     approval: ExternalApprovalBinding | None = None,
+    approval_verifier: ExternalApprovalVerifier
+    | Callable[[ExternalApprovalBinding, str], bool]
+    | None = None,
 ) -> ChallengeArtifact:
     """Strict mapping adapter; it never fills missing fields or coerces gates."""
 
     if not isinstance(value, Mapping):
         raise ChallengeLoadError("challenge_object_invalid")
     return load_challenge_bytes(
-        _canonical(dict(value)) + b"\n", expected_gate=expected_gate, approval=approval
+        _canonical(dict(value)) + b"\n",
+        expected_gate=expected_gate,
+        approval=approval,
+        approval_verifier=approval_verifier,
     )
 
 

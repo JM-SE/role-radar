@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Callable
 from typing import Final
 
 from role_radar.evaluation.profile_relevance.contracts import (
@@ -24,6 +25,7 @@ from role_radar.evaluation.profile_relevance.preview_workflow import compute_pre
 from role_radar.evaluation.profile_relevant_acquisition.contracts import (
     AuthorizationError,
     ExternalApprovalBinding,
+    ExternalApprovalVerifier,
     SyntheticTestAdapter,
     require_execution_boundary,
 )
@@ -124,6 +126,9 @@ def run_gate_f_materialization(
     materialization_context: MaterializationContext,
     test_only_adapter: SyntheticTestAdapter | None = None,
     approval: ExternalApprovalBinding | None = None,
+    approval_verifier: ExternalApprovalVerifier
+    | Callable[[ExternalApprovalBinding, str], bool]
+    | None = None,
 ) -> MaterializedPayloads:
     """Validate, recompute with exact equality, then materialize payload bytes.
 
@@ -135,6 +140,7 @@ def run_gate_f_materialization(
             artifact_sha256=ap.preview_input_sha256,
             test_only_adapter=test_only_adapter,
             approval=approval,
+            approval_verifier=approval_verifier,
             code="gate_f_execution_authorization_required",
         )
     except AuthorizationError as exc:

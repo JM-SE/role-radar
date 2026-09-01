@@ -69,6 +69,7 @@ def register_f10_1f_parser(subparsers: Any) -> argparse.ArgumentParser:
 
     provenance = commands.add_parser("provenance")
     provenance.add_argument("--file")
+    provenance.add_argument("--artifact-root")
     commands.add_parser("status")
 
     verify = commands.add_parser("verify")
@@ -95,13 +96,18 @@ def _run_provenance(args: Any) -> int:
     filename = getattr(args, "file", None)
     if filename is not None:
         try:
+            artifact_root = getattr(args, "artifact_root", None)
+            if not isinstance(artifact_root, str) or not artifact_root:
+                return _print_block("provenance", "artifact_root_required")
             from role_radar.evaluation.filesystem import bounded_read_cli
             from role_radar.evaluation.profile_relevant_acquisition.provenance_loader import (
                 ProvenanceLoadError,
                 load_provenance_bytes,
             )
 
-            artifact = load_provenance_bytes(bounded_read_cli(Path(filename)))
+            artifact = load_provenance_bytes(
+                bounded_read_cli(Path(filename), artifact_root=Path(artifact_root))
+            )
             if artifact.artifact_class.value != "approved_production":
                 return _print_block("provenance", "artifact_class_not_approved")
             print(

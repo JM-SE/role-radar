@@ -216,37 +216,84 @@ def bounded_read(path: Path, *, max_bytes: int = MAX_READ_BYTES) -> bytes:
     return data
 
 
-def bounded_read_cli(path: Path, *, max_bytes: int = MAX_READ_BYTES) -> bytes:
-    """Read a CLI-supplied artifact below the current directory, safely.
+def bounded_read_cli(
+    path: Path,
+    *,
+    artifact_root: Path,
+    max_bytes: int = MAX_READ_BYTES,
+) -> bytes:
+    """Read one artifact below an explicit, non-production root.
 
-    CLI artifact paths are intentionally relative and cannot escape the
-    invocation directory.  Every existing component is checked without
-    following links and the final open uses ``O_NOFOLLOW`` as the race-safe
-    final check.  This keeps the thin CLI from becoming a general filesystem
-    reader or a production-root selector.
+    The root is never inferred from cwd.  Directory and file components are
+    opened relative to directory descriptors with ``O_NOFOLLOW`` so a path
+    replacement cannot turn this reader into an arbitrary filesystem reader.
     """
 
-    if not isinstance(path, Path) or path.is_absolute():
+    if not isinstance(path, Path) or not isinstance(artifact_root, Path):
         raise FilesystemError("filesystem_cli_path_invalid")
-    parts = path.parts
-    if not parts or any(part in (".", "..") for part in parts):
+    if not artifact_root.is_absolute() or artifact_root == Path(artifact_root.anchor):
+        raise FilesystemError("filesystem_cli_root_invalid")
+    root_text = str(artifact_root)
+    if root_text == "/opt" or root_text.startswith("/opt/"):
+        raise FilesystemError("filesystem_production_root_rejected")
+    _check_not_historical(artifact_root)
+    if path.is_absolute():
+        try:
+            relative = path.relative_to(artifact_root)
+        except ValueError as exc:
+            raise FilesystemError("filesystem_cli_path_invalid") from exc
+        parts = relative.parts
+    else:
+        parts = path.parts
+    if not parts or any(part in (".", "..", "") for part in parts):
         raise FilesystemError("filesystem_cli_path_invalid")
-    root = Path.cwd()
-    candidate = root.joinpath(*parts)
-    current = root
-    for part in parts[:-1]:
+    for part in parts:
         _check_component(part)
-        current = current / part
-        _reject_symlink(current)
-        if not current.is_dir():
-            raise FilesystemError("filesystem_cli_path_invalid")
-    _check_component(parts[-1])
+
+    # Walk the absolute root from / with openat; this also rejects symlinked
+    # intermediate root components rather than relying on Path.resolve().
     try:
-        fd = os.open(candidate, os.O_RDONLY | os.O_NOFOLLOW)
+        dir_fd = os.open(Path(artifact_root.anchor), os.O_RDONLY | os.O_DIRECTORY)
     except OSError as exc:
-        if exc.errno == errno.ELOOP:
-            raise FilesystemError("filesystem_symlink_rejected") from exc
-        raise FilesystemError("filesystem_read_failed") from exc
+        raise FilesystemError("filesystem_cli_root_invalid") from exc
+    try:
+        for component in artifact_root.parts[1:]:
+            try:
+                next_fd = os.open(
+                    component,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                    dir_fd=dir_fd,
+                )
+            except OSError as exc:
+                if exc.errno == errno.ELOOP:
+                    raise FilesystemError("filesystem_symlink_rejected") from exc
+                raise FilesystemError("filesystem_cli_root_invalid") from exc
+            os.close(dir_fd)
+            dir_fd = next_fd
+        try:
+            for component in parts[:-1]:
+                try:
+                    next_fd = os.open(
+                        component,
+                        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                        dir_fd=dir_fd,
+                    )
+                except OSError as exc:
+                    if exc.errno == errno.ELOOP:
+                        raise FilesystemError("filesystem_symlink_rejected") from exc
+                    raise FilesystemError("filesystem_cli_path_invalid") from exc
+                os.close(dir_fd)
+                dir_fd = next_fd
+            try:
+                fd = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dir_fd)
+            except OSError as exc:
+                if exc.errno == errno.ELOOP:
+                    raise FilesystemError("filesystem_symlink_rejected") from exc
+                raise FilesystemError("filesystem_read_failed") from exc
+        except OSError as exc:
+            raise FilesystemError("filesystem_read_failed") from exc
+    finally:
+        os.close(dir_fd)
     try:
         try:
             st = os.fstat(fd)

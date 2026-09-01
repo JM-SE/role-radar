@@ -8,9 +8,10 @@ this module are deliberately tagged and are not coercible into those DTOs.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Literal
+from typing import Literal, Protocol
 
 from role_radar.evaluation.profile_relevance.contracts import (
     AcquisitionObservation,
@@ -150,6 +151,8 @@ class ChallengeArtifact:
             raise OperationalContractError("challenge_prerequisite_invalid")
         if not isinstance(self.artifact_class, ArtifactClass):
             raise OperationalContractError("challenge_artifact_class_invalid")
+        if not isinstance(self.seed_inputs, SeedInputs):
+            raise OperationalContractError("challenge_seed_inputs_invalid")
         _hash(self.policy_sha256, "challenge_policy_invalid")
         _hash(self.payload_sha256, "challenge_payload_invalid")
         _hash(self.challenge_sha256, "challenge_hash_invalid")
@@ -188,6 +191,8 @@ class ProvenanceArtifact:
             _hash(getattr(self, field), f"provenance_{field.removesuffix('_sha256')}_invalid")
         if not isinstance(self.artifact_class, ArtifactClass):
             raise OperationalContractError("provenance_artifact_class_invalid")
+        if not isinstance(self.seed_inputs, SeedInputs):
+            raise OperationalContractError("provenance_seed_inputs_invalid")
         if not isinstance(self.canonical_bytes, bytes):
             raise OperationalContractError("provenance_bytes_invalid")
 
@@ -216,9 +221,33 @@ class TransitionPrerequisite:
             raise OperationalContractError("prerequisite_not_terminal")
         if not isinstance(self.artifact_class, ArtifactClass):
             raise OperationalContractError("prerequisite_artifact_class_invalid")
+        if not isinstance(self.seed_inputs, SeedInputs):
+            raise OperationalContractError("prerequisite_seed_inputs_invalid")
         _hash(self.challenge_sha256, "prerequisite_challenge_invalid")
         _hash(self.provenance_sha256, "prerequisite_provenance_invalid")
         _hash(self.policy_sha256, "prerequisite_policy_invalid")
+
+
+@dataclass(frozen=True, slots=True)
+class SourcePlanBinding:
+    """Post-C source-plan binding; the plan itself stays outside this seam."""
+
+    operation_id: str
+    lineage_id: str
+    policy_sha256: str
+    source_plan_sha256: str
+    artifact_class: ArtifactClass
+    prerequisite_status: str
+
+    def __post_init__(self) -> None:
+        _nonempty(self.operation_id, "source_plan_operation_invalid")
+        _nonempty(self.lineage_id, "source_plan_lineage_invalid")
+        _hash(self.policy_sha256, "source_plan_policy_invalid")
+        _hash(self.source_plan_sha256, "source_plan_hash_invalid")
+        if not isinstance(self.artifact_class, ArtifactClass):
+            raise OperationalContractError("source_plan_artifact_class_invalid")
+        if self.prerequisite_status != "passed":
+            raise OperationalContractError("source_plan_prerequisite_invalid")
 
 
 @dataclass(frozen=True, slots=True)
@@ -298,6 +327,16 @@ class ExternalApprovalBinding:
 ApprovedProductionAuthorization = ExternalApprovalBinding
 
 
+class ExternalApprovalVerifier(Protocol):
+    """Injected verifier owned by the external approval system.
+
+    The artifact's embedded class and hashes are assertions only.  Production
+    execution requires this out-of-process/externally supplied decision too.
+    """
+
+    def verify(self, approval: ExternalApprovalBinding, artifact_sha256: str) -> bool: ...
+
+
 class AuthorizationError(ValueError):
     def __init__(self, code: str) -> None:
         self.code = code
@@ -309,9 +348,12 @@ def require_execution_boundary(
     artifact_sha256: str,
     test_only_adapter: SyntheticTestAdapter | None,
     approval: ExternalApprovalBinding | None,
+    approval_verifier: ExternalApprovalVerifier
+    | Callable[[ExternalApprovalBinding, str], bool]
+    | None,
     code: str,
 ) -> None:
-    """Require either an explicit offline adapter or a matching approval."""
+    """Require an explicit offline adapter or externally verified approval."""
 
     if test_only_adapter is not None:
         if not isinstance(test_only_adapter, SyntheticTestAdapter) or approval is not None:
@@ -320,7 +362,21 @@ def require_execution_boundary(
     if (
         not isinstance(approval, ExternalApprovalBinding)
         or approval.artifact_sha256 != artifact_sha256
+        or approval_verifier is None
     ):
+        raise AuthorizationError(code)
+    try:
+        verify = getattr(approval_verifier, "verify", None)
+        valid = (
+            verify(approval, artifact_sha256)
+            if callable(verify)
+            else approval_verifier(approval, artifact_sha256)
+            if callable(approval_verifier)
+            else False
+        )
+    except Exception as exc:
+        raise AuthorizationError(code) from exc
+    if valid is not True:
         raise AuthorizationError(code)
 
 
@@ -336,6 +392,7 @@ __all__ = [
     "ConstraintPolicy",
     "DecisionStatus",
     "ExternalApprovalBinding",
+    "ExternalApprovalVerifier",
     "FrozenProfile",
     "GateDecision",
     "HistoricalIdentityExclusion",
@@ -361,6 +418,7 @@ __all__ = [
     "SelectedItem",
     "SelectionResult",
     "SourceIdentity",
+    "SourcePlanBinding",
     "SyntheticTestAdapter",
     "TransitionPrerequisite",
     "require_execution_boundary",

@@ -27,7 +27,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
@@ -58,6 +58,7 @@ from role_radar.evaluation.profile_relevant_acquisition.capability_seal import (
 from role_radar.evaluation.profile_relevant_acquisition.contracts import (
     AuthorizationError,
     ExternalApprovalBinding,
+    ExternalApprovalVerifier,
     SyntheticTestAdapter,
     require_execution_boundary,
 )
@@ -616,6 +617,9 @@ def run_freeze_transaction(
     provenance: ProvenanceBundle,
     test_only_adapter: SyntheticTestAdapter | None = None,
     approval: ExternalApprovalBinding | None = None,
+    approval_verifier: ExternalApprovalVerifier
+    | Callable[[ExternalApprovalBinding, str], bool]
+    | None = None,
 ) -> FrozenBenchmark:
     """Execute the one immutable publish/verify/capability-seal transaction."""
     try:
@@ -625,6 +629,7 @@ def run_freeze_transaction(
             else "",
             test_only_adapter=test_only_adapter,
             approval=approval,
+            approval_verifier=approval_verifier,
             code="freeze_execution_authorization_required",
         )
     except AuthorizationError as exc:
@@ -867,6 +872,9 @@ def verify_frozen_publication(
     payloads: MaterializedPayloads | None = None,
     test_only_adapter: SyntheticTestAdapter | None = None,
     approval: ExternalApprovalBinding | None = None,
+    approval_verifier: ExternalApprovalVerifier
+    | Callable[[ExternalApprovalBinding, str], bool]
+    | None = None,
 ) -> bool:
     """Read-only post-freeze verification of the published tree and seals.
 
@@ -878,6 +886,7 @@ def verify_frozen_publication(
             artifact_sha256=benchmark.receipt.receipt_sha256,
             test_only_adapter=test_only_adapter,
             approval=approval,
+            approval_verifier=approval_verifier,
             code="freeze_verify_authorization_required",
         )
         if test_only_adapter is not None and str(root).startswith("/opt/"):

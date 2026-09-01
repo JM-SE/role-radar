@@ -12,13 +12,18 @@ from role_radar.evaluation.profile_relevant_acquisition.challenge_loader import 
 from role_radar.evaluation.profile_relevant_acquisition.contracts import (
     ArtifactClass,
     ChallengeArtifact,
+    ExternalApprovalBinding,
     ProvenanceArtifact,
+    SourcePlanBinding,
+    require_execution_boundary,
+    synthetic_test_adapter,
 )
 from role_radar.evaluation.profile_relevant_acquisition.gate_c_runtime import (
     GateCError,
     run_gate_c_runtime,
 )
 from role_radar.evaluation.profile_relevant_acquisition.gate_d_runtime import run_gate_d_runtime
+from role_radar.evaluation.profile_relevant_acquisition.gate_e_runtime import run_gate_e_runtime
 from role_radar.evaluation.profile_relevant_acquisition.gate_f_runtime import run_gate_f_runtime
 from role_radar.evaluation.profile_relevant_acquisition.policy import (
     PolicyError,
@@ -32,6 +37,7 @@ from role_radar.evaluation.profile_relevant_acquisition.provenance_loader import
     build_provenance_bytes,
     load_provenance_bytes,
 )
+from tests.unit.test_profile_relevance_materialization import _build_input
 
 SELECTION = "a" * 64
 PARTITION = "b" * 64
@@ -117,7 +123,7 @@ def test_valid_synthetic_local_runtimes_call_once_and_stop() -> None:
         challenge=challenge,
         provenance=provenance,
         delegate=lambda: calls.append("C"),
-        offline_harness=True,
+        test_only_adapter=synthetic_test_adapter(),
     )
     assert calls == ["C"]
     assert result.stopped
@@ -127,22 +133,37 @@ def test_valid_synthetic_local_runtimes_call_once_and_stop() -> None:
         challenge=challenge,
         provenance=provenance,
         seeds=provenance.seed_inputs,
+        source_plan=SourcePlanBinding(
+            operation_id="op",
+            lineage_id="lineage",
+            policy_sha256=HASH,
+            source_plan_sha256=HASH,
+            artifact_class=ArtifactClass.SYNTHETIC,
+            prerequisite_status="passed",
+        ),
         delegate=lambda: calls.append("post-C"),
-        offline_harness=True,
+        test_only_adapter=synthetic_test_adapter(),
     )
     challenge, provenance = _artifacts("D")
     run_gate_d_runtime(
         challenge=challenge,
         provenance=provenance,
         delegate=lambda: calls.append("D"),
-        offline_harness=True,
+        test_only_adapter=synthetic_test_adapter(),
+    )
+    challenge, provenance = _artifacts("E")
+    run_gate_e_runtime(
+        challenge=challenge,
+        provenance=provenance,
+        inputs=_build_input(),
+        test_only_adapter=synthetic_test_adapter(),
     )
     challenge, provenance = _artifacts("F")
     run_gate_f_runtime(
         challenge=challenge,
         provenance=provenance,
         materializer=lambda: calls.append("F"),
-        offline_harness=True,
+        test_only_adapter=synthetic_test_adapter(),
     )
     assert calls == ["C", "post-C", "D", "F"]
 
@@ -155,7 +176,7 @@ def test_invalid_artifact_or_production_dependency_never_delegates() -> None:
             challenge=challenge,
             provenance=provenance,
             delegate=lambda: calls.append("called"),
-            offline_harness=True,
+            test_only_adapter=synthetic_test_adapter(),
         )
     assert exc.value.code == "gate_c_wrong_challenge"
     assert calls == []
@@ -182,8 +203,16 @@ def test_post_c_policy_binding_mismatch_never_delegates() -> None:
             challenge=challenge,
             provenance=altered,
             seeds=provenance.seed_inputs,
+            source_plan=SourcePlanBinding(
+                operation_id="op",
+                lineage_id="lineage",
+                policy_sha256=HASH,
+                source_plan_sha256=HASH,
+                artifact_class=ArtifactClass.SYNTHETIC,
+                prerequisite_status="passed",
+            ),
             delegate=lambda: calls.append("called"),
-            offline_harness=True,
+            test_only_adapter=synthetic_test_adapter(),
         )
     assert getattr(exc.value, "code", "") == "post_c_policy_mismatch"
     assert calls == []
@@ -204,7 +233,7 @@ def test_gate_f_forbidden_callable_never_runs() -> None:
             challenge=challenge,
             provenance=provenance,
             materializer=ForbiddenCallable(),
-            offline_harness=True,
+            test_only_adapter=synthetic_test_adapter(),
         )
     assert getattr(exc.value, "code", "") == "gate_f_production_dependency_forbidden"
     assert calls == []
@@ -242,3 +271,28 @@ def test_builders_cannot_self_label_approved_production() -> None:
             partition_seed=PARTITION,
         )
     assert provenance_error.value.code == "provenance_approved_class_builder_forbidden"
+
+
+def test_approved_execution_requires_injected_external_verifier() -> None:
+    approval = ExternalApprovalBinding(
+        artifact_sha256=HASH,
+        approval_binding_sha256=SELECTION,
+        issuer="external-approver",
+        opaque_token=b"external-token-0123",
+    )
+    with pytest.raises(ValueError):
+        require_execution_boundary(
+            artifact_sha256=HASH,
+            test_only_adapter=None,
+            approval=approval,
+            approval_verifier=None,
+            code="approval_required",
+        )
+
+    require_execution_boundary(
+        artifact_sha256=HASH,
+        test_only_adapter=None,
+        approval=approval,
+        approval_verifier=lambda value, digest: value is approval and digest == HASH,
+        code="approval_required",
+    )

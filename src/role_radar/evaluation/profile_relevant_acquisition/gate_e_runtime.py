@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from role_radar.evaluation.profile_relevance.contracts import ProfileRelevanceInput
@@ -9,7 +10,11 @@ from role_radar.evaluation.profile_relevance.preview_workflow import compute_pre
 from role_radar.evaluation.profile_relevant_acquisition.contracts import (
     ArtifactClass,
     ChallengeArtifact,
+    ExternalApprovalBinding,
+    ExternalApprovalVerifier,
     ProvenanceArtifact,
+    SyntheticTestAdapter,
+    require_execution_boundary,
 )
 
 
@@ -24,12 +29,14 @@ def run_gate_e_runtime(
     challenge: ChallengeArtifact,
     provenance: ProvenanceArtifact,
     inputs: ProfileRelevanceInput,
-    offline_harness: bool = False,
+    test_only_adapter: SyntheticTestAdapter | None = None,
+    approval: ExternalApprovalBinding | None = None,
+    approval_verifier: ExternalApprovalVerifier
+    | Callable[[ExternalApprovalBinding, str], bool]
+    | None = None,
     expected_challenge_sha256: str | None = None,
     expected_provenance_sha256: str | None = None,
 ) -> Any:
-    if not offline_harness:
-        raise GateEError("gate_e_offline_harness_required")
     if not isinstance(challenge, ChallengeArtifact) or challenge.gate != "E":
         raise GateEError("gate_e_wrong_challenge")
     if not isinstance(provenance, ProvenanceArtifact):
@@ -39,6 +46,18 @@ def run_gate_e_runtime(
         or provenance.artifact_class is not ArtifactClass.SYNTHETIC
     ):
         raise GateEError("gate_e_artifact_class_not_synthetic")
+    if challenge.artifact_class is not provenance.artifact_class:
+        raise GateEError("gate_e_artifact_class_mismatch")
+    try:
+        require_execution_boundary(
+            artifact_sha256=challenge.challenge_sha256,
+            test_only_adapter=test_only_adapter,
+            approval=approval,
+            approval_verifier=approval_verifier,
+            code="gate_e_execution_authorization_required",
+        )
+    except ValueError as exc:
+        raise GateEError(getattr(exc, "code", "gate_e_execution_authorization_required")) from exc
     if challenge.operation_id != provenance.operation_id or challenge.lineage_id != (
         provenance.lineage_id
     ):

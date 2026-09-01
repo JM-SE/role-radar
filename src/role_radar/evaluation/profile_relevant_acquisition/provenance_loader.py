@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any, Final
 
 from role_radar.evaluation.profile_relevant_acquisition.contracts import (
     ArtifactClass,
     ExternalApprovalBinding,
+    ExternalApprovalVerifier,
     ProvenanceArtifact,
     SeedInputs,
     require_execution_boundary,
@@ -84,7 +85,12 @@ def _object(raw: bytes) -> dict[str, Any]:
 
 
 def load_provenance_bytes(
-    raw: bytes, *, approval: ExternalApprovalBinding | None = None
+    raw: bytes,
+    *,
+    approval: ExternalApprovalBinding | None = None,
+    approval_verifier: ExternalApprovalVerifier
+    | Callable[[ExternalApprovalBinding, str], bool]
+    | None = None,
 ) -> ProvenanceArtifact:
     value = _object(raw)
     if value["schema_version"] != PROVENANCE_SCHEMA:
@@ -136,6 +142,7 @@ def load_provenance_bytes(
                 artifact_sha256=supplied_digest,
                 test_only_adapter=None,
                 approval=approval,
+                approval_verifier=approval_verifier,
                 code="provenance_external_approval_required",
             )
         except ValueError as exc:
@@ -198,11 +205,20 @@ def build_provenance_bytes(
 
 
 def load_provenance(
-    value: Mapping[str, object], *, approval: ExternalApprovalBinding | None = None
+    value: Mapping[str, object],
+    *,
+    approval: ExternalApprovalBinding | None = None,
+    approval_verifier: ExternalApprovalVerifier
+    | Callable[[ExternalApprovalBinding, str], bool]
+    | None = None,
 ) -> ProvenanceArtifact:
     if not isinstance(value, Mapping):
         raise ProvenanceLoadError("provenance_object_invalid")
-    return load_provenance_bytes(_canonical(dict(value)) + b"\n", approval=approval)
+    return load_provenance_bytes(
+        _canonical(dict(value)) + b"\n",
+        approval=approval,
+        approval_verifier=approval_verifier,
+    )
 
 
 __all__ = [

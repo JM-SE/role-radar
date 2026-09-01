@@ -8,9 +8,14 @@ from collections.abc import Callable
 from role_radar.evaluation.profile_relevant_acquisition.contracts import (
     ArtifactClass,
     ChallengeArtifact,
+    ExternalApprovalBinding,
+    ExternalApprovalVerifier,
     ProvenanceArtifact,
     RuntimeEvidence,
     SeedInputs,
+    SourcePlanBinding,
+    SyntheticTestAdapter,
+    require_execution_boundary,
 )
 
 
@@ -25,21 +30,41 @@ def run_post_c_preregistration_runtime(
     challenge: ChallengeArtifact,
     provenance: ProvenanceArtifact,
     seeds: SeedInputs,
+    source_plan: SourcePlanBinding,
     delegate: Callable[[], object],
-    offline_harness: bool = False,
+    test_only_adapter: SyntheticTestAdapter | None = None,
+    approval: ExternalApprovalBinding | None = None,
+    approval_verifier: ExternalApprovalVerifier
+    | Callable[[ExternalApprovalBinding, str], bool]
+    | None = None,
     expected_challenge_sha256: str | None = None,
     expected_provenance_sha256: str | None = None,
+    expected_source_plan_sha256: str | None = None,
 ) -> RuntimeEvidence:
-    if not offline_harness:
-        raise PostCPreregistrationError("post_c_offline_harness_required")
     if not isinstance(challenge, ChallengeArtifact) or challenge.gate != "post-C":
         raise PostCPreregistrationError("post_c_wrong_challenge")
     if not isinstance(provenance, ProvenanceArtifact):
         raise PostCPreregistrationError("post_c_provenance_invalid")
-    if challenge.artifact_class is not ArtifactClass.SYNTHETIC:
+    if challenge.artifact_class is ArtifactClass.LIVE_SHAPED:
         raise PostCPreregistrationError("post_c_artifact_class_not_synthetic")
-    if provenance.artifact_class is not ArtifactClass.SYNTHETIC:
+    if provenance.artifact_class is ArtifactClass.LIVE_SHAPED:
         raise PostCPreregistrationError("post_c_artifact_class_not_synthetic")
+    if challenge.artifact_class is not provenance.artifact_class:
+        raise PostCPreregistrationError("post_c_artifact_class_mismatch")
+    if test_only_adapter is not None and challenge.artifact_class is not ArtifactClass.SYNTHETIC:
+        raise PostCPreregistrationError("post_c_artifact_class_not_synthetic")
+    try:
+        require_execution_boundary(
+            artifact_sha256=challenge.challenge_sha256,
+            test_only_adapter=test_only_adapter,
+            approval=approval,
+            approval_verifier=approval_verifier,
+            code="post_c_execution_authorization_required",
+        )
+    except ValueError as exc:
+        raise PostCPreregistrationError(
+            getattr(exc, "code", "post_c_execution_authorization_required")
+        ) from exc
     if challenge.operation_id != provenance.operation_id or challenge.lineage_id != (
         provenance.lineage_id
     ):
@@ -48,6 +73,22 @@ def run_post_c_preregistration_runtime(
         raise PostCPreregistrationError("post_c_policy_mismatch")
     if seeds != provenance.seed_inputs or seeds != challenge.seed_inputs:
         raise PostCPreregistrationError("post_c_seed_mismatch")
+    if not isinstance(source_plan, SourcePlanBinding):
+        raise PostCPreregistrationError("post_c_source_plan_invalid")
+    if (
+        source_plan.operation_id != challenge.operation_id
+        or source_plan.lineage_id != challenge.lineage_id
+    ):
+        raise PostCPreregistrationError("post_c_source_plan_binding_mismatch")
+    if source_plan.policy_sha256 != challenge.policy_sha256:
+        raise PostCPreregistrationError("post_c_source_plan_policy_mismatch")
+    if source_plan.artifact_class is not challenge.artifact_class:
+        raise PostCPreregistrationError("post_c_source_plan_artifact_class_mismatch")
+    if (
+        expected_source_plan_sha256 is not None
+        and source_plan.source_plan_sha256 != expected_source_plan_sha256
+    ):
+        raise PostCPreregistrationError("post_c_stale_source_plan")
     if expected_challenge_sha256 is not None and challenge.challenge_sha256 != (
         expected_challenge_sha256
     ):
@@ -65,7 +106,10 @@ def run_post_c_preregistration_runtime(
     except Exception as exc:
         raise PostCPreregistrationError("post_c_delegate_failed") from exc
     evidence = hashlib.sha256(
-        f"post-C\0{challenge.challenge_sha256}\0{provenance.provenance_sha256}".encode("ascii")
+        (
+            f"post-C\0{challenge.challenge_sha256}\0{provenance.provenance_sha256}"
+            f"\0{source_plan.source_plan_sha256}"
+        ).encode("ascii")
     ).hexdigest()
     return RuntimeEvidence("post-C", challenge.operation_id, evidence)
 

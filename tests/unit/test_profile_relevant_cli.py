@@ -34,6 +34,9 @@ def test_parser_registers_f10_1f_commands_without_required_acknowledgement() -> 
         assert args.evaluation_command == "f10-1f"
         assert args.f10_1f_command == command
 
+    with pytest.raises(SystemExit):
+        parser.parse_args(("evaluation", "f10-1f", "synthetic"))
+
 
 def test_offline_commands_have_sanitized_stable_outputs(
     capsys: pytest.CaptureFixture[str],
@@ -104,5 +107,58 @@ def test_provenance_file_read_rejects_absolute_symlink_and_oversized_paths(
     monkeypatch.chdir(root)
 
     for filename in (str(allowed), "link.json", "large.json"):
-        assert evaluation_f10_1f.run(Namespace(f10_1f_command="provenance", file=filename)) == 2
+        assert (
+            evaluation_f10_1f.run(
+                Namespace(
+                    f10_1f_command="provenance",
+                    file=filename,
+                    artifact_root=str(root),
+                )
+            )
+            == 2
+        )
         assert _json(capsys)["code"] == "provenance_invalid"
+
+    outside = root.parent / "outside.json"
+    outside.write_bytes(b"{}\n")
+    assert (
+        evaluation_f10_1f.run(
+            Namespace(
+                f10_1f_command="provenance",
+                file=str(outside),
+                artifact_root=str(root),
+            )
+        )
+        == 2
+    )
+    assert _json(capsys)["code"] == "provenance_invalid"
+
+
+@pytest.mark.parametrize(
+    ("command", "arguments"),
+    (
+        ("discover", ("--confirmation", "I ACKNOWLEDGE F10.1 LIVE DISCOVERY REPORT ONLY")),
+        ("acquire", ("--file", "plan.json", "--plan-sha256", "a" * 64, "--acknowledgement", "ack")),
+        ("verify", ("--dataset-id", "a" * 64)),
+    ),
+)
+def test_historical_f10_1_live_commands_are_blocked_before_settings_or_dependencies(
+    command: str,
+    arguments: tuple[str, ...],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from role_radar.cli import main as cli_main
+
+    class SettingsMustNotBeConstructed:
+        def __init__(self) -> None:
+            raise AssertionError("historical F10.1 command reached settings")
+
+    monkeypatch.setattr(cli_main, "Settings", SettingsMustNotBeConstructed)
+    assert cli_main.main(("evaluation", "f10-1", command, *arguments)) == 2
+    assert _json(capsys) == {
+        "code": "historical_command_non_executable",
+        "historical": True,
+        "result": "blocked",
+        "schema_version": "f10.1-historical-cli-v1",
+    }

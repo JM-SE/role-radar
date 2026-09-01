@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
@@ -32,6 +33,7 @@ from role_radar.collectors.registry import CollectorContext
 from role_radar.domain.dto import RawJob
 from role_radar.evaluation.controlled_acquisition.protocols import PLAN_VERSION_V2
 from role_radar.evaluation.filesystem import (
+    HISTORICAL_ROOTS,
     atomic_write,
     bounded_read,
     ensure_private_root,
@@ -40,6 +42,7 @@ from role_radar.evaluation.filesystem import (
 from role_radar.evaluation.profile_relevant_acquisition.contracts import (
     AuthorizationError,
     ExternalApprovalBinding,
+    ExternalApprovalVerifier,
     SyntheticTestAdapter,
     require_execution_boundary,
 )
@@ -60,6 +63,7 @@ MAX_TITLE_BYTES: Final[int] = 512
 MAX_COMPANY_BYTES: Final[int] = 256
 MAX_LOCATION_BYTES: Final[int] = 512
 MAX_POOL_BYTES: Final[int] = 32 * 1024 * 1024
+NAMESPACE_RE: Final[re.Pattern[str]] = re.compile(r"^[a-z0-9][a-z0-9\-]+[a-z0-9]$", re.ASCII)
 
 
 class AcquisitionError(ValueError):
@@ -77,6 +81,26 @@ class AcquisitionScaffoldConfig:
     source_plan_sha256: str
     budget_id: str
     namespace: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.evidence_root, Path) or not self.evidence_root.is_absolute():
+            raise AcquisitionError("acquisition_root_invalid")
+        root_text = str(self.evidence_root)
+        if any(root_text == item or root_text.startswith(item + "/") for item in HISTORICAL_ROOTS):
+            raise AcquisitionError("acquisition_root_historical_alias")
+        if not isinstance(self.operation_id, str) or not self.operation_id.strip():
+            raise AcquisitionError("acquisition_operation_invalid")
+        for value in (
+            self.provenance_sha256,
+            self.preregistration_sha256,
+            self.source_plan_sha256,
+        ):
+            if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value):
+                raise AcquisitionError("acquisition_binding_invalid")
+        if not isinstance(self.budget_id, str) or not self.budget_id.strip():
+            raise AcquisitionError("acquisition_budget_invalid")
+        if not isinstance(self.namespace, str) or NAMESPACE_RE.fullmatch(self.namespace) is None:
+            raise AcquisitionError("acquisition_namespace_invalid")
 
 
 @dataclass(frozen=True, slots=True)
@@ -272,12 +296,18 @@ def build_collector_context(
     budget: Any | None = None,
     test_only_adapter: SyntheticTestAdapter | None = None,
     approval: ExternalApprovalBinding | None = None,
+    approval_verifier: ExternalApprovalVerifier
+    | Callable[[ExternalApprovalBinding, str], bool]
+    | None = None,
 ) -> CollectorContext:
+    if budget is None:
+        raise AcquisitionError("acquisition_budget_required")
     try:
         require_execution_boundary(
             artifact_sha256=approval.artifact_sha256 if approval is not None else "",
             test_only_adapter=test_only_adapter,
             approval=approval,
+            approval_verifier=approval_verifier,
             code="acquisition_execution_authorization_required",
         )
     except AuthorizationError as exc:
@@ -299,12 +329,16 @@ def build_ephemeral_tasks(
     context: CollectorContext,
     test_only_adapter: SyntheticTestAdapter | None = None,
     approval: ExternalApprovalBinding | None = None,
+    approval_verifier: ExternalApprovalVerifier
+    | Callable[[ExternalApprovalBinding, str], bool]
+    | None = None,
 ) -> tuple[Any, ...]:
     try:
         require_execution_boundary(
             artifact_sha256=approval.artifact_sha256 if approval is not None else "",
             test_only_adapter=test_only_adapter,
             approval=approval,
+            approval_verifier=approval_verifier,
             code="acquisition_execution_authorization_required",
         )
     except AuthorizationError as exc:
@@ -343,12 +377,18 @@ async def run_broad_acquisition_scaffold(
     before_after: Callable[[], tuple[dict[str, Any], dict[str, Any]]] | None = None,
     test_only_adapter: SyntheticTestAdapter | None = None,
     approval: ExternalApprovalBinding | None = None,
+    approval_verifier: ExternalApprovalVerifier
+    | Callable[[ExternalApprovalBinding, str], bool]
+    | None = None,
 ) -> AcquisitionScaffoldResult:
+    if budget is None:
+        raise AcquisitionError("acquisition_budget_required")
     try:
         require_execution_boundary(
             artifact_sha256=config.provenance_sha256,
             test_only_adapter=test_only_adapter,
             approval=approval,
+            approval_verifier=approval_verifier,
             code="acquisition_execution_authorization_required",
         )
     except AuthorizationError as exc:
@@ -366,12 +406,14 @@ async def run_broad_acquisition_scaffold(
         budget=budget,
         test_only_adapter=test_only_adapter,
         approval=approval,
+        approval_verifier=approval_verifier,
     )
     tasks = build_ephemeral_tasks(
         source_plan=source_plan,
         context=context,
         test_only_adapter=test_only_adapter,
         approval=approval,
+        approval_verifier=approval_verifier,
     )
     if collector_runtime is not None:
         from role_radar.collectors.registry import create_collector
@@ -634,6 +676,9 @@ async def run_gate_d_broad_acquisition(
     collector_factory: Callable[[SourceSnapshot, CollectorContext], Any] | None = None,
     test_only_adapter: SyntheticTestAdapter | None = None,
     approval: ExternalApprovalBinding | None = None,
+    approval_verifier: ExternalApprovalVerifier
+    | Callable[[ExternalApprovalBinding, str], bool]
+    | None = None,
 ) -> GateDResult:
     """Broad acquisition within approved bounds; no relevance filtering/backfill.
 
@@ -651,6 +696,7 @@ async def run_gate_d_broad_acquisition(
             artifact_sha256=config.provenance_sha256,
             test_only_adapter=test_only_adapter,
             approval=approval,
+            approval_verifier=approval_verifier,
             code="acquisition_execution_authorization_required",
         )
     except AuthorizationError as exc:
@@ -664,7 +710,9 @@ async def run_gate_d_broad_acquisition(
     else:
         before_copy = None
 
-    effective_budget = budget if budget is not None else CollectionRunBudget(maximum=100)
+    if budget is None:
+        raise AcquisitionError("acquisition_budget_required")
+    effective_budget = budget
     effective_journal = (
         journal
         if journal is not None
@@ -681,12 +729,14 @@ async def run_gate_d_broad_acquisition(
         budget=effective_budget,
         test_only_adapter=test_only_adapter,
         approval=approval,
+        approval_verifier=approval_verifier,
     )
     tasks = build_ephemeral_tasks(
         source_plan=source_plan,
         context=base_context,
         test_only_adapter=test_only_adapter,
         approval=approval,
+        approval_verifier=approval_verifier,
     )
 
     # No source replacement: task count must equal plan config count if plan exposes it
