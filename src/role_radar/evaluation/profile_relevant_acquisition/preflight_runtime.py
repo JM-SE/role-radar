@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass
 
 from role_radar.evaluation.profile_relevant_acquisition.challenge_loader import (
@@ -40,9 +39,7 @@ def run_preflight(
     challenge_bytes: bytes | None = None,
     expected_gate: str = "C",
     approval: ExternalApprovalBinding | None = None,
-    approval_verifier: ExternalApprovalVerifier
-    | Callable[[ExternalApprovalBinding, str], bool]
-    | None = None,
+    approval_verifier: ExternalApprovalVerifier | None = None,
 ) -> PreflightEvidence:
     """Load only bounded artifacts and verify their independent bindings.
 

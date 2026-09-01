@@ -99,6 +99,24 @@ class GateEPreviewRecord:
             _require_hex64(getattr(self, name), "gate_e_hash_invalid")
         if not isinstance(self.canonical_bytes, bytes):
             raise GateEError("gate_e_bytes_invalid")
+        expected = {
+            "challenge_domain": self.challenge_domain,
+            "hash_domain": self.hash_domain,
+            "holdout_membership_sha256": self.holdout_membership_sha256,
+            "pilot_membership_sha256": self.pilot_membership_sha256,
+            "partition_sha256": self.partition_sha256,
+            "preview_input_sha256": self.preview_input_sha256,
+            "provenance_sha256": self.provenance_sha256,
+            "sanitized_preview_sha256": self.sanitized_preview_sha256,
+            "schema_version": SCHEMA_GATE_E_RESULT,
+            "selection_sha256": self.selection_sha256,
+        }
+        try:
+            canonical = _canonical_bytes(expected)
+        except GateEError:
+            raise
+        if canonical != self.canonical_bytes:
+            raise GateEError("gate_e_canonical_mismatch")
 
 
 def _validate_inputs_gate_e(
@@ -136,6 +154,16 @@ def _validate_inputs_gate_e(
             raise GateEError(code)
     if inputs.sampling_policy.selection_seed == inputs.partition_policy.partition_seed:
         raise GateEError("gate_e_seeds_must_differ")
+    if inputs.relevance_policy.policy_sha256 != provenance.relevance_policy_sha256:
+        raise GateEError("gate_e_policy_mismatch")
+    if hashlib.sha256(inputs.sampling_policy.selection_seed.encode("ascii")).hexdigest() != (
+        provenance.selection_seed_sha256
+    ):
+        raise GateEError("gate_e_selection_seed_mismatch")
+    if hashlib.sha256(inputs.partition_policy.partition_seed.encode("ascii")).hexdigest() != (
+        provenance.partition_seed_sha256
+    ):
+        raise GateEError("gate_e_partition_seed_mismatch")
     # Binding hashes must be hex.
     _require_hex64(provenance.provenance_sha256, "gate_e_hash_invalid")
     _require_hex64(inputs.preview_input_sha256, "gate_e_hash_invalid")

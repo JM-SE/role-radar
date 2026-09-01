@@ -22,7 +22,7 @@ import re
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Final, Protocol
+from typing import Any, Final, Protocol, cast
 
 import httpx
 
@@ -74,10 +74,58 @@ class AcquisitionError(ValueError):
         super().__init__(code)
 
 
-class CollectorProtocol(Protocol):
+_SYNTHETIC_CAPABILITY = object()
+_SYNTHETIC_CAPABILITY_ATTRIBUTE = "__role_radar_synthetic_capability__"
+
+
+class SyntheticTransport(httpx.AsyncBaseTransport):
+    """Allow-listed transport which cannot perform network I/O."""
+
+    __slots__ = ("_calls",)
+
+    def __init__(self) -> None:
+        self._calls = 0
+
+    @property
+    def calls(self) -> int:
+        return self._calls
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        del request
+        self._calls += 1
+        return httpx.Response(200, content=b'{"jobs":[]}')
+
+
+class SyntheticCollectorFactory(Protocol):
+    """Factory contract for explicitly offline synthetic collectors."""
+
+    def __call__(
+        self, snapshot: SourceSnapshot, context: CollectorContext
+    ) -> SyntheticCollectorProtocol: ...
+
+
+class SyntheticCollectorProtocol(Protocol):
+    """Collector contract with an identity-bound offline capability."""
+
     async def collect(
         self, snapshot: SourceSnapshot, runtime: CollectorRuntime
     ) -> CollectionOutcome: ...
+
+
+def mark_synthetic_capability[T](value: T) -> T:
+    """Explicitly opt a test-owned factory/class into offline collection."""
+
+    try:
+        setattr(value, _SYNTHETIC_CAPABILITY_ATTRIBUTE, _SYNTHETIC_CAPABILITY)
+    except (AttributeError, TypeError) as exc:
+        raise TypeError("synthetic capability target is not markable") from exc
+    return value
+
+
+def _has_synthetic_capability(value: object) -> bool:
+    return (
+        getattr(value, _SYNTHETIC_CAPABILITY_ATTRIBUTE, None) is _SYNTHETIC_CAPABILITY
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -236,11 +284,40 @@ def _validate_source_plan_binding(
         raise AcquisitionError("acquisition_source_plan_budget_mismatch")
 
 
-def _reject_live_transport_for_test_adapter(transport: object) -> None:
-    module = getattr(type(transport), "__module__", "")
-    name = getattr(type(transport), "__name__", "")
-    if module == "httpx" and name not in {"MockTransport"}:
+def _require_synthetic_transport(transport: object) -> SyntheticTransport:
+    """Accept only the concrete transport with no network-capable delegate."""
+
+    if type(transport) is not SyntheticTransport:
         raise AcquisitionError("acquisition_production_transport_rejected")
+    return transport
+
+
+def _require_synthetic_collector_factory(factory: object) -> SyntheticCollectorFactory:
+    if not _has_synthetic_capability(factory) or not callable(factory):
+        raise AcquisitionError("acquisition_synthetic_collector_required")
+    return cast(SyntheticCollectorFactory, factory)
+
+
+def _require_synthetic_collector(collector: object) -> SyntheticCollectorProtocol:
+    if not _has_synthetic_capability(collector) or not callable(
+        getattr(collector, "collect", None)
+    ):
+        raise AcquisitionError("acquisition_synthetic_collector_required")
+    return cast(SyntheticCollectorProtocol, collector)
+
+
+def _is_operational_root(root: Path) -> bool:
+    text = str(root)
+    return any(text == prefix or text.startswith(prefix + "/") for prefix in (
+        "/opt",
+        "/etc",
+        "/var",
+        "/usr",
+        "/bin",
+        "/sbin",
+        "/run",
+        "/srv",
+    ))
 
 
 def _canonical_bytes(value: Any) -> bytes:
@@ -329,13 +406,11 @@ def canonical_observation_from_raw(
 
 def build_collector_context(
     *,
-    transport: httpx.AsyncBaseTransport,
+    transport: SyntheticTransport,
     budget: CollectionRunBudget | None = None,
     test_only_adapter: SyntheticTestAdapter | None = None,
     approval: ExternalApprovalBinding | None = None,
-    approval_verifier: ExternalApprovalVerifier
-    | Callable[[ExternalApprovalBinding, str], bool]
-    | None = None,
+    approval_verifier: ExternalApprovalVerifier | None = None,
 ) -> CollectorContext:
     if budget is None:
         raise AcquisitionError("acquisition_budget_required")
@@ -351,14 +426,7 @@ def build_collector_context(
         raise AcquisitionError(exc.code) from exc
     if test_only_adapter is None:
         raise AcquisitionError("acquisition_live_execution_disabled")
-    if test_only_adapter is not None:
-        _reject_live_transport_for_test_adapter(transport)
-    if not isinstance(transport, httpx.AsyncBaseTransport):
-        raise AcquisitionError("acquisition_transport_invalid")
-    if transport.__class__.__name__ == "JournaledTransport" and (
-        "controlled_acquisition" in transport.__class__.__module__
-    ):
-        raise AcquisitionError("forbidden_journaled_transport")
+    _require_synthetic_transport(transport)
     return CollectorContext(transport=transport, budget=budget)
 
 
@@ -368,12 +436,16 @@ def build_ephemeral_tasks(
     context: CollectorContext,
     test_only_adapter: SyntheticTestAdapter | None = None,
     approval: ExternalApprovalBinding | None = None,
-    approval_verifier: ExternalApprovalVerifier
-    | Callable[[ExternalApprovalBinding, str], bool]
-    | None = None,
+    approval_verifier: ExternalApprovalVerifier | None = None,
 ) -> tuple[CollectorTask, ...]:
     if not isinstance(source_plan, SourcePlan):
         raise AcquisitionError("acquisition_source_plan_invalid")
+    try:
+        source_plan.__post_init__()
+    except (TypeError, ValueError) as exc:
+        raise AcquisitionError("acquisition_source_plan_invalid") from exc
+    if hashlib.sha256(source_plan.canonical_bytes).hexdigest() != source_plan.source_plan_sha256:
+        raise AcquisitionError("acquisition_source_plan_hash_mismatch")
     try:
         require_execution_boundary(
             artifact_sha256=approval.artifact_sha256 if approval is not None else "",
@@ -386,15 +458,7 @@ def build_ephemeral_tasks(
         raise AcquisitionError(exc.code) from exc
     if test_only_adapter is None:
         raise AcquisitionError("acquisition_live_execution_disabled")
-    plan_version: str | None = None
-    maybe_version = getattr(source_plan, "plan_version", None)
-    if maybe_version is not None:
-        plan_version = str(maybe_version)
-    elif isinstance(source_plan, dict):
-        raw = source_plan.get("plan_version")
-        if raw is not None:
-            plan_version = str(raw)
-    if plan_version is not None and plan_version != PLAN_VERSION_V2:
+    if source_plan.plan_version != PLAN_VERSION_V2:
         raise AcquisitionError("acquisition_plan_version_unsupported")
     try:
         from role_radar.evaluation.controlled_acquisition.acquisition import (
@@ -414,15 +478,13 @@ async def run_broad_acquisition_scaffold(
     *,
     config: AcquisitionScaffoldConfig,
     source_plan: SourcePlan,
-    transport: httpx.AsyncBaseTransport,
+    transport: SyntheticTransport,
     collector_runtime: CollectorRuntime | None = None,
     budget: CollectionRunBudget | None = None,
     before_after: Callable[[], tuple[dict[str, Any], dict[str, Any]]] | None = None,
     test_only_adapter: SyntheticTestAdapter | None = None,
     approval: ExternalApprovalBinding | None = None,
-    approval_verifier: ExternalApprovalVerifier
-    | Callable[[ExternalApprovalBinding, str], bool]
-    | None = None,
+    approval_verifier: ExternalApprovalVerifier | None = None,
 ) -> AcquisitionScaffoldResult:
     if budget is None:
         raise AcquisitionError("acquisition_budget_required")
@@ -438,8 +500,9 @@ async def run_broad_acquisition_scaffold(
         raise AcquisitionError(exc.code) from exc
     if test_only_adapter is None:
         raise AcquisitionError("acquisition_live_execution_disabled")
-    if test_only_adapter is not None:
-        _reject_live_transport_for_test_adapter(transport)
+    _require_synthetic_transport(transport)
+    if collector_runtime is not None:
+        raise AcquisitionError("acquisition_synthetic_collector_required")
     _validate_prereg_binding(config)
     _validate_source_plan_binding(config, source_plan, budget)
     if before_after is not None:
@@ -713,20 +776,17 @@ async def run_gate_d_broad_acquisition(
     *,
     config: AcquisitionScaffoldConfig,
     source_plan: SourcePlan,
-    delegate: httpx.AsyncBaseTransport,
+    delegate: SyntheticTransport,
     budget: CollectionRunBudget | None = None,
     evidence_root: Path | None = None,
     journal: AcquisitionJournal | None = None,
     checkpoints: dict[str, SourceCheckpoint] | None = None,
     before_after: Callable[[], tuple[dict[str, Any], dict[str, Any]]] | None = None,
-    collector_factory: (
-        Callable[[SourceSnapshot, CollectorContext], CollectorProtocol] | None
-    ) = None,
+    collector_factory: Callable[[SourceSnapshot, CollectorContext], SyntheticCollectorProtocol]
+    | None = None,
     test_only_adapter: SyntheticTestAdapter | None = None,
     approval: ExternalApprovalBinding | None = None,
-    approval_verifier: ExternalApprovalVerifier
-    | Callable[[ExternalApprovalBinding, str], bool]
-    | None = None,
+    approval_verifier: ExternalApprovalVerifier | None = None,
 ) -> GateDResult:
     """Broad acquisition within approved bounds; no relevance filtering/backfill.
 
@@ -753,14 +813,23 @@ async def run_gate_d_broad_acquisition(
         # R1 has no production acquisition path.  External approval may
         # authenticate artifacts, but it cannot unlock a collector here.
         raise AcquisitionError("acquisition_live_execution_disabled")
-    if test_only_adapter is not None:
-        _reject_live_transport_for_test_adapter(delegate)
     _validate_prereg_binding(config)
     if not isinstance(source_plan, SourcePlan):
         raise AcquisitionError("acquisition_source_plan_invalid")
     if budget is None:
         raise AcquisitionError("acquisition_budget_required")
     _validate_source_plan_binding(config, source_plan, budget)
+    if evidence_root is not None and str(evidence_root) != source_plan.root:
+        raise AcquisitionError("acquisition_source_plan_root_mismatch")
+    root = Path(source_plan.root)
+    synthetic_delegate = _require_synthetic_transport(delegate)
+    if test_only_adapter is not None and _is_operational_root(root):
+        raise AcquisitionError("acquisition_production_root_rejected")
+    if collector_factory is None:
+        raise AcquisitionError("acquisition_synthetic_collector_required")
+    synthetic_factory = _require_synthetic_collector_factory(collector_factory)
+    if journal is not None and journal.root is not None and journal.root != root:
+        raise AcquisitionError("acquisition_source_plan_root_mismatch")
     if before_after is not None:
         before, _ = before_after()
         before_copy = dict(before)
@@ -773,14 +842,12 @@ async def run_gate_d_broad_acquisition(
         if journal is not None
         else AcquisitionJournal(
             operation_id=config.operation_id,
-            root=evidence_root,
+            root=root,
         )
     )
-    root = evidence_root if evidence_root is not None else config.evidence_root
-
     # Build ephemeral tasks with a base context (no transport yet; per-source transport below)
     base_context = build_collector_context(
-        transport=delegate,
+        transport=synthetic_delegate,
         budget=effective_budget,
         test_only_adapter=test_only_adapter,
         approval=approval,
@@ -795,13 +862,7 @@ async def run_gate_d_broad_acquisition(
     )
 
     # No source replacement: task count must equal plan config count if plan exposes it
-    plan_configs = None
-    maybe_configs = getattr(source_plan, "source_configs", None)
-    if isinstance(maybe_configs, (list, tuple)):
-        plan_configs = maybe_configs
-    elif isinstance(source_plan, dict) and isinstance(source_plan.get("source_configs"), list):
-        plan_configs = source_plan["source_configs"]
-    if plan_configs is not None and len(tasks) != len(plan_configs):
+    if len(tasks) != len(source_plan.source_configs):
         raise AcquisitionError("acquisition_source_replacement_detected")
 
     observations: list[ObservationEnvelope] = []
@@ -832,7 +893,7 @@ async def run_gate_d_broad_acquisition(
 
         # Per-source journaled transport below BoundedHttpClient
         per_source_transport = JournaledAsyncTransport(
-            delegate=delegate,
+            delegate=synthetic_delegate,
             journal=effective_journal,
             source_id=source_id,
             operation_id=config.operation_id,
@@ -843,15 +904,12 @@ async def run_gate_d_broad_acquisition(
         )
 
         # Resolve collector via public registry (or injected factory for tests)
-        if collector_factory is not None:
-            collector = collector_factory(snap, per_source_context)
-        else:
-            from role_radar.collectors.registry import create_collector
-
-            try:
-                collector = create_collector(snap, per_source_context)
-            except Exception as exc:
-                raise AcquisitionError("acquisition_collector_create_failed") from exc
+        try:
+            collector = _require_synthetic_collector(synthetic_factory(snap, per_source_context))
+        except AcquisitionError:
+            raise
+        except Exception as exc:
+            raise AcquisitionError("acquisition_collector_create_failed") from exc
 
         runtime = CollectorRuntime(transport=per_source_transport, budget=effective_budget)
         try:
@@ -982,10 +1040,14 @@ __all__ = [
     "ObservationEnvelope",
     "ParentPoolManifest",
     "SourceCheckpoint",
+    "SyntheticCollectorFactory",
+    "SyntheticCollectorProtocol",
+    "SyntheticTransport",
     "assert_mixed_board_sealed",
     "build_collector_context",
     "build_ephemeral_tasks",
     "canonical_observation_from_raw",
+    "mark_synthetic_capability",
     "run_broad_acquisition_scaffold",
     "run_gate_d_broad_acquisition",
     "verify_gate_d_reconciliations",

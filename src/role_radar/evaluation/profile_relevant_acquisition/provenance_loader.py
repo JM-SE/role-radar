@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from typing import Any, Final
 
 from role_radar.evaluation.profile_relevant_acquisition.contracts import (
@@ -13,6 +13,7 @@ from role_radar.evaluation.profile_relevant_acquisition.contracts import (
     ExternalApprovalVerifier,
     ProvenanceArtifact,
     SeedInputs,
+    _approved_artifact_token,
     require_execution_boundary,
 )
 
@@ -88,9 +89,7 @@ def load_provenance_bytes(
     raw: bytes,
     *,
     approval: ExternalApprovalBinding | None = None,
-    approval_verifier: ExternalApprovalVerifier
-    | Callable[[ExternalApprovalBinding, str], bool]
-    | None = None,
+    approval_verifier: ExternalApprovalVerifier | None = None,
 ) -> ProvenanceArtifact:
     value = _object(raw)
     if value["schema_version"] != PROVENANCE_SCHEMA:
@@ -162,6 +161,11 @@ def load_provenance_bytes(
             seed_inputs=seeds,
             provenance_sha256=supplied_digest,
             canonical_bytes=raw,
+            _approval_token=(
+                _approved_artifact_token()
+                if artifact_class is ArtifactClass.APPROVED_PRODUCTION
+                else None
+            ),
         )
     except (TypeError, ValueError) as exc:
         raise ProvenanceLoadError("provenance_contract_invalid") from exc
@@ -208,9 +212,7 @@ def load_provenance(
     value: Mapping[str, object],
     *,
     approval: ExternalApprovalBinding | None = None,
-    approval_verifier: ExternalApprovalVerifier
-    | Callable[[ExternalApprovalBinding, str], bool]
-    | None = None,
+    approval_verifier: ExternalApprovalVerifier | None = None,
 ) -> ProvenanceArtifact:
     if not isinstance(value, Mapping):
         raise ProvenanceLoadError("provenance_object_invalid")

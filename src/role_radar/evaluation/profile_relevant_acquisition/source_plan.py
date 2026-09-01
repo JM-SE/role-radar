@@ -20,6 +20,16 @@ from role_radar.evaluation.profile_relevant_acquisition.contracts import SeedInp
 SCHEMA_VERSION: Final[str] = "f10.1f-source-plan-v1"
 HEX64_RE: Final[re.Pattern[str]] = re.compile(r"^[0-9a-f]{64}$", re.ASCII)
 NAMESPACE_RE: Final[re.Pattern[str]] = re.compile(r"^[a-z0-9][a-z0-9\-]+[a-z0-9]$", re.ASCII)
+SYNTHETIC_FORBIDDEN_ROOTS: Final[tuple[str, ...]] = (
+    "/opt",
+    "/etc",
+    "/var",
+    "/usr",
+    "/bin",
+    "/sbin",
+    "/run",
+    "/srv",
+)
 
 
 class SourcePlanError(ValueError):
@@ -78,7 +88,10 @@ class SourcePlan:
             raise SourcePlanError("source_plan_namespace_invalid")
         if not isinstance(self.root, str) or not self.root.startswith("/"):
             raise SourcePlanError("source_plan_root_invalid")
-        if self.root.startswith(("/opt/", "/etc/", "/var/lib/")):
+        if any(
+            self.root == prefix or self.root.startswith(prefix + "/")
+            for prefix in SYNTHETIC_FORBIDDEN_ROOTS
+        ):
             raise SourcePlanError("source_plan_production_root_rejected")
         for name, value in (
             ("per_board_cap", self.per_board_cap),

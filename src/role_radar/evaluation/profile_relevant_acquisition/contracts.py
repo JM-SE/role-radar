@@ -10,8 +10,8 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from collections.abc import Callable
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from enum import StrEnum
 from typing import Literal, Protocol
 
@@ -48,6 +48,7 @@ from role_radar.evaluation.profile_relevance.contracts import (
 
 
 HEX64_RE = re.compile(r"^[0-9a-f]{64}$", re.ASCII)
+_APPROVED_ARTIFACT_TOKEN = object()
 
 
 class OperationalContractError(ValueError):
@@ -141,6 +142,9 @@ class ChallengeArtifact:
     payload_sha256: str
     challenge_sha256: str
     canonical_bytes: bytes
+    _approval_token: object | None = dataclass_field(
+        default=None, repr=False, compare=False, kw_only=True
+    )
 
     def __post_init__(self) -> None:
         if self.schema_version != "f10.1f-challenge-v1":
@@ -160,6 +164,11 @@ class ChallengeArtifact:
         _hash(self.challenge_sha256, "challenge_hash_invalid")
         if not isinstance(self.canonical_bytes, bytes):
             raise OperationalContractError("challenge_bytes_invalid")
+        if self.artifact_class is ArtifactClass.APPROVED_PRODUCTION:
+            if self._approval_token is not _APPROVED_ARTIFACT_TOKEN:
+                raise OperationalContractError("challenge_external_approval_required")
+        elif self._approval_token is not None:
+            raise OperationalContractError("challenge_approval_token_invalid")
         _validate_canonical_artifact(
             canonical_bytes=self.canonical_bytes,
             supplied_hash=self.challenge_sha256,
@@ -198,6 +207,9 @@ class ProvenanceArtifact:
     seed_inputs: SeedInputs
     provenance_sha256: str
     canonical_bytes: bytes
+    _approval_token: object | None = dataclass_field(
+        default=None, repr=False, compare=False, kw_only=True
+    )
 
     def __post_init__(self) -> None:
         if self.schema_version != "f10.1f-provenance-v1":
@@ -218,6 +230,11 @@ class ProvenanceArtifact:
             raise OperationalContractError("provenance_seed_inputs_invalid")
         if not isinstance(self.canonical_bytes, bytes):
             raise OperationalContractError("provenance_bytes_invalid")
+        if self.artifact_class is ArtifactClass.APPROVED_PRODUCTION:
+            if self._approval_token is not _APPROVED_ARTIFACT_TOKEN:
+                raise OperationalContractError("provenance_external_approval_required")
+        elif self._approval_token is not None:
+            raise OperationalContractError("provenance_approval_token_invalid")
         _validate_canonical_artifact(
             canonical_bytes=self.canonical_bytes,
             supplied_hash=self.provenance_sha256,
@@ -266,6 +283,8 @@ def _validate_canonical_artifact(
     except (TypeError, ValueError, UnicodeError) as exc:
         raise OperationalContractError("canonical_record_invalid") from exc
     if not isinstance(payload, dict) or canonical != canonical_bytes[:-1]:
+        raise OperationalContractError("canonical_record_invalid")
+    if set(payload) != set(expected) | {hash_key}:
         raise OperationalContractError("canonical_record_invalid")
     if any(payload.get(key) != value for key, value in expected.items()):
         raise OperationalContractError(mismatch_code)
@@ -371,12 +390,22 @@ class F10_1FHandoff:
     artifact_class: ArtifactClass
     evidence: RuntimeEvidence
     payloads: MaterializedPayloads
+    preview_input_sha256: str
+    materialization_context_sha256: str
+    materialization_binding_sha256: str
+    private_payloads_sha256: str
+    operator_payloads_sha256: str
+    pilot_payloads_sha256: str
+    holdout_payloads_sha256: str
 
     def __post_init__(self) -> None:
         _nonempty(self.operation_id, "f_handoff_operation_invalid")
         _hash(self.challenge_sha256, "f_handoff_challenge_invalid")
         _hash(self.provenance_sha256, "f_handoff_provenance_invalid")
-        if self.artifact_class is ArtifactClass.LIVE_SHAPED:
+        if self.artifact_class not in {
+            ArtifactClass.SYNTHETIC,
+            ArtifactClass.APPROVED_PRODUCTION,
+        }:
             raise OperationalContractError("f_handoff_artifact_class_invalid")
         if not isinstance(self.evidence, RuntimeEvidence) or self.evidence.gate != "F":
             raise OperationalContractError("f_handoff_evidence_invalid")
@@ -389,6 +418,29 @@ class F10_1FHandoff:
             raise OperationalContractError("f_handoff_evidence_mismatch")
         if not isinstance(self.payloads, MaterializedPayloads):
             raise OperationalContractError("f_handoff_payloads_invalid")
+        for name in (
+            "preview_input_sha256",
+            "materialization_context_sha256",
+            "materialization_binding_sha256",
+            "private_payloads_sha256",
+            "operator_payloads_sha256",
+            "pilot_payloads_sha256",
+            "holdout_payloads_sha256",
+        ):
+            _hash(getattr(self, name), "f_handoff_binding_invalid")
+        if self.preview_input_sha256 != self.payloads.preview_input_sha256:
+            raise OperationalContractError("f_handoff_preview_binding_mismatch")
+        if self.materialization_context_sha256 != self.payloads.materialization_context_sha256:
+            raise OperationalContractError("f_handoff_materialization_binding_mismatch")
+        if self.materialization_binding_sha256 != self.payloads.materialization_binding_sha256:
+            raise OperationalContractError("f_handoff_materialization_binding_mismatch")
+        if (
+            self.private_payloads_sha256,
+            self.operator_payloads_sha256,
+            self.pilot_payloads_sha256,
+            self.holdout_payloads_sha256,
+        ) != self.payloads.group_hashes:
+            raise OperationalContractError("f_handoff_payload_hash_mismatch")
 
 
 def build_f_handoff(
@@ -401,6 +453,9 @@ def build_f_handoff(
 ) -> F10_1FHandoff:
     """Create the only supported freeze input for Gate F materialized bytes."""
 
+    if artifact_class is ArtifactClass.APPROVED_PRODUCTION:
+        raise OperationalContractError("f_handoff_approved_class_builder_forbidden")
+
     evidence_sha256 = hashlib.sha256(
         f"F\0{challenge_sha256}\0{provenance_sha256}".encode("ascii")
     ).hexdigest()
@@ -411,6 +466,13 @@ def build_f_handoff(
         artifact_class=artifact_class,
         evidence=RuntimeEvidence("F", operation_id, evidence_sha256),
         payloads=payloads,
+        preview_input_sha256=payloads.preview_input_sha256,
+        materialization_context_sha256=payloads.materialization_context_sha256,
+        materialization_binding_sha256=payloads.materialization_binding_sha256,
+        private_payloads_sha256=payloads.private_payloads_sha256,
+        operator_payloads_sha256=payloads.operator_payloads_sha256,
+        pilot_payloads_sha256=payloads.pilot_payloads_sha256,
+        holdout_payloads_sha256=payloads.holdout_payloads_sha256,
     )
 
 
@@ -436,6 +498,12 @@ def validate_provenance_artifact(value: object) -> ProvenanceArtifact:
     except (TypeError, ValueError) as exc:
         raise OperationalContractError("provenance_contract_invalid") from exc
     return value
+
+
+def _approved_artifact_token() -> object:
+    """Return the loader-only approval capability; not part of the public API."""
+
+    return _APPROVED_ARTIFACT_TOKEN
 
 
 @dataclass(frozen=True, slots=True)
@@ -518,9 +586,7 @@ def require_execution_boundary(
     artifact_sha256: str,
     test_only_adapter: SyntheticTestAdapter | None,
     approval: ExternalApprovalBinding | None,
-    approval_verifier: ExternalApprovalVerifier
-    | Callable[[ExternalApprovalBinding, str], bool]
-    | None,
+    approval_verifier: ExternalApprovalVerifier | None,
     code: str,
 ) -> None:
     """Require an explicit offline adapter or externally verified approval."""
@@ -537,13 +603,7 @@ def require_execution_boundary(
         raise AuthorizationError(code)
     try:
         verify = getattr(approval_verifier, "verify", None)
-        valid = (
-            verify(approval, artifact_sha256)
-            if callable(verify)
-            else approval_verifier(approval, artifact_sha256)
-            if callable(approval_verifier)
-            else False
-        )
+        valid = verify(approval, artifact_sha256) if callable(verify) else False
     except Exception as exc:
         raise AuthorizationError(code) from exc
     if valid is not True:

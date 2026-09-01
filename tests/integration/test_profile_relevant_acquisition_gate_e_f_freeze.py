@@ -49,7 +49,11 @@ def _live_namespace_input() -> ProfileRelevanceInput:
 
 def test_gate_e_runs_only_sanitized_preview_with_no_materialization_bytes() -> None:
     inputs = _live_namespace_input()
-    provenance = _provenance()
+    provenance = _provenance(
+        relevance_policy_sha256=inputs.relevance_policy.policy_sha256,
+        selection_seed=inputs.sampling_policy.selection_seed,
+        partition_seed=inputs.partition_policy.partition_seed,
+    )
 
     result, record = run_gate_e_preview(inputs=inputs, provenance=provenance)
 
@@ -171,6 +175,17 @@ def test_freeze_publishes_manifest_capabilities_and_receipt_once(tmp_path: Path)
         payloads=payloads,
         test_only_adapter=synthetic_test_adapter(),
     )
+
+    with pytest.raises(FreezeError) as replacement:
+        run_freeze_transaction(
+            root=root,
+            bindings=bindings,
+            f_handoff=f_handoff,
+            payloads=object(),  # type: ignore[arg-type]
+            provenance=provenance,
+            test_only_adapter=synthetic_test_adapter(),
+        )
+    assert replacement.value.code == "freeze_payload_replacement_rejected"
 
     dataset = root / benchmark.dataset_id
     assert (dataset / "manifest.json").is_file()

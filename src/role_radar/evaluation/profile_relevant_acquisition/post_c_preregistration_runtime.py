@@ -36,9 +36,7 @@ def run_post_c_preregistration_runtime(
     delegate: Callable[[], object],
     test_only_adapter: SyntheticTestAdapter | None = None,
     approval: ExternalApprovalBinding | None = None,
-    approval_verifier: ExternalApprovalVerifier
-    | Callable[[ExternalApprovalBinding, str], bool]
-    | None = None,
+    approval_verifier: ExternalApprovalVerifier | None = None,
     expected_challenge_sha256: str | None = None,
     expected_provenance_sha256: str | None = None,
     expected_source_plan_sha256: str | None = None,

@@ -33,14 +33,20 @@ from role_radar.evaluation.profile_relevant_acquisition.store import (
 from tests.unit.test_discovery_planner_v2 import policy, terms
 
 
-def _provenance(*, root: str = "/tmp/role-radar-f10-1f-test") -> ProvenanceBundle:
+def _provenance(
+    *,
+    root: str = "/tmp/role-radar-f10-1f-test",
+    relevance_policy_sha256: str = "3" * 64,
+    selection_seed: str = "a" * 64,
+    partition_seed: str = "b" * 64,
+) -> ProvenanceBundle:
     values = {
         "diff_sha256": "d" * 64,
         "status_sha256": "e" * 64,
         "lock_sha256": "f" * 64,
         "profile_binding_sha256": "1" * 64,
         "discovery_policy_sha256": "2" * 64,
-        "relevance_policy_sha256": "3" * 64,
+        "relevance_policy_sha256": relevance_policy_sha256,
         "display_contract_sha256": "4" * 64,
         "planner_sha256": "5" * 64,
         "query_plan_sha256": "6" * 64,
@@ -55,8 +61,8 @@ def _provenance(*, root: str = "/tmp/role-radar-f10-1f-test") -> ProvenanceBundl
         window_end_utc="2026-08-25T01:00:00Z",
         cutoff_utc="2026-08-25T00:30:00Z",
         old_artifact_hashes={"lock": "0" * 64},
-        selection_seed="a" * 64,
-        partition_seed="b" * 64,
+        selection_seed=selection_seed,
+        partition_seed=partition_seed,
         per_board_cap=4,
         per_company_cap=2,
         corpus_total=4,

@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Callable
 from typing import Final
 
 from role_radar.evaluation.profile_relevance.contracts import (
@@ -126,9 +125,7 @@ def run_gate_f_materialization(
     materialization_context: MaterializationContext,
     test_only_adapter: SyntheticTestAdapter | None = None,
     approval: ExternalApprovalBinding | None = None,
-    approval_verifier: ExternalApprovalVerifier
-    | Callable[[ExternalApprovalBinding, str], bool]
-    | None = None,
+    approval_verifier: ExternalApprovalVerifier | None = None,
 ) -> MaterializedPayloads:
     """Validate, recompute with exact equality, then materialize payload bytes.
 

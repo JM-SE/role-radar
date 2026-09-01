@@ -19,7 +19,9 @@ from role_radar.evaluation.profile_relevant_acquisition.acquisition_runtime impo
     AcquisitionError,
     AcquisitionScaffoldConfig,
     SourceCheckpoint,
+    SyntheticTransport,
     assert_mixed_board_sealed,
+    mark_synthetic_capability,
     run_gate_d_broad_acquisition,
 )
 from role_radar.evaluation.profile_relevant_acquisition.contracts import (
@@ -42,6 +44,7 @@ class MockTransport(httpx.AsyncBaseTransport):
         return httpx.Response(200, request=request, content=b'{"jobs":[]}')
 
 
+@mark_synthetic_capability
 class FakeBroadCollector:
     def __init__(self, transport: httpx.AsyncBaseTransport) -> None:
         self.transport = transport
@@ -93,6 +96,7 @@ class FakeBroadCollector:
         )
 
 
+@mark_synthetic_capability
 def _fake_collector(_snapshot: SourceSnapshot, context: CollectorContext) -> FakeBroadCollector:
     assert context.transport is not None
     return FakeBroadCollector(context.transport)
@@ -113,7 +117,7 @@ def _config(root: Path, plan_sha256: str) -> AcquisitionScaffoldConfig:
 @pytest.mark.asyncio
 async def test_gate_d_mixed_board_enters_pool_without_product_persistence(tmp_path: Path) -> None:
     root = tmp_path / "evidence"
-    delegate = MockTransport()
+    delegate = SyntheticTransport()
     budget = CollectionRunBudget(maximum=1)
     journal = AcquisitionJournal(operation_id="op-gate-d", root=root)
     source_plan = build_source_plan(
@@ -206,7 +210,7 @@ async def test_gate_d_pending_journal_blocks_replay_without_delegate_call(tmp_pa
             },
         ),
     )
-    delegate = MockTransport()
+    delegate = SyntheticTransport()
     with pytest.raises(AcquisitionError) as exc:
         await run_gate_d_broad_acquisition(
             config=_config(root, source_plan.source_plan_sha256),
@@ -224,11 +228,11 @@ async def test_gate_d_pending_journal_blocks_replay_without_delegate_call(tmp_pa
 
 @pytest.mark.asyncio
 async def test_gate_d_legacy_network_requires_explicit_boundary(tmp_path: Path) -> None:
-    delegate = MockTransport()
+    delegate = SyntheticTransport()
     with pytest.raises(AcquisitionError) as exc:
         await run_gate_d_broad_acquisition(
             config=_config(tmp_path / "evidence", "c" * 64),
-            source_plan=object(),
+            source_plan=object(),  # type: ignore[arg-type]
             delegate=delegate,
         )
     assert exc.value.code == "acquisition_execution_authorization_required"
@@ -261,9 +265,131 @@ async def test_gate_d_stale_plan_hash_blocks_before_collector_invocation(tmp_pat
         await run_gate_d_broad_acquisition(
             config=replace(_config(root, plan.source_plan_sha256), source_plan_sha256="d" * 64),
             source_plan=plan,
-            delegate=delegate,
+            delegate=delegate,  # type: ignore[arg-type]
             budget=CollectionRunBudget(maximum=1),
             test_only_adapter=synthetic_test_adapter(),
         )
     assert exc.value.code == "acquisition_source_plan_hash_mismatch"
     assert delegate.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_gate_d_rejects_arbitrary_httpx_transport_without_invoking_it(tmp_path: Path) -> None:
+    root = tmp_path / "evidence"
+    plan = build_source_plan(
+        namespace="f10-1f-20260825-a7f3c9",
+        root=str(root),
+        per_board_cap=4,
+        per_company_cap=2,
+        budget=SourcePlanBudget("budget-gate-d", 1),
+        seed=SeedInputs("a" * 64, "b" * 64),
+        operation_id="op-gate-d",
+        lineage_id="lineage-gate-d",
+        source_configs=(
+            {
+                "family": "greenhouse",
+                "source_key": "greenhouse:acme",
+                "configuration_version": 1,
+                "configuration": {"board_token": "acme"},
+            },
+        ),
+    )
+    delegate = MockTransport()
+    with pytest.raises(AcquisitionError) as exc:
+        await run_gate_d_broad_acquisition(
+            config=_config(root, plan.source_plan_sha256),
+            source_plan=plan,
+            delegate=delegate,  # type: ignore[arg-type]
+            budget=CollectionRunBudget(maximum=1),
+            collector_factory=_fake_collector,
+            test_only_adapter=synthetic_test_adapter(),
+        )
+    assert exc.value.code == "acquisition_production_transport_rejected"
+    assert delegate.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_gate_d_rejects_caller_root_override_before_factory(tmp_path: Path) -> None:
+    root = tmp_path / "evidence"
+    override = tmp_path / "override"
+    plan = build_source_plan(
+        namespace="f10-1f-20260825-a7f3c9",
+        root=str(root),
+        per_board_cap=4,
+        per_company_cap=2,
+        budget=SourcePlanBudget("budget-gate-d", 1),
+        seed=SeedInputs("a" * 64, "b" * 64),
+        operation_id="op-gate-d",
+        lineage_id="lineage-gate-d",
+        source_configs=(
+            {
+                "family": "greenhouse",
+                "source_key": "greenhouse:acme",
+                "configuration_version": 1,
+                "configuration": {"board_token": "acme"},
+            },
+        ),
+    )
+    factory_calls = 0
+
+    @mark_synthetic_capability
+    def factory(_snapshot: SourceSnapshot, _context: CollectorContext) -> FakeBroadCollector:
+        nonlocal factory_calls
+        factory_calls += 1
+        raise AssertionError("factory must not run")
+
+    with pytest.raises(AcquisitionError) as exc:
+        await run_gate_d_broad_acquisition(
+            config=_config(root, plan.source_plan_sha256),
+            source_plan=plan,
+            delegate=SyntheticTransport(),
+            budget=CollectionRunBudget(maximum=1),
+            evidence_root=override,
+            collector_factory=factory,
+            test_only_adapter=synthetic_test_adapter(),
+        )
+    assert exc.value.code == "acquisition_source_plan_root_mismatch"
+    assert factory_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_gate_d_rejects_unmarked_provider_factory_before_provider_call(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "evidence"
+    plan = build_source_plan(
+        namespace="f10-1f-20260825-a7f3c9",
+        root=str(root),
+        per_board_cap=4,
+        per_company_cap=2,
+        budget=SourcePlanBudget("budget-gate-d", 1),
+        seed=SeedInputs("a" * 64, "b" * 64),
+        operation_id="op-gate-d",
+        lineage_id="lineage-gate-d",
+        source_configs=(
+            {
+                "family": "greenhouse",
+                "source_key": "greenhouse:acme",
+                "configuration_version": 1,
+                "configuration": {"board_token": "acme"},
+            },
+        ),
+    )
+    provider_calls = 0
+
+    def provider(_snapshot: SourceSnapshot, _context: CollectorContext) -> object:
+        nonlocal provider_calls
+        provider_calls += 1
+        raise AssertionError("provider must not run")
+
+    with pytest.raises(AcquisitionError) as exc:
+        await run_gate_d_broad_acquisition(
+            config=_config(root, plan.source_plan_sha256),
+            source_plan=plan,
+            delegate=SyntheticTransport(),
+            budget=CollectionRunBudget(maximum=1),
+            collector_factory=provider,  # type: ignore[arg-type]
+            test_only_adapter=synthetic_test_adapter(),
+        )
+    assert exc.value.code == "acquisition_synthetic_collector_required"
+    assert provider_calls == 0

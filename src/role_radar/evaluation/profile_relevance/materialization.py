@@ -9,6 +9,8 @@ from role_radar.evaluation.profile_relevance.contracts import (
     CanonicalPayload,
     MaterializationContext,
     MaterializedPayloads,
+    _materialization_binding_sha256,
+    _payload_group_sha256,
 )
 from role_radar.evaluation.profile_relevance.errors import (
     ApprovedPreviewBindingMismatchError,
@@ -485,6 +487,18 @@ def materialize_payload_bytes(
         for name, bts in sorted(holdout_map.items())
     )
 
+    group_hashes = (
+        _payload_group_sha256(private_payloads),
+        _payload_group_sha256(operator_payloads),
+        _payload_group_sha256(pilot_payloads),
+        _payload_group_sha256(holdout_payloads),
+    )
+    materialization_binding_sha256 = _materialization_binding_sha256(
+        preview_input_sha256=inputs.preview_input_sha256,
+        materialization_context_sha256=materialization_context.materialization_context_sha256,
+        group_hashes=group_hashes,
+    )
+
     # Additional forbidden checks: ensure operator/pilot do not contain acquisition_id etc. Already checked.
 
     # Verify no I/O side effects — pure memory only.
@@ -535,4 +549,11 @@ def materialize_payload_bytes(
         operator_payloads=operator_payloads,
         pilot_payloads=pilot_payloads,
         holdout_payloads=holdout_payloads,
+        private_payloads_sha256=group_hashes[0],
+        operator_payloads_sha256=group_hashes[1],
+        pilot_payloads_sha256=group_hashes[2],
+        holdout_payloads_sha256=group_hashes[3],
+        preview_input_sha256=inputs.preview_input_sha256,
+        materialization_context_sha256=materialization_context.materialization_context_sha256,
+        materialization_binding_sha256=materialization_binding_sha256,
     )

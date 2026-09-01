@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass
 from typing import Literal
 
@@ -551,6 +553,13 @@ class MaterializedPayloads:
     operator_payloads: tuple[CanonicalPayload, ...]
     pilot_payloads: tuple[CanonicalPayload, ...]
     holdout_payloads: tuple[CanonicalPayload, ...]
+    private_payloads_sha256: str
+    operator_payloads_sha256: str
+    pilot_payloads_sha256: str
+    holdout_payloads_sha256: str
+    preview_input_sha256: str
+    materialization_context_sha256: str
+    materialization_binding_sha256: str
 
     def __post_init__(self) -> None:
         for name in ("private_payloads", "operator_payloads", "pilot_payloads", "holdout_payloads"):
@@ -560,3 +569,68 @@ class MaterializedPayloads:
             for item in val:
                 if not isinstance(item, CanonicalPayload):
                     raise TypeError(f"{name} contains invalid payload")
+        group_hashes = (
+            _payload_group_sha256(self.private_payloads),
+            _payload_group_sha256(self.operator_payloads),
+            _payload_group_sha256(self.pilot_payloads),
+            _payload_group_sha256(self.holdout_payloads),
+        )
+        for value in (
+            *group_hashes,
+            self.preview_input_sha256,
+            self.materialization_context_sha256,
+            self.materialization_binding_sha256,
+        ):
+            if not isinstance(value, str) or len(value) != 64 or any(
+                char not in "0123456789abcdef" for char in value
+            ):
+                raise ValueError("materialized payload hash invalid")
+        if group_hashes != self.group_hashes:
+            raise ValueError("materialized payload hash mismatch")
+        if self.materialization_binding_sha256 != _materialization_binding_sha256(
+            preview_input_sha256=self.preview_input_sha256,
+            materialization_context_sha256=self.materialization_context_sha256,
+            group_hashes=group_hashes,
+        ):
+            raise ValueError("materialized payload binding mismatch")
+
+    @property
+    def group_hashes(self) -> tuple[str, str, str, str]:
+        return (
+            self.private_payloads_sha256,
+            self.operator_payloads_sha256,
+            self.pilot_payloads_sha256,
+            self.holdout_payloads_sha256,
+        )
+
+
+MATERIALIZATION_BINDING_DOMAIN = "role-radar:f10.1f:materialized-payloads:v1"
+
+
+def _payload_group_sha256(group: tuple[CanonicalPayload, ...]) -> str:
+    return hashlib.sha256(
+        b"".join(item.canonical_bytes for item in sorted(group, key=lambda p: p.logical_name))
+    ).hexdigest()
+
+
+def _materialization_binding_sha256(
+    *,
+    preview_input_sha256: str,
+    materialization_context_sha256: str,
+    group_hashes: tuple[str, str, str, str],
+) -> str:
+    value = {
+        "domain": MATERIALIZATION_BINDING_DOMAIN,
+        "holdout_payloads_sha256": group_hashes[3],
+        "materialization_context_sha256": materialization_context_sha256,
+        "operator_payloads_sha256": group_hashes[1],
+        "pilot_payloads_sha256": group_hashes[2],
+        "preview_input_sha256": preview_input_sha256,
+        "private_payloads_sha256": group_hashes[0],
+    }
+    canonical = json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False
+    ).encode("utf-8")
+    return hashlib.sha256(
+        MATERIALIZATION_BINDING_DOMAIN.encode("ascii") + b"\x00" + canonical
+    ).hexdigest()

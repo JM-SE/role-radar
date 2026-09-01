@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-
 from role_radar.evaluation.profile_relevance.contracts import (
     PreviewComputationResult,
     ProfileRelevanceInput,
@@ -35,9 +33,7 @@ def run_gate_e_runtime(
     inputs: ProfileRelevanceInput,
     test_only_adapter: SyntheticTestAdapter | None = None,
     approval: ExternalApprovalBinding | None = None,
-    approval_verifier: ExternalApprovalVerifier
-    | Callable[[ExternalApprovalBinding, str], bool]
-    | None = None,
+    approval_verifier: ExternalApprovalVerifier | None = None,
     expected_challenge_sha256: str | None = None,
     expected_provenance_sha256: str | None = None,
 ) -> PreviewComputationResult:
@@ -80,6 +76,16 @@ def run_gate_e_runtime(
         raise GateEError("gate_e_policy_mismatch")
     if challenge.seed_inputs != provenance.seed_inputs:
         raise GateEError("gate_e_seed_mismatch")
+    if not isinstance(inputs, ProfileRelevanceInput):
+        raise GateEError("gate_e_input_invalid")
+    if inputs.relevance_policy.policy_sha256 != challenge.policy_sha256:
+        raise GateEError("gate_e_policy_mismatch")
+    if inputs.relevance_policy.policy_sha256 != provenance.policy_sha256:
+        raise GateEError("gate_e_policy_mismatch")
+    if inputs.sampling_policy.selection_seed != challenge.seed_inputs.selection_seed:
+        raise GateEError("gate_e_selection_seed_mismatch")
+    if inputs.partition_policy.partition_seed != challenge.seed_inputs.partition_seed:
+        raise GateEError("gate_e_partition_seed_mismatch")
     if expected_challenge_sha256 is not None and challenge.challenge_sha256 != (
         expected_challenge_sha256
     ):
@@ -88,8 +94,6 @@ def run_gate_e_runtime(
         expected_provenance_sha256
     ):
         raise GateEError("gate_e_stale_provenance")
-    if not isinstance(inputs, ProfileRelevanceInput):
-        raise GateEError("gate_e_input_invalid")
     # This pure branch is the only production-artifact execution allowed in
     # R1; it cannot reach acquisition, persistence, or a materializer.
     return compute_preview(inputs)

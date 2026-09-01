@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from role_radar.evaluation.profile_relevant_acquisition.challenge_loader import (
@@ -14,6 +16,7 @@ from role_radar.evaluation.profile_relevant_acquisition.contracts import (
     ChallengeArtifact,
     ExternalApprovalBinding,
     OperationalContractError,
+    ProfileRelevanceInput,
     ProvenanceArtifact,
     SourcePlanBinding,
     require_execution_boundary,
@@ -45,7 +48,12 @@ PARTITION = "b" * 64
 HASH = "c" * 64
 
 
-def _artifacts(gate: str) -> tuple[ChallengeArtifact, ProvenanceArtifact]:
+def _artifacts(
+    gate: str, *, inputs: ProfileRelevanceInput | None = None
+) -> tuple[ChallengeArtifact, ProvenanceArtifact]:
+    policy = inputs.relevance_policy.policy_sha256 if inputs is not None else HASH
+    selection_seed = inputs.sampling_policy.selection_seed if inputs is not None else SELECTION
+    partition_seed = inputs.partition_policy.partition_seed if inputs is not None else PARTITION
     provenance = load_provenance_bytes(
         build_provenance_bytes(
             operation_id="op",
@@ -53,10 +61,10 @@ def _artifacts(gate: str) -> tuple[ChallengeArtifact, ProvenanceArtifact]:
             commit_sha256=HASH,
             window_sha256=HASH,
             namespace_sha256=HASH,
-            policy_sha256=HASH,
+            policy_sha256=policy,
             artifact_class=ArtifactClass.SYNTHETIC,
-            selection_seed=SELECTION,
-            partition_seed=PARTITION,
+            selection_seed=selection_seed,
+            partition_seed=partition_seed,
         )
     )
     challenge = load_challenge_bytes(
@@ -65,10 +73,10 @@ def _artifacts(gate: str) -> tuple[ChallengeArtifact, ProvenanceArtifact]:
             operation_id="op",
             lineage_id="lineage",
             artifact_class=ArtifactClass.SYNTHETIC,
-            selection_seed=SELECTION,
-            partition_seed=PARTITION,
-            policy_sha256=HASH,
-            payload_sha256=HASH,
+            selection_seed=selection_seed,
+            partition_seed=partition_seed,
+            policy_sha256=policy,
+            payload_sha256=policy,
         ),
         expected_gate=gate,
     )
@@ -187,11 +195,12 @@ def test_valid_synthetic_local_runtimes_call_once_and_stop() -> None:
         delegate=lambda: calls.append("D"),
         test_only_adapter=synthetic_test_adapter(),
     )
-    challenge, provenance = _artifacts("E")
+    gate_e_inputs = _build_input()
+    challenge, provenance = _artifacts("E", inputs=gate_e_inputs)
     run_gate_e_runtime(
         challenge=challenge,
         provenance=provenance,
-        inputs=_build_input(),
+        inputs=gate_e_inputs,
         test_only_adapter=synthetic_test_adapter(),
     )
     challenge, provenance = _artifacts("F")
@@ -202,6 +211,34 @@ def test_valid_synthetic_local_runtimes_call_once_and_stop() -> None:
         test_only_adapter=synthetic_test_adapter(),
     )
     assert calls == ["C", "post-C", "D", "F"]
+
+
+def test_gate_e_binding_rejection_has_zero_compute_effect(monkeypatch: pytest.MonkeyPatch) -> None:
+    inputs = _build_input()
+    challenge, provenance = _artifacts("E", inputs=inputs)
+    calls: list[str] = []
+
+    def forbidden(_inputs: ProfileRelevanceInput) -> object:
+        calls.append("compute")
+        raise AssertionError("compute_preview must not run")
+
+    monkeypatch.setattr(
+        "role_radar.evaluation.profile_relevant_acquisition.gate_e_runtime.compute_preview",
+        forbidden,
+    )
+    bad_inputs = replace(
+        inputs,
+        relevance_policy=replace(inputs.relevance_policy, policy_sha256="d" * 64),
+    )
+    with pytest.raises(ValueError) as exc:
+        run_gate_e_runtime(
+            challenge=challenge,
+            provenance=provenance,
+            inputs=bad_inputs,
+            test_only_adapter=synthetic_test_adapter(),
+        )
+    assert getattr(exc.value, "code", "") == "gate_e_policy_mismatch"
+    assert calls == []
 
 
 def test_invalid_artifact_or_production_dependency_never_delegates() -> None:
@@ -310,10 +347,14 @@ def test_approved_execution_requires_injected_external_verifier() -> None:
             code="approval_required",
         )
 
+    class Verifier:
+        def verify(self, value: ExternalApprovalBinding, digest: str) -> bool:
+            return value is approval and digest == HASH
+
     require_execution_boundary(
         artifact_sha256=HASH,
         test_only_adapter=None,
         approval=approval,
-        approval_verifier=lambda value, digest: value is approval and digest == HASH,
+        approval_verifier=Verifier(),
         code="approval_required",
     )

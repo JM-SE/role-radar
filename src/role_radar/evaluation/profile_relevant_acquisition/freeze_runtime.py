@@ -27,7 +27,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
@@ -78,6 +78,9 @@ from role_radar.evaluation.profile_relevant_acquisition.provenance import (
     ProvenanceBundle,
     ProvenanceError,
     validate_provenance,
+)
+from role_radar.evaluation.profile_relevant_acquisition.source_plan import (
+    SYNTHETIC_FORBIDDEN_ROOTS,
 )
 
 SCHEMA_FREEZE_RECEIPT: Final[str] = "f10.1f-freeze-receipt-v1"
@@ -145,6 +148,14 @@ def _require_hex64(value: str, code: str) -> None:
 def _require_positive_int(value: int, code: str) -> None:
     if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
         raise FreezeError(code)
+
+
+def _is_synthetic_forbidden_root(root: Path) -> bool:
+    text = str(root)
+    return any(
+        text == prefix or text.startswith(prefix + "/")
+        for prefix in SYNTHETIC_FORBIDDEN_ROOTS
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -312,6 +323,9 @@ def _validate_payload_groups(payloads: MaterializedPayloads) -> None:
             total += len(payload.canonical_bytes)
     if total > MAX_TOTAL_PAYLOAD_BYTES:
         raise FreezeError("freeze_total_size_exceeded")
+    recomputed = tuple(_group_checksum(group) for group in groups)
+    if recomputed != payloads.group_hashes:
+        raise FreezeError("freeze_payload_hash_mismatch")
 
 
 def _cross_check_payload_records(bindings: FreezeBindings, payloads: MaterializedPayloads) -> None:
@@ -622,9 +636,7 @@ def run_freeze_transaction(
     provenance: ProvenanceBundle,
     test_only_adapter: SyntheticTestAdapter | None = None,
     approval: ExternalApprovalBinding | None = None,
-    approval_verifier: ExternalApprovalVerifier
-    | Callable[[ExternalApprovalBinding, str], bool]
-    | None = None,
+    approval_verifier: ExternalApprovalVerifier | None = None,
 ) -> FrozenBenchmark:
     """Execute the one immutable publish/verify/capability-seal transaction."""
     try:
@@ -639,12 +651,10 @@ def run_freeze_transaction(
         )
     except AuthorizationError as exc:
         raise FreezeError(exc.code) from exc
-    # ``payloads`` remains a source-compatible keyword solely so old callers
-    # fail with a stable protocol error rather than a Python TypeError.  It is
-    # never consumed without the authenticated typed handoff.
-    _ = payloads
     if not isinstance(f_handoff, F10_1FHandoff):
         raise FreezeError("freeze_f_handoff_required")
+    if payloads is not None and payloads != f_handoff.payloads:
+        raise FreezeError("freeze_payload_replacement_rejected")
     if test_only_adapter is not None and f_handoff.artifact_class is not ArtifactClass.SYNTHETIC:
         raise FreezeError("freeze_f_artifact_class_boundary")
     if approval is not None and f_handoff.artifact_class is not ArtifactClass.APPROVED_PRODUCTION:
@@ -654,7 +664,19 @@ def run_freeze_transaction(
     if f_handoff.provenance_sha256 != bindings.provenance_sha256:
         raise FreezeError("freeze_f_provenance_mismatch")
     payloads = f_handoff.payloads
-    if test_only_adapter is not None and str(root).startswith("/opt/"):
+    if f_handoff.preview_input_sha256 != bindings.preview_input_sha256:
+        raise FreezeError("freeze_preview_input_mismatch")
+    _validate_payload_groups(payloads)
+    if (
+        f_handoff.private_payloads_sha256,
+        f_handoff.operator_payloads_sha256,
+        f_handoff.pilot_payloads_sha256,
+        f_handoff.holdout_payloads_sha256,
+    ) != payloads.group_hashes:
+        raise FreezeError("freeze_payload_hash_mismatch")
+    if f_handoff.materialization_binding_sha256 != payloads.materialization_binding_sha256:
+        raise FreezeError("freeze_materialization_binding_mismatch")
+    if test_only_adapter is not None and _is_synthetic_forbidden_root(root):
         raise FreezeError("freeze_production_root_rejected")
     # -- revalidation of upstream bindings (never originates design values) --
     if not isinstance(provenance, ProvenanceBundle):
@@ -892,9 +914,7 @@ def verify_frozen_publication(
     payloads: MaterializedPayloads | None = None,
     test_only_adapter: SyntheticTestAdapter | None = None,
     approval: ExternalApprovalBinding | None = None,
-    approval_verifier: ExternalApprovalVerifier
-    | Callable[[ExternalApprovalBinding, str], bool]
-    | None = None,
+    approval_verifier: ExternalApprovalVerifier | None = None,
 ) -> bool:
     """Read-only post-freeze verification of the published tree and seals.
 
@@ -909,7 +929,7 @@ def verify_frozen_publication(
             approval_verifier=approval_verifier,
             code="freeze_verify_authorization_required",
         )
-        if test_only_adapter is not None and str(root).startswith("/opt/"):
+        if test_only_adapter is not None and _is_synthetic_forbidden_root(root):
             return False
         ensure_private_root(root)
         dataset_dir = _ds_path(root, benchmark.dataset_id)
