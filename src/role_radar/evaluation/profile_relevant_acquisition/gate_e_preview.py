@@ -21,8 +21,6 @@ from role_radar.evaluation.profile_relevance.contracts import (
 from role_radar.evaluation.profile_relevance.preview_workflow import compute_preview
 from role_radar.evaluation.profile_relevant_acquisition.provenance import (
     LIVE_NAMESPACE,
-    LIVE_PARTITION_SEED,
-    LIVE_SELECTION_SEED,
     ProvenanceBundle,
     ProvenanceError,
     validate_provenance,
@@ -124,11 +122,19 @@ def _validate_inputs_gate_e(
         raise GateEError("gate_e_namespace_mismatch")
     if inputs.sealed_snapshot.namespace != provenance.namespace:
         raise GateEError("gate_e_namespace_mismatch")
-    # Seeds must be exact live preregistration values — no alternate ranking.
-    if inputs.sampling_policy.selection_seed != LIVE_SELECTION_SEED:
-        raise GateEError("gate_e_selection_seed_mismatch")
-    if inputs.partition_policy.partition_seed != LIVE_PARTITION_SEED:
-        raise GateEError("gate_e_partition_seed_mismatch")
+    # Seeds are explicit F10.1E inputs.  This boundary validates their exact
+    # shape and distinctness but never supplies or compares against a module
+    # constant; production values can only arrive in an approved artifact.
+    for seed, code in (
+        (inputs.sampling_policy.selection_seed, "gate_e_selection_seed_invalid"),
+        (inputs.partition_policy.partition_seed, "gate_e_partition_seed_invalid"),
+    ):
+        if (
+            not isinstance(seed, str)
+            or len(seed) != 64
+            or any(char not in "0123456789abcdef" for char in seed)
+        ):
+            raise GateEError(code)
     if inputs.sampling_policy.selection_seed == inputs.partition_policy.partition_seed:
         raise GateEError("gate_e_seeds_must_differ")
     # Binding hashes must be hex.

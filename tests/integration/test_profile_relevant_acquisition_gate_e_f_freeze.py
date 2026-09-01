@@ -13,7 +13,6 @@ from role_radar.evaluation.profile_relevance.contracts import (
     CanonicalPayload,
     ProfileRelevanceInput,
 )
-from role_radar.evaluation.profile_relevant_acquisition import gate_e_preview
 from role_radar.evaluation.profile_relevant_acquisition.freeze_runtime import (
     DIRNAME_OPERATOR,
     DIRNAME_PILOT,
@@ -41,21 +40,9 @@ def _live_namespace_input() -> ProfileRelevanceInput:
     return replace(base, sealed_snapshot=replace(base.sealed_snapshot, namespace=LIVE_NAMESPACE))
 
 
-def test_gate_e_runs_only_sanitized_preview_with_no_materialization_bytes(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_gate_e_runs_only_sanitized_preview_with_no_materialization_bytes() -> None:
     inputs = _live_namespace_input()
     provenance = _provenance()
-
-    # The offline DTO fixture uses synthetic 32-byte seeds. Gate E's separate
-    # test below asserts the live constants; this patch keeps this test focused
-    # on the Gate E boundary and its no-materialization behavior.
-    monkeypatch.setattr(
-        gate_e_preview, "LIVE_SELECTION_SEED", inputs.sampling_policy.selection_seed
-    )
-    monkeypatch.setattr(
-        gate_e_preview, "LIVE_PARTITION_SEED", inputs.partition_policy.partition_seed
-    )
 
     result, record = run_gate_e_preview(inputs=inputs, provenance=provenance)
 

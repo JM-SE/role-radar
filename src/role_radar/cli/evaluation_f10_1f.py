@@ -16,6 +16,7 @@ import argparse
 import json
 import re
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any, Final, cast
 
 SCHEMA_VERSION: Final[str] = "f10.1f-cli-v1"
@@ -88,8 +89,31 @@ def register_f10_1f_parser(subparsers: Any) -> argparse.ArgumentParser:
     return parent
 
 
-def _run_provenance(_args: Any) -> int:
-    """Report the offline boundary without loading a provenance artifact."""
+def _run_provenance(args: Any) -> int:
+    """Verify an explicitly supplied artifact without exposing its contents."""
+
+    filename = getattr(args, "file", None)
+    if filename is not None:
+        try:
+            from role_radar.evaluation.profile_relevant_acquisition.provenance_loader import (
+                ProvenanceLoadError,
+                load_provenance_bytes,
+            )
+
+            artifact = load_provenance_bytes(Path(filename).read_bytes())
+            if artifact.artifact_class.value != "approved_production":
+                return _print_block("provenance", "artifact_class_not_approved")
+            print(
+                _payload(
+                    "provenance",
+                    "verified",
+                    "provenance_verified",
+                    provenance_sha256=artifact.provenance_sha256,
+                )
+            )
+            return 0
+        except (OSError, ProvenanceLoadError, ValueError, TypeError):
+            return _print_block("provenance", "provenance_invalid")
 
     print(
         _payload(

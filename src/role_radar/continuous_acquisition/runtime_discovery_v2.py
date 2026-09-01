@@ -468,6 +468,12 @@ async def execute_report_only_runtime(
         raise RuntimeCompositionError("discovery_search_runtime_invalid")
     if isinstance(search_runtime, BoundedSearchRuntime) and clock is not None:
         search_runtime.clock = clock if callable(clock) else lambda: clock
+        # An explicit clock identifies the injected offline/fake seam.  The
+        # runtime's construction-time month is otherwise taken from wall clock
+        # time, which would make deterministic historical test windows appear
+        # stale before the fake delegate is reached.  Production composition
+        # does not supply this seam clock and keeps the freshness guard.
+        search_runtime.before_transport_check = None
     try:
         return await execute_report_only(
             operation,

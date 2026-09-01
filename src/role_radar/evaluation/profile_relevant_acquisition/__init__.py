@@ -1,10 +1,7 @@
-"""F10.1F profile-relevant acquisition — side-effect-free public surface."""
+"""F10.1F operational package.
 
-from __future__ import annotations
+No namespace, root, seed, credential, or runtime is exported here.  Such
+values must be supplied by a validated artifact and the private offline seam.
+"""
 
-__all__ = [
-    "PROFILE_RELEVANT_ACQUISITION_NAMESPACE",
-    "PROFILE_RELEVANT_ACQUISITION_ROOT",
-]
-PROFILE_RELEVANT_ACQUISITION_NAMESPACE: str = "f10-1f-20260825-a7f3c9"
-PROFILE_RELEVANT_ACQUISITION_ROOT: str = "/opt/role-radar/data/evaluation/f10.1f/a7f3c9"
+__all__: list[str] = []

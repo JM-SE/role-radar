@@ -28,12 +28,6 @@ LIVE_PILOT: Final[int] = 60
 LIVE_HOLDOUT: Final[int] = 140
 LIVE_PER_BOARD_CAP: Final[int] = 4
 LIVE_PER_COMPANY_CAP: Final[int] = 2
-LIVE_SELECTION_SEED: Final[str] = (
-    "a7f3c9e1b4d82f0e6c5a91438d0f271b5e629c8d0f4a1b3e6c9d0f8a2b5e1c7d39"
-)
-LIVE_PARTITION_SEED: Final[str] = (
-    "4e8d1c0a5b9f2e3d6c7a0b1e4f5d8c9e0a3b2c1d4e5f6a7b8c9d0f8a2b5e1c7d39"
-)
 LIVE_NAMESPACE: Final[str] = "f10-1f-20260825-a7f3c9"
 LIVE_ROOT: Final[str] = "/opt/role-radar/data/evaluation/f10.1f/a7f3c9"
 SCHEMA_PROVENANCE: Final[str] = "f10.1f-provenance-pre-gate-c-v1"
@@ -174,8 +168,8 @@ def build_provenance_bundle(
     cutoff_utc: str,
     inventory_sha256: str,
     old_artifact_hashes: Mapping[str, str],
-    selection_seed: str = LIVE_SELECTION_SEED,
-    partition_seed: str = LIVE_PARTITION_SEED,
+    selection_seed: str,
+    partition_seed: str,
 ) -> ProvenanceBundle:
     """Construct and hash bundle; fails closed if any binding invalid."""
 
@@ -194,10 +188,8 @@ def build_provenance_bundle(
     _require_hex64(sampling_formula_sha256, "provenance_sampling_formula_invalid")
     _require_hex64(partition_formula_sha256, "provenance_partition_formula_invalid")
     _require_hex64(inventory_sha256, "provenance_inventory_invalid")
-    if selection_seed != LIVE_SELECTION_SEED:
-        raise ProvenanceError("provenance_selection_seed_mismatch")
-    if partition_seed != LIVE_PARTITION_SEED:
-        raise ProvenanceError("provenance_partition_seed_mismatch")
+    _require_hex64(selection_seed, "provenance_selection_seed_invalid")
+    _require_hex64(partition_seed, "provenance_partition_seed_invalid")
     sel_hash = hashlib.sha256(selection_seed.encode("ascii")).hexdigest()
     par_hash = hashlib.sha256(partition_seed.encode("ascii")).hexdigest()
     _require_hex64(sel_hash, "provenance_seed_invalid")
@@ -239,11 +231,13 @@ def build_provenance_bundle(
         "root": LIVE_ROOT,
         "sampling_formula_sha256": sampling_formula_sha256,
         "schema_version": SCHEMA_PROVENANCE,
+        "selection_seed": selection_seed,
         "selection_seed_sha256": hashlib.sha256(selection_seed.encode("ascii")).hexdigest(),
         "source_plan_hash": None,
         "status_sha256": status_sha256,
         "window_end_utc": window_end_utc,
         "window_start_utc": window_start_utc,
+        "partition_seed": partition_seed,
     }
     canonical = _canonical_bytes(payload)
     digest = _domain_hash(DOMAIN_PROVENANCE, canonical)
@@ -337,6 +331,8 @@ def load_provenance_bytes(path: Path) -> ProvenanceBundle:
         "cutoff_utc",
         "inventory_sha256",
         "old_artifact_hashes",
+        "selection_seed",
+        "partition_seed",
     ]
     for key in required:
         if key not in data:
@@ -361,6 +357,8 @@ def load_provenance_bytes(path: Path) -> ProvenanceBundle:
         cutoff_utc=str(data["cutoff_utc"]),
         inventory_sha256=str(data["inventory_sha256"]),
         old_artifact_hashes=old,
+        selection_seed=str(data["selection_seed"]),
+        partition_seed=str(data["partition_seed"]),
     )
     # verify canonical matches persisted provenance_sha256 if present
     if data.get("provenance_sha256") and data["provenance_sha256"] != bundle.provenance_sha256:
@@ -374,12 +372,10 @@ __all__ = [
     "LIVE_CORPUS_TOTAL",
     "LIVE_HOLDOUT",
     "LIVE_NAMESPACE",
-    "LIVE_PARTITION_SEED",
     "LIVE_PER_BOARD_CAP",
     "LIVE_PER_COMPANY_CAP",
     "LIVE_PILOT",
     "LIVE_ROOT",
-    "LIVE_SELECTION_SEED",
     "SCHEMA_PROVENANCE",
     "ProvenanceBundle",
     "ProvenanceError",

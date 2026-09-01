@@ -23,12 +23,10 @@ from role_radar.evaluation.profile_relevant_acquisition.provenance import (
     LIVE_CORPUS_TOTAL,
     LIVE_HOLDOUT,
     LIVE_NAMESPACE,
-    LIVE_PARTITION_SEED,
     LIVE_PER_BOARD_CAP,
     LIVE_PER_COMPANY_CAP,
     LIVE_PILOT,
     LIVE_ROOT,
-    LIVE_SELECTION_SEED,
     ProvenanceBundle,
     ProvenanceError,
     build_provenance_bundle,
@@ -63,6 +61,8 @@ def _provenance() -> ProvenanceBundle:
         window_end_utc="2026-08-25T01:00:00Z",
         cutoff_utc="2026-08-25T00:30:00Z",
         old_artifact_hashes={"lock": "0" * 64},
+        selection_seed="a" * 64,
+        partition_seed="b" * 64,
         **values,
     )
 
@@ -85,8 +85,8 @@ def test_provenance_uses_live_constants_and_null_pre_gate_c_source_plan() -> Non
 
 def test_provenance_rejects_non_live_seed_and_non_null_source_plan() -> None:
     with pytest.raises(ProvenanceError) as selection:
-        _provenance_with(selection_seed="0" * len(LIVE_SELECTION_SEED))
-    assert selection.value.code == "provenance_selection_seed_mismatch"
+        _provenance_with(selection_seed="0" * 63)
+    assert selection.value.code == "provenance_selection_seed_invalid"
 
     bundle = _provenance()
     with pytest.raises(ProvenanceError) as source_plan:
@@ -96,8 +96,8 @@ def test_provenance_rejects_non_live_seed_and_non_null_source_plan() -> None:
 
 def _provenance_with(**overrides: str) -> ProvenanceBundle:
     kwargs = {
-        "selection_seed": LIVE_SELECTION_SEED,
-        "partition_seed": LIVE_PARTITION_SEED,
+        "selection_seed": "a" * 64,
+        "partition_seed": "b" * 64,
     }
     kwargs.update(overrides)
     values = {

@@ -7,14 +7,6 @@ import json
 from collections.abc import Callable
 from typing import Any, cast
 
-from role_radar.continuous_acquisition import runtime_discovery_v2
-from role_radar.continuous_acquisition.runtime_discovery_v2 import (
-    EXIT_BLOCKED,
-    EXIT_INTERNAL,
-    RuntimeCompositionError,
-    RuntimeResult,
-)
-
 
 def _payload(value: object) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -43,26 +35,40 @@ def register_continuous_discovery_v2_parser(subparsers: Any) -> argparse.Argumen
     return parser
 
 
-def _result(value: object) -> RuntimeResult:
+def _result(value: object) -> Any:
+    from role_radar.continuous_acquisition.runtime_discovery_v2 import RuntimeResult
+
     if isinstance(value, RuntimeResult):
         return value
     if isinstance(value, dict):
-        return RuntimeResult(value, EXIT_BLOCKED)
-    raise RuntimeCompositionError("internal_error", exit_code=EXIT_INTERNAL)
+        return RuntimeResult(value, 2)
+    from role_radar.continuous_acquisition.runtime_discovery_v2 import RuntimeCompositionError
+
+    raise RuntimeCompositionError("internal_error", exit_code=1)
 
 
 def run_continuous_discovery_v2(
     args: Any,
     *,
-    runtime: Callable[..., object] = runtime_discovery_v2.run_continuous_discovery_v2,
+    runtime: Callable[..., object] | None = None,
     **injected: object,
 ) -> int:
     """Delegate once and expose only the bounded JSON/exit-code contract."""
 
+    if runtime is None:
+        from role_radar.continuous_acquisition.runtime_discovery_v2 import (
+            run_continuous_discovery_v2 as runtime,
+        )
+    from role_radar.continuous_acquisition.runtime_discovery_v2 import (
+        EXIT_INTERNAL,
+        RuntimeCompositionError,
+    )
+
+    assert runtime is not None
     try:
         result = _result(runtime(args, **injected))
         print(_payload(result.payload))
-        return result.exit_code
+        return int(result.exit_code)
     except RuntimeCompositionError as exc:
         print(
             _payload(

@@ -1,4 +1,11 @@
-"""CLI del collector F2: wiring fino, sin lógica de pipeline."""
+"""CLI del collector F2: wiring fino, sin lógica de pipeline.
+
+The parser and the F10.1F fail-closed boundary are intentionally import-safe.
+Application providers, database sessions, and runtime bodies are loaded only
+inside the command that needs them.
+"""
+
+from __future__ import annotations
 
 import argparse
 import asyncio
@@ -7,137 +14,27 @@ import sys
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import Engine
-from sqlalchemy.orm import Session
+if TYPE_CHECKING:
+    from sqlalchemy import Engine
+    from sqlalchemy.orm import Session
 
-from role_radar.acquisition.activation import (
-    ActivationError,
-    parse_xoauth_expiry,
-    require_live_smoke_ack,
-    validate_jobicy_activation,
-)
-from role_radar.acquisition.configuration import (
-    AcquisitionConfig,
-    DevelopmentAcquisitionFilePolicy,
-    ProductionAcquisitionFilePolicy,
-    load_acquisition_config,
-)
-from role_radar.acquisition.credentials import (
-    CredentialError,
-    CredentialResolver,
-    resolve_mailbox_credentials,
-)
-from role_radar.acquisition.gate_b import (
-    GateBSmokeConfigurationError,
-    build_jobicy_collector,
-    build_search_runtime,
-    validate_jobicy_smoke_config,
-)
-from role_radar.acquisition.jobicy_terms_evidence import (
-    JobicyEvidenceError,
-    load_jobicy_terms_evidence,
-)
-from role_radar.acquisition.readiness import CapabilityMetadata, calculate_readiness
-from role_radar.broker.factory import create_llm_provider
-from role_radar.collectors.policy import CollectionRunBudget
-from role_radar.collectors.protocols import CollectorRuntime
-from role_radar.collectors.registry import CollectorContext
-from role_radar.config import Settings
-from role_radar.db.engine import get_engine
-from role_radar.db.models import Source
-from role_radar.db.session import get_session_factory
-from role_radar.discovery.contracts import (
-    KnownOfficialCandidate,
-    ProviderIntent,
-    SearchRequest,
-    UnknownCandidate,
-)
-from role_radar.discovery.null_provider import NullSearchProvider
-from role_radar.discovery.protocols import SearchProvider
-from role_radar.discovery.url_classifier import classify_url
-from role_radar.domain.enums import DiscoveryMode, SourceType
-from role_radar.evaluation.controlled_acquisition.acquisition import (
-    EphemeralCollectorTaskFactory,
-)
-from role_radar.evaluation.controlled_acquisition.configuration import (
-    ConfigurationError,
-    ControlledAcquisitionConfig,
-)
-from role_radar.evaluation.controlled_acquisition.discovery import (
-    DiscoveryOrchestrator,
-    DiscoveryReport,
-    LazyDiscoverySearchProvider,
-    OfficialBoardVerifier,
-    require_discovery_confirmation,
-    write_discovery_artifacts,
-)
-from role_radar.evaluation.controlled_acquisition.journal import Journal
-from role_radar.evaluation.controlled_acquisition.live import (
-    LiveAcquisition,
-    LiveAdapters,
-)
-from role_radar.evaluation.controlled_acquisition.protocols import (
-    BASELINE_PROFILE_ID,
-    BASELINE_PROFILE_SCHEMA_VERSION,
-    BASELINE_PROFILE_SHA256,
-    BASELINE_PROFILE_VERSION,
-)
-from role_radar.evaluation.controlled_acquisition.runtime import (
-    SqlAlchemyHistoricalInventory,
-    SqlAlchemyRuntimeSafety,
-    SystemdServiceGuard,
-    active_profile_identity,
-    open_readonly_engine,
-    read_deployment_identity,
-    verify_deployment_provenance,
-    verify_jobicy_plan_terms,
-    verify_profile_identity,
-)
-from role_radar.evaluation.controlled_acquisition.snapshot import SnapshotStore
-from role_radar.evaluation.controlled_acquisition.source_plan import (
-    PlanError,
-    SourcePlan,
-    load_plan,
-    validate_live_plan_v2,
-)
-from role_radar.mailbox.configuration import EmailSourceConfigV1
-from role_radar.mailbox.imap_provider import GmailImapProvider
-from role_radar.mailbox.linkedin_resolution.dns import (
-    AttestedDNSResolver,
-    AttestedEgressGuard,
-    SystemdAttestationStore,
-)
-from role_radar.mailbox.linkedin_resolution.pinned_imap import pinned_gmail_session_factory
-from role_radar.mailbox.linkedin_resolution.resolver import LinkedInHeadResolver
-from role_radar.mailbox.linkedin_resolution.transport import PinnedHeadTransport
-from role_radar.repositories.mailbox_states import MailboxStateRepository
-from role_radar.scheduler import latest_slot
-from role_radar.services.acquisition_gate_b_smoke import (
-    AcquisitionGateBSmokeService,
-    GateBSmokeReport,
-    GateBSmokeResult,
-)
-from role_radar.services.acquisition_smoke_service import AcquisitionSmokeService
-from role_radar.services.collection_service import CollectionService
-from role_radar.services.extraction_service import ExtractionService
-from role_radar.services.linkedin_link_host_audit_service import (
-    LinkedInLinkHostAuditReport,
-    LinkedInLinkHostAuditService,
-)
-from role_radar.services.linkedin_resolution_service import LinkedInResolutionMailboxService
-from role_radar.services.mailbox_smoke_service import MailboxSmokeService
-from role_radar.services.matching_service import MatchingService
-from role_radar.services.run_service import RunConflict, RunNotFound, RunService
-from role_radar.services.source_service import (
-    RevisionConflict,
-    SourceNotFound,
-    SourceService,
-    SourceServiceError,
-)
-from role_radar.sources.public import project_public_configuration
+    from role_radar.acquisition.configuration import AcquisitionConfig
+    from role_radar.acquisition.readiness import CapabilityMetadata
+    from role_radar.config import Settings as SettingsType
+    from role_radar.discovery.protocols import SearchProvider
+    from role_radar.services.linkedin_link_host_audit_service import LinkedInLinkHostAuditReport
 
 DISCOVERY_QUERY = "greenhouse job board software engineer"
+
+
+def Settings(*args: Any, **kwargs: Any) -> SettingsType:
+    """Compatibility lazy constructor; importing this CLI imports no settings."""
+
+    from role_radar.config import Settings as RealSettings
+
+    return RealSettings(*args, **kwargs)
 
 
 def _fixtures_dir() -> Path:
@@ -147,7 +44,10 @@ def _fixtures_dir() -> Path:
     return Path(__file__).resolve().parents[3] / "fixtures"
 
 
-def _open_session(settings: Settings) -> tuple[Engine, Session]:
+def _open_session(settings: SettingsType) -> tuple[Engine, Session]:
+    from role_radar.db.engine import get_engine
+    from role_radar.db.session import get_session_factory
+
     engine = get_engine(settings.database_url)
     if settings.database_url.startswith("sqlite:///"):
         Path(settings.database_url.removeprefix("sqlite:///")).parent.mkdir(
@@ -156,7 +56,10 @@ def _open_session(settings: Settings) -> tuple[Engine, Session]:
     return engine, get_session_factory(engine)()
 
 
-def _seed_boards(settings: Settings, fixtures_dir: Path) -> int:
+def _seed_boards(settings: SettingsType, fixtures_dir: Path) -> int:
+    from role_radar.domain.enums import SourceType
+    from role_radar.services.source_service import SourceService, SourceServiceError
+
     engine, session = _open_session(settings)
     try:
         boards = json.loads((fixtures_dir / "greenhouse_boards.json").read_text())
@@ -184,7 +87,9 @@ def _seed_boards(settings: Settings, fixtures_dir: Path) -> int:
         engine.dispose()
 
 
-async def _run_collect(settings: Settings, reason: str) -> tuple[str, str, dict[str, int]]:
+async def _run_collect(settings: SettingsType, reason: str) -> tuple[str, str, dict[str, int]]:
+    from role_radar.services.collection_service import CollectionService
+
     engine, session = _open_session(settings)
     try:
         run = await CollectionService(session).run_collect(reason=reason)
@@ -198,7 +103,10 @@ async def _run_collect(settings: Settings, reason: str) -> tuple[str, str, dict[
         engine.dispose()
 
 
-async def _run_extract(settings: Settings, job_id: str) -> dict[str, object]:
+async def _run_extract(settings: SettingsType, job_id: str) -> dict[str, object]:
+    from role_radar.broker.factory import create_llm_provider
+    from role_radar.services.extraction_service import ExtractionService
+
     engine, session = _open_session(settings)
     provider = create_llm_provider(settings)
     try:
@@ -221,7 +129,10 @@ async def _run_extract(settings: Settings, job_id: str) -> dict[str, object]:
         engine.dispose()
 
 
-async def _run_extract_pending(settings: Settings, limit: int) -> list[dict[str, object]]:
+async def _run_extract_pending(settings: SettingsType, limit: int) -> list[dict[str, object]]:
+    from role_radar.broker.factory import create_llm_provider
+    from role_radar.services.extraction_service import ExtractionService
+
     engine, session = _open_session(settings)
     provider = create_llm_provider(settings)
     try:
@@ -250,8 +161,16 @@ async def _run_extract_pending(settings: Settings, limit: int) -> list[dict[str,
 
 
 async def _run_discover(
-    settings: Settings, provider: SearchProvider, query_text: str, max_results: int
+    settings: SettingsType, provider: SearchProvider, query_text: str, max_results: int
 ) -> int:
+    from role_radar.discovery.contracts import (
+        KnownOfficialCandidate,
+        ProviderIntent,
+        SearchRequest,
+        UnknownCandidate,
+    )
+    from role_radar.discovery.url_classifier import classify_url
+
     # Deprecated local preview only.  It intentionally does not open a DB,
     # does not fetch a URL, and never turns a result title/snippet into a
     # Source.  F8.5 owns real provider wiring.
@@ -288,7 +207,9 @@ async def _run_discover(
     return 0
 
 
-def _run_score(settings: Settings, job_id: str, profile_id: str | None) -> dict[str, object]:
+def _run_score(settings: SettingsType, job_id: str, profile_id: str | None) -> dict[str, object]:
+    from role_radar.services.matching_service import MatchingService
+
     engine, session = _open_session(settings)
     try:
         score = MatchingService(session).score_job(job_id=job_id, profile_id=profile_id)
@@ -314,8 +235,13 @@ def _run_score(settings: Settings, job_id: str, profile_id: str | None) -> dict[
 
 
 def _run_score_pending(
-    settings: Settings, limit: int, profile_id: str | None
+    settings: SettingsType, limit: int, profile_id: str | None
 ) -> list[dict[str, object]]:
+    from sqlalchemy import select
+
+    from role_radar.db.models import Job
+    from role_radar.services.matching_service import MatchingService
+
     engine, session = _open_session(settings)
     try:
         service = MatchingService(session)
@@ -355,6 +281,8 @@ def _run_score_pending(
 
 
 def _parser() -> argparse.ArgumentParser:
+    from role_radar.domain.enums import SourceType
+
     parser = argparse.ArgumentParser(prog="role-radar")
     subparsers = parser.add_subparsers(dest="command", required=True)
     collect = subparsers.add_parser("collect", help="colecta y persiste ofertas habilitadas")
@@ -561,6 +489,19 @@ def _run_evaluation(args: argparse.Namespace) -> int:
         return run(args)
     if args.evaluation_command != "f10-1":
         return 2
+    from role_radar.acquisition.configuration import ProductionAcquisitionFilePolicy
+    from role_radar.acquisition.jobicy_terms_evidence import JobicyEvidenceError
+    from role_radar.evaluation.controlled_acquisition.configuration import (
+        ConfigurationError,
+        ControlledAcquisitionConfig,
+    )
+    from role_radar.evaluation.controlled_acquisition.source_plan import (
+        PlanError,
+        SourcePlan,
+        load_plan,
+        validate_live_plan_v2,
+    )
+
     command = args.f10_1_command
     if command == "preflight":
         try:
@@ -583,6 +524,36 @@ def _run_evaluation(args: argparse.Namespace) -> int:
             return 2
     if command == "discover":
         try:
+            from role_radar.acquisition.configuration import load_acquisition_config
+            from role_radar.acquisition.credentials import CredentialResolver
+            from role_radar.acquisition.gate_b import build_search_runtime
+            from role_radar.db.session import get_session_factory
+            from role_radar.evaluation.controlled_acquisition.discovery import (
+                DiscoveryOrchestrator,
+                DiscoveryReport,
+                LazyDiscoverySearchProvider,
+                OfficialBoardVerifier,
+                require_discovery_confirmation,
+                write_discovery_artifacts,
+            )
+            from role_radar.evaluation.controlled_acquisition.journal import Journal
+            from role_radar.evaluation.controlled_acquisition.protocols import (
+                BASELINE_PROFILE_ID,
+                BASELINE_PROFILE_SCHEMA_VERSION,
+                BASELINE_PROFILE_SHA256,
+                BASELINE_PROFILE_VERSION,
+            )
+            from role_radar.evaluation.controlled_acquisition.runtime import (
+                SqlAlchemyHistoricalInventory,
+                SqlAlchemyRuntimeSafety,
+                SystemdServiceGuard,
+                active_profile_identity,
+                open_readonly_engine,
+                read_deployment_identity,
+                verify_deployment_provenance,
+                verify_profile_identity,
+            )
+
             require_discovery_confirmation(args.confirmation)
             config = ControlledAcquisitionConfig.from_env()
             config.require_approved_run()
@@ -681,6 +652,8 @@ def _run_evaluation(args: argparse.Namespace) -> int:
             print(json.dumps({"result": "invalid", "code": "plan_invalid"}, sort_keys=True))
             return 2
     if command == "verify":
+        from role_radar.evaluation.controlled_acquisition.snapshot import SnapshotStore
+
         result = SnapshotStore(Path("/opt/role-radar/data/evaluation/f10.1")).verify(
             args.dataset_id
         )
@@ -694,6 +667,30 @@ def _run_evaluation(args: argparse.Namespace) -> int:
         return 3
     if command == "acquire":
         try:
+            from role_radar.acquisition.credentials import CredentialResolver
+            from role_radar.collectors.policy import CollectionRunBudget
+            from role_radar.collectors.protocols import CollectorRuntime
+            from role_radar.collectors.registry import CollectorContext
+            from role_radar.db.session import get_session_factory
+            from role_radar.evaluation.controlled_acquisition.acquisition import (
+                EphemeralCollectorTaskFactory,
+            )
+            from role_radar.evaluation.controlled_acquisition.live import (
+                LiveAcquisition,
+                LiveAdapters,
+            )
+            from role_radar.evaluation.controlled_acquisition.runtime import (
+                SqlAlchemyHistoricalInventory,
+                SqlAlchemyRuntimeSafety,
+                SystemdServiceGuard,
+                open_readonly_engine,
+                verify_deployment_provenance,
+                verify_jobicy_plan_terms,
+                verify_profile_identity,
+            )
+            from role_radar.evaluation.controlled_acquisition.snapshot import SnapshotStore
+            from role_radar.evaluation.controlled_acquisition.source_plan import load_plan
+
             config = ControlledAcquisitionConfig.from_env()
             config.require_approved_run()
             plan_payload = json.loads(Path(args.file).read_text(encoding="utf-8"))
@@ -772,6 +769,8 @@ def _run_evaluation(args: argparse.Namespace) -> int:
 
 
 def _source_payload(source: object) -> dict[str, object]:
+    from role_radar.sources.public import project_public_configuration
+
     row = source
     public = project_public_configuration(row.type, row.configuration_version, row.configuration)  # type: ignore[attr-defined]
     return {
@@ -787,8 +786,20 @@ def _source_payload(source: object) -> dict[str, object]:
     }
 
 
-def _run_acquisition(settings: Settings, args: argparse.Namespace) -> int:
+def _run_acquisition(settings: SettingsType, args: argparse.Namespace) -> int:
     """Offline validation only; no engine, provider, socket, or secret value."""
+    from role_radar.acquisition.activation import ActivationError, validate_jobicy_activation
+    from role_radar.acquisition.configuration import (
+        DevelopmentAcquisitionFilePolicy,
+        ProductionAcquisitionFilePolicy,
+        load_acquisition_config,
+    )
+    from role_radar.acquisition.jobicy_terms_evidence import (
+        JobicyEvidenceError,
+        load_jobicy_terms_evidence,
+    )
+    from role_radar.acquisition.readiness import CapabilityMetadata, calculate_readiness
+
     policy = (
         ProductionAcquisitionFilePolicy()
         if args.config == "/etc/role-radar/acquisition.toml"
@@ -846,6 +857,10 @@ def _runtime_acquisition_metadata(
     config: AcquisitionConfig,
 ) -> dict[str, CapabilityMetadata]:
     """Inspect every enabled capability without returning secret material."""
+    from role_radar.acquisition.activation import ActivationError, parse_xoauth_expiry
+    from role_radar.acquisition.credentials import CredentialError, CredentialResolver
+    from role_radar.acquisition.readiness import CapabilityMetadata
+
     metadata: dict[str, CapabilityMetadata] = {}
     try:
         resolver = CredentialResolver()
@@ -931,6 +946,8 @@ def _runtime_acquisition_metadata(
 
 
 def _run_smoke(args: argparse.Namespace) -> int:
+    from role_radar.services.acquisition_smoke_service import AcquisitionSmokeService
+
     result = asyncio.run(
         AcquisitionSmokeService().run(
             args.capability,
@@ -943,6 +960,27 @@ def _run_smoke(args: argparse.Namespace) -> int:
 
 
 def _run_gate_b(args: argparse.Namespace) -> int:
+    from role_radar.acquisition.activation import (
+        ActivationError,
+        require_live_smoke_ack,
+    )
+    from role_radar.acquisition.configuration import (
+        ProductionAcquisitionFilePolicy,
+        load_acquisition_config,
+    )
+    from role_radar.acquisition.credentials import CredentialError, CredentialResolver
+    from role_radar.acquisition.gate_b import (
+        GateBSmokeConfigurationError,
+        build_jobicy_collector,
+        build_search_runtime,
+        validate_jobicy_smoke_config,
+    )
+    from role_radar.services.acquisition_gate_b_smoke import (
+        AcquisitionGateBSmokeService,
+        GateBSmokeReport,
+        GateBSmokeResult,
+    )
+
     try:
         require_live_smoke_ack(
             ack_live=args.ack_live,
@@ -1018,7 +1056,22 @@ def _run_gate_b(args: argparse.Namespace) -> int:
     return 0 if report.state == "ok" else 3
 
 
-def _run_source(settings: Settings, args: argparse.Namespace) -> int:
+def _run_source(settings: SettingsType, args: argparse.Namespace) -> int:
+    from role_radar.acquisition.activation import validate_jobicy_activation
+    from role_radar.acquisition.configuration import (
+        ProductionAcquisitionFilePolicy,
+        load_acquisition_config,
+    )
+    from role_radar.acquisition.jobicy_terms_evidence import load_jobicy_terms_evidence
+    from role_radar.db.models import Source
+    from role_radar.domain.enums import SourceType
+    from role_radar.services.source_service import (
+        RevisionConflict,
+        SourceNotFound,
+        SourceService,
+        SourceServiceError,
+    )
+
     engine, session = _open_session(settings)
     acceptance = None
     try:
@@ -1165,7 +1218,11 @@ def _run_source(settings: Settings, args: argparse.Namespace) -> int:
         engine.dispose()
 
 
-def _run_control(settings: Settings, args: argparse.Namespace) -> int:
+def _run_control(settings: SettingsType, args: argparse.Namespace) -> int:
+    from role_radar.domain.enums import DiscoveryMode
+    from role_radar.scheduler import latest_slot
+    from role_radar.services.run_service import RunConflict, RunNotFound, RunService
+
     engine, session = _open_session(settings)
     try:
         service = RunService(session)
@@ -1221,12 +1278,12 @@ def _run_control(settings: Settings, args: argparse.Namespace) -> int:
         engine.dispose()
 
 
-def _run_discovery_readonly(settings: Settings, command: str) -> int:
+def _run_discovery_readonly(settings: SettingsType, command: str) -> int:
     """Local, sanitized acquisition observability; never triggers a call."""
+    from role_radar.repositories.acquisition import AcquisitionRepository
+
     engine, session = _open_session(settings)
     try:
-        from role_radar.repositories.acquisition import AcquisitionRepository
-
         repository = AcquisitionRepository(session)
         now = datetime.now(UTC)
         periods = repository.list_periods(utc_month=now.strftime("%Y-%m"))
@@ -1287,7 +1344,18 @@ def _run_discovery_readonly(settings: Settings, command: str) -> int:
         engine.dispose()
 
 
-def _run_mailbox(settings: Settings, args: argparse.Namespace) -> int:
+def _run_mailbox(settings: SettingsType, args: argparse.Namespace) -> int:
+    from role_radar.acquisition.configuration import (
+        ProductionAcquisitionFilePolicy,
+        load_acquisition_config,
+    )
+    from role_radar.acquisition.credentials import CredentialResolver, resolve_mailbox_credentials
+    from role_radar.domain.enums import SourceType
+    from role_radar.mailbox.configuration import EmailSourceConfigV1
+    from role_radar.mailbox.imap_provider import GmailImapProvider
+    from role_radar.repositories.mailbox_states import MailboxStateRepository
+    from role_radar.services.mailbox_smoke_service import MailboxSmokeService
+
     if args.mailbox_command == "linkedin-head-resolution":
         return _run_linkedin_head_resolution(settings, args)
     if args.mailbox_command == "linkedin-host-audit":
@@ -1403,7 +1471,24 @@ def _run_mailbox(settings: Settings, args: argparse.Namespace) -> int:
         engine.dispose()
 
 
-def _run_linkedin_host_audit(settings: Settings, args: argparse.Namespace) -> int:
+def _run_linkedin_host_audit(settings: SettingsType, args: argparse.Namespace) -> int:
+    from role_radar.acquisition.configuration import (
+        ProductionAcquisitionFilePolicy,
+        load_acquisition_config,
+    )
+    from role_radar.acquisition.credentials import (
+        CredentialError,
+        CredentialResolver,
+        resolve_mailbox_credentials,
+    )
+    from role_radar.db.models import Source
+    from role_radar.domain.enums import SourceType
+    from role_radar.mailbox.configuration import EmailSourceConfigV1
+    from role_radar.mailbox.imap_provider import GmailImapProvider
+    from role_radar.services.linkedin_link_host_audit_service import (
+        LinkedInLinkHostAuditService,
+    )
+
     try:
         engine, session = _open_session(settings)
     except Exception:
@@ -1466,10 +1551,35 @@ def _run_linkedin_host_audit(settings: Settings, args: argparse.Namespace) -> in
 
 
 def _audit_failure_report(code: str) -> LinkedInLinkHostAuditReport:
+    from role_radar.services.linkedin_link_host_audit_service import LinkedInLinkHostAuditReport
+
     return LinkedInLinkHostAuditReport(False, 0, 0, "unknown", "unknown", 0, 0, (), code)
 
 
-def _run_linkedin_head_resolution(settings: Settings, args: argparse.Namespace) -> int:
+def _run_linkedin_head_resolution(settings: SettingsType, args: argparse.Namespace) -> int:
+    from role_radar.acquisition.configuration import (
+        ProductionAcquisitionFilePolicy,
+        load_acquisition_config,
+    )
+    from role_radar.acquisition.credentials import (
+        CredentialError,
+        CredentialResolver,
+        resolve_mailbox_credentials,
+    )
+    from role_radar.db.models import Source
+    from role_radar.domain.enums import SourceType
+    from role_radar.mailbox.configuration import EmailSourceConfigV1
+    from role_radar.mailbox.imap_provider import GmailImapProvider
+    from role_radar.mailbox.linkedin_resolution.dns import (
+        AttestedDNSResolver,
+        AttestedEgressGuard,
+        SystemdAttestationStore,
+    )
+    from role_radar.mailbox.linkedin_resolution.pinned_imap import pinned_gmail_session_factory
+    from role_radar.mailbox.linkedin_resolution.resolver import LinkedInHeadResolver
+    from role_radar.mailbox.linkedin_resolution.transport import PinnedHeadTransport
+    from role_radar.services.linkedin_resolution_service import LinkedInResolutionMailboxService
+
     try:
         engine, session = _open_session(settings)
     except Exception:
@@ -1633,6 +1743,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "seed-boards":
             return _seed_boards(settings, _fixtures_dir())
         if args.command == "discover-boards":
+            from role_radar.discovery.null_provider import NullSearchProvider
+
             return asyncio.run(
                 _run_discover(settings, NullSearchProvider(), args.query, args.max_results)
             )
