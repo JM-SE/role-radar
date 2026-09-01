@@ -56,9 +56,11 @@ from role_radar.evaluation.profile_relevant_acquisition.capability_seal import (
     write_capability_seal,
 )
 from role_radar.evaluation.profile_relevant_acquisition.contracts import (
+    ArtifactClass,
     AuthorizationError,
     ExternalApprovalBinding,
     ExternalApprovalVerifier,
+    F10_1FHandoff,
     SyntheticTestAdapter,
     require_execution_boundary,
 )
@@ -152,6 +154,7 @@ class FreezeBindings:
     dataset_id: str
     pool_sha256: str
     provenance_sha256: str
+    f_challenge_sha256: str
     inventory_sha256: str
     source_plan_sha256: str
     preview_input_sha256: str
@@ -173,6 +176,7 @@ class FreezeBindings:
             "dataset_id",
             "pool_sha256",
             "provenance_sha256",
+            "f_challenge_sha256",
             "inventory_sha256",
             "source_plan_sha256",
             "preview_input_sha256",
@@ -613,7 +617,8 @@ def run_freeze_transaction(
     *,
     root: Path,
     bindings: FreezeBindings,
-    payloads: MaterializedPayloads,
+    f_handoff: F10_1FHandoff | None = None,
+    payloads: MaterializedPayloads | None = None,
     provenance: ProvenanceBundle,
     test_only_adapter: SyntheticTestAdapter | None = None,
     approval: ExternalApprovalBinding | None = None,
@@ -634,6 +639,21 @@ def run_freeze_transaction(
         )
     except AuthorizationError as exc:
         raise FreezeError(exc.code) from exc
+    # ``payloads`` remains a source-compatible keyword solely so old callers
+    # fail with a stable protocol error rather than a Python TypeError.  It is
+    # never consumed without the authenticated typed handoff.
+    _ = payloads
+    if not isinstance(f_handoff, F10_1FHandoff):
+        raise FreezeError("freeze_f_handoff_required")
+    if test_only_adapter is not None and f_handoff.artifact_class is not ArtifactClass.SYNTHETIC:
+        raise FreezeError("freeze_f_artifact_class_boundary")
+    if approval is not None and f_handoff.artifact_class is not ArtifactClass.APPROVED_PRODUCTION:
+        raise FreezeError("freeze_f_artifact_class_boundary")
+    if f_handoff.challenge_sha256 != bindings.f_challenge_sha256:
+        raise FreezeError("freeze_f_challenge_mismatch")
+    if f_handoff.provenance_sha256 != bindings.provenance_sha256:
+        raise FreezeError("freeze_f_provenance_mismatch")
+    payloads = f_handoff.payloads
     if test_only_adapter is not None and str(root).startswith("/opt/"):
         raise FreezeError("freeze_production_root_rejected")
     # -- revalidation of upstream bindings (never originates design values) --

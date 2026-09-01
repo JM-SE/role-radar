@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -14,8 +15,6 @@ from role_radar.collectors.policy import CollectionRunBudget
 from role_radar.collectors.protocols import CollectorRuntime, SourceSnapshot
 from role_radar.collectors.registry import CollectorContext
 from role_radar.domain.dto import RawJob
-from role_radar.evaluation.controlled_acquisition.protocols import PLAN_VERSION_V2
-from role_radar.evaluation.controlled_acquisition.source_plan import SourcePlan
 from role_radar.evaluation.profile_relevant_acquisition.acquisition_runtime import (
     AcquisitionError,
     AcquisitionScaffoldConfig,
@@ -24,9 +23,14 @@ from role_radar.evaluation.profile_relevant_acquisition.acquisition_runtime impo
     run_gate_d_broad_acquisition,
 )
 from role_radar.evaluation.profile_relevant_acquisition.contracts import (
+    SeedInputs,
     synthetic_test_adapter,
 )
 from role_radar.evaluation.profile_relevant_acquisition.journal import AcquisitionJournal
+from role_radar.evaluation.profile_relevant_acquisition.source_plan import (
+    SourcePlanBudget,
+    build_source_plan,
+)
 
 
 class MockTransport(httpx.AsyncBaseTransport):
@@ -94,13 +98,13 @@ def _fake_collector(_snapshot: SourceSnapshot, context: CollectorContext) -> Fak
     return FakeBroadCollector(context.transport)
 
 
-def _config(root: Path) -> AcquisitionScaffoldConfig:
+def _config(root: Path, plan_sha256: str) -> AcquisitionScaffoldConfig:
     return AcquisitionScaffoldConfig(
         evidence_root=root,
         operation_id="op-gate-d",
         provenance_sha256="a" * 64,
         preregistration_sha256="b" * 64,
-        source_plan_sha256="c" * 64,
+        source_plan_sha256=plan_sha256,
         budget_id="budget-gate-d",
         namespace="f10-1f-20260825-a7f3c9",
     )
@@ -112,9 +116,15 @@ async def test_gate_d_mixed_board_enters_pool_without_product_persistence(tmp_pa
     delegate = MockTransport()
     budget = CollectionRunBudget(maximum=1)
     journal = AcquisitionJournal(operation_id="op-gate-d", root=root)
-    source_plan = SourcePlan(
-        plan_version=PLAN_VERSION_V2,
-        lookback_days=1,
+    source_plan = build_source_plan(
+        namespace="f10-1f-20260825-a7f3c9",
+        root=str(root),
+        per_board_cap=4,
+        per_company_cap=2,
+        budget=SourcePlanBudget("budget-gate-d", 1),
+        seed=SeedInputs("a" * 64, "b" * 64),
+        operation_id="op-gate-d",
+        lineage_id="lineage-gate-d",
         source_configs=(
             {
                 "family": "greenhouse",
@@ -130,7 +140,7 @@ async def test_gate_d_mixed_board_enters_pool_without_product_persistence(tmp_pa
         return state, state.copy()
 
     result = await run_gate_d_broad_acquisition(
-        config=_config(root),
+        config=_config(root, source_plan.source_plan_sha256),
         source_plan=source_plan,
         delegate=delegate,
         budget=budget,
@@ -178,9 +188,15 @@ async def test_gate_d_pending_journal_blocks_replay_without_delegate_call(tmp_pa
         destination_fingerprint="a" * 16,
         budget_ordinal=1,
     )
-    source_plan = SourcePlan(
-        plan_version=PLAN_VERSION_V2,
-        lookback_days=1,
+    source_plan = build_source_plan(
+        namespace="f10-1f-20260825-a7f3c9",
+        root=str(root),
+        per_board_cap=4,
+        per_company_cap=2,
+        budget=SourcePlanBudget("budget-gate-d", 1),
+        seed=SeedInputs("a" * 64, "b" * 64),
+        operation_id="op-gate-d",
+        lineage_id="lineage-gate-d",
         source_configs=(
             {
                 "family": "greenhouse",
@@ -193,7 +209,7 @@ async def test_gate_d_pending_journal_blocks_replay_without_delegate_call(tmp_pa
     delegate = MockTransport()
     with pytest.raises(AcquisitionError) as exc:
         await run_gate_d_broad_acquisition(
-            config=_config(root),
+            config=_config(root, source_plan.source_plan_sha256),
             source_plan=source_plan,
             delegate=delegate,
             budget=CollectionRunBudget(maximum=1),
@@ -211,9 +227,43 @@ async def test_gate_d_legacy_network_requires_explicit_boundary(tmp_path: Path) 
     delegate = MockTransport()
     with pytest.raises(AcquisitionError) as exc:
         await run_gate_d_broad_acquisition(
-            config=_config(tmp_path / "evidence"),
+            config=_config(tmp_path / "evidence", "c" * 64),
             source_plan=object(),
             delegate=delegate,
         )
     assert exc.value.code == "acquisition_execution_authorization_required"
+    assert delegate.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_gate_d_stale_plan_hash_blocks_before_collector_invocation(tmp_path: Path) -> None:
+    root = tmp_path / "evidence"
+    plan = build_source_plan(
+        namespace="f10-1f-20260825-a7f3c9",
+        root=str(root),
+        per_board_cap=4,
+        per_company_cap=2,
+        budget=SourcePlanBudget("budget-gate-d", 1),
+        seed=SeedInputs("a" * 64, "b" * 64),
+        operation_id="op-gate-d",
+        lineage_id="lineage-gate-d",
+        source_configs=(
+            {
+                "family": "greenhouse",
+                "source_key": "greenhouse:acme",
+                "configuration_version": 1,
+                "configuration": {"board_token": "acme"},
+            },
+        ),
+    )
+    delegate = MockTransport()
+    with pytest.raises(AcquisitionError) as exc:
+        await run_gate_d_broad_acquisition(
+            config=replace(_config(root, plan.source_plan_sha256), source_plan_sha256="d" * 64),
+            source_plan=plan,
+            delegate=delegate,
+            budget=CollectionRunBudget(maximum=1),
+            test_only_adapter=synthetic_test_adapter(),
+        )
+    assert exc.value.code == "acquisition_source_plan_hash_mismatch"
     assert delegate.calls == 0

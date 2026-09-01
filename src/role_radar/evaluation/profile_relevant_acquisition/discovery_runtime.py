@@ -155,18 +155,12 @@ def run_report_only_discovery(
     - Persists no product rows, creates no Source/Job/run/registration.
     """
 
-    # Prove zero mutation: capture before projection if provided
+    # Capture the pre-operation projection.  The post-operation projection is
+    # deliberately captured only after all report work and reconciliation.
     before: dict[str, Any] | None = None
     after: dict[str, Any] | None = None
     if config.before_after is not None:
-        b, a = config.before_after()
-        before = dict(b)
-        after = dict(a)
-        # runtime must not have mutated yet; caller will assert after run as well.
-        # We check that before snapshot does not contain unexpected mutation markers.
-        # Actual zero-mutation proof is ledger_reconcile + before/after comparison.
-        _ = before
-        _ = after
+        before, _ = (dict(item) for item in config.before_after())
 
     verified = _verify_plan(plan, expected_plan_sha256)
     # Build private evidence per query without network
@@ -218,7 +212,11 @@ def run_report_only_discovery(
         }
     )
     report_hash = _domain_hash(DOMAIN_REPORT, report_payload)
-    # No mutation proof: if before_after provided, verify projections unchanged
+    # No mutation proof: capture state after the operation, not the second
+    # value returned by the pre-operation callback.
+    if config.before_after is not None:
+        _, current_after = config.before_after()
+        after = dict(current_after)
     if before is not None and after is not None:
         # In scaffold, we require exact equality to prove zero mutation
         if before != after:

@@ -18,6 +18,8 @@ from role_radar.evaluation.profile_relevant_acquisition.contracts import (
     RuntimeEvidence,
     SyntheticTestAdapter,
     require_execution_boundary,
+    validate_challenge_artifact,
+    validate_provenance_artifact,
 )
 
 
@@ -44,11 +46,17 @@ def run_gate_c_runtime(
         raise GateCError("gate_c_wrong_challenge")
     if not isinstance(provenance, ProvenanceArtifact):
         raise GateCError("gate_c_provenance_invalid")
+    try:
+        validate_challenge_artifact(challenge)
+        validate_provenance_artifact(provenance)
+    except ValueError as exc:
+        raise GateCError(getattr(exc, "code", "gate_c_artifact_invalid")) from exc
     if (
-        challenge.artifact_class is ArtifactClass.LIVE_SHAPED
-        or provenance.artifact_class is ArtifactClass.LIVE_SHAPED
+        challenge.artifact_class is not ArtifactClass.SYNTHETIC
+        or provenance.artifact_class is not ArtifactClass.SYNTHETIC
+        or test_only_adapter is None
     ):
-        raise GateCError("gate_c_artifact_class_not_synthetic")
+        raise GateCError("gate_c_artifact_class_boundary")
     if challenge.artifact_class is not provenance.artifact_class:
         raise GateCError("gate_c_artifact_class_mismatch")
     if test_only_adapter is not None and challenge.artifact_class is not ArtifactClass.SYNTHETIC:

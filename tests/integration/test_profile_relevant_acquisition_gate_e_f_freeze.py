@@ -14,6 +14,8 @@ from role_radar.evaluation.profile_relevance.contracts import (
     ProfileRelevanceInput,
 )
 from role_radar.evaluation.profile_relevant_acquisition.contracts import (
+    ArtifactClass,
+    build_f_handoff,
     synthetic_test_adapter,
 )
 from role_radar.evaluation.profile_relevant_acquisition.freeze_runtime import (
@@ -22,6 +24,7 @@ from role_radar.evaluation.profile_relevant_acquisition.freeze_runtime import (
     DIRNAME_PRIVATE,
     DIRNAME_SEALED_HOLDOUT,
     FreezeBindings,
+    FreezeError,
     run_freeze_transaction,
     verify_frozen_publication,
 )
@@ -127,6 +130,7 @@ def test_freeze_publishes_manifest_capabilities_and_receipt_once(tmp_path: Path)
         dataset_id=str(operator["dataset_id"]),
         pool_sha256="1" * 64,
         provenance_sha256=provenance.provenance_sha256,
+        f_challenge_sha256="a" * 64,
         inventory_sha256=provenance.inventory_sha256,
         source_plan_sha256=inputs.sealed_snapshot.source_plan_sha256,
         preview_input_sha256=str(operator["preview_input_sha256"]),
@@ -144,10 +148,17 @@ def test_freeze_publishes_manifest_capabilities_and_receipt_once(tmp_path: Path)
         root=str(root),
     )
 
+    f_handoff = build_f_handoff(
+        operation_id="freeze-op",
+        challenge_sha256="a" * 64,
+        provenance_sha256=provenance.provenance_sha256,
+        artifact_class=ArtifactClass.SYNTHETIC,
+        payloads=payloads,
+    )
     benchmark = run_freeze_transaction(
         root=root,
         bindings=bindings,
-        payloads=payloads,
+        f_handoff=f_handoff,
         provenance=provenance,
         test_only_adapter=synthetic_test_adapter(),
     )
@@ -193,7 +204,7 @@ def test_freeze_publishes_manifest_capabilities_and_receipt_once(tmp_path: Path)
     rerun = run_freeze_transaction(
         root=root,
         bindings=bindings,
-        payloads=payloads,
+        f_handoff=f_handoff,
         provenance=provenance,
         test_only_adapter=synthetic_test_adapter(),
     )
@@ -215,3 +226,15 @@ def test_freeze_legacy_publication_requires_explicit_boundary(tmp_path: Path) ->
             provenance=object(),  # type: ignore[arg-type]
         )
     assert getattr(blocked.value, "code", "") == "freeze_execution_authorization_required"
+
+
+def test_freeze_rejects_materialized_payloads_without_f_handoff(tmp_path: Path) -> None:
+    with pytest.raises(FreezeError) as blocked:
+        run_freeze_transaction(
+            root=tmp_path / "f10-1f",
+            bindings=object(),  # type: ignore[arg-type]
+            payloads=object(),  # type: ignore[arg-type]
+            provenance=object(),  # type: ignore[arg-type]
+            test_only_adapter=synthetic_test_adapter(),
+        )
+    assert blocked.value.code == "freeze_f_handoff_required"

@@ -7,6 +7,8 @@ this module are deliberately tagged and are not coercible into those DTOs.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -158,6 +160,27 @@ class ChallengeArtifact:
         _hash(self.challenge_sha256, "challenge_hash_invalid")
         if not isinstance(self.canonical_bytes, bytes):
             raise OperationalContractError("challenge_bytes_invalid")
+        _validate_canonical_artifact(
+            canonical_bytes=self.canonical_bytes,
+            supplied_hash=self.challenge_sha256,
+            domain="role-radar:f10.1f:challenge:v1",
+            hash_key="challenge_sha256",
+            expected={
+                "schema_version": self.schema_version,
+                "gate": self.gate,
+                "operation_id": self.operation_id,
+                "lineage_id": self.lineage_id,
+                "prerequisite_status": self.prerequisite_status,
+                "artifact_class": self.artifact_class.value,
+                "seed_inputs": {
+                    "selection_seed": self.seed_inputs.selection_seed,
+                    "partition_seed": self.seed_inputs.partition_seed,
+                },
+                "policy_sha256": self.policy_sha256,
+                "payload_sha256": self.payload_sha256,
+            },
+            mismatch_code="challenge_hash_mismatch",
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -195,6 +218,70 @@ class ProvenanceArtifact:
             raise OperationalContractError("provenance_seed_inputs_invalid")
         if not isinstance(self.canonical_bytes, bytes):
             raise OperationalContractError("provenance_bytes_invalid")
+        _validate_canonical_artifact(
+            canonical_bytes=self.canonical_bytes,
+            supplied_hash=self.provenance_sha256,
+            domain="role-radar:f10.1f:provenance:v1",
+            hash_key="provenance_sha256",
+            expected={
+                "schema_version": self.schema_version,
+                "operation_id": self.operation_id,
+                "lineage_id": self.lineage_id,
+                "commit_sha256": self.commit_sha256,
+                "window_sha256": self.window_sha256,
+                "namespace_sha256": self.namespace_sha256,
+                "policy_sha256": self.policy_sha256,
+                "artifact_class": self.artifact_class.value,
+                "seed_inputs": {
+                    "selection_seed": self.seed_inputs.selection_seed,
+                    "partition_seed": self.seed_inputs.partition_seed,
+                },
+            },
+            mismatch_code="provenance_hash_mismatch",
+        )
+
+
+def _validate_canonical_artifact(
+    *,
+    canonical_bytes: bytes,
+    supplied_hash: str,
+    domain: str,
+    hash_key: str,
+    expected: dict[str, object],
+    mismatch_code: str,
+) -> None:
+    """Validate the bytes again at every DTO boundary, not only in loaders."""
+
+    if not canonical_bytes.endswith(b"\n") or canonical_bytes[:-1].count(b"\n") != 0:
+        raise OperationalContractError("canonical_record_invalid")
+    try:
+        payload = json.loads(canonical_bytes[:-1].decode("utf-8"))
+        canonical = json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    except (TypeError, ValueError, UnicodeError) as exc:
+        raise OperationalContractError("canonical_record_invalid") from exc
+    if not isinstance(payload, dict) or canonical != canonical_bytes[:-1]:
+        raise OperationalContractError("canonical_record_invalid")
+    if any(payload.get(key) != value for key, value in expected.items()):
+        raise OperationalContractError(mismatch_code)
+    embedded = payload.get(hash_key)
+    unsigned = dict(payload)
+    unsigned.pop(hash_key, None)
+    unsigned_bytes = json.dumps(
+        unsigned,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    digest = hashlib.sha256(domain.encode("ascii") + b"\x00" + unsigned_bytes).hexdigest()
+    if embedded != supplied_hash or digest != supplied_hash:
+        raise OperationalContractError(mismatch_code)
 
 
 @dataclass(frozen=True, slots=True)
@@ -266,6 +353,89 @@ class RuntimeEvidence:
         _hash(self.evidence_sha256, "runtime_evidence_invalid")
         if self.result not in {"completed", "blocked"} or not self.stopped:
             raise OperationalContractError("runtime_not_terminal")
+
+
+class ZeroArgumentEffect(Protocol):
+    """Private/test-only effect accepted by the non-authoritative runtimes."""
+
+    def __call__(self) -> object: ...
+
+
+@dataclass(frozen=True, slots=True)
+class F10_1FHandoff:
+    """Typed, authenticated Gate F handoff consumed by the freeze authority."""
+
+    operation_id: str
+    challenge_sha256: str
+    provenance_sha256: str
+    artifact_class: ArtifactClass
+    evidence: RuntimeEvidence
+    payloads: MaterializedPayloads
+
+    def __post_init__(self) -> None:
+        _nonempty(self.operation_id, "f_handoff_operation_invalid")
+        _hash(self.challenge_sha256, "f_handoff_challenge_invalid")
+        _hash(self.provenance_sha256, "f_handoff_provenance_invalid")
+        if self.artifact_class is ArtifactClass.LIVE_SHAPED:
+            raise OperationalContractError("f_handoff_artifact_class_invalid")
+        if not isinstance(self.evidence, RuntimeEvidence) or self.evidence.gate != "F":
+            raise OperationalContractError("f_handoff_evidence_invalid")
+        if self.evidence.operation_id != self.operation_id:
+            raise OperationalContractError("f_handoff_operation_mismatch")
+        expected = hashlib.sha256(
+            f"F\0{self.challenge_sha256}\0{self.provenance_sha256}".encode("ascii")
+        ).hexdigest()
+        if self.evidence.evidence_sha256 != expected:
+            raise OperationalContractError("f_handoff_evidence_mismatch")
+        if not isinstance(self.payloads, MaterializedPayloads):
+            raise OperationalContractError("f_handoff_payloads_invalid")
+
+
+def build_f_handoff(
+    *,
+    operation_id: str,
+    challenge_sha256: str,
+    provenance_sha256: str,
+    artifact_class: ArtifactClass,
+    payloads: MaterializedPayloads,
+) -> F10_1FHandoff:
+    """Create the only supported freeze input for Gate F materialized bytes."""
+
+    evidence_sha256 = hashlib.sha256(
+        f"F\0{challenge_sha256}\0{provenance_sha256}".encode("ascii")
+    ).hexdigest()
+    return F10_1FHandoff(
+        operation_id=operation_id,
+        challenge_sha256=challenge_sha256,
+        provenance_sha256=provenance_sha256,
+        artifact_class=artifact_class,
+        evidence=RuntimeEvidence("F", operation_id, evidence_sha256),
+        payloads=payloads,
+    )
+
+
+def validate_challenge_artifact(value: object) -> ChallengeArtifact:
+    if not isinstance(value, ChallengeArtifact):
+        raise OperationalContractError("challenge_contract_invalid")
+    try:
+        value.__post_init__()
+    except OperationalContractError:
+        raise
+    except (TypeError, ValueError) as exc:
+        raise OperationalContractError("challenge_contract_invalid") from exc
+    return value
+
+
+def validate_provenance_artifact(value: object) -> ProvenanceArtifact:
+    if not isinstance(value, ProvenanceArtifact):
+        raise OperationalContractError("provenance_contract_invalid")
+    try:
+        value.__post_init__()
+    except OperationalContractError:
+        raise
+    except (TypeError, ValueError) as exc:
+        raise OperationalContractError("provenance_contract_invalid") from exc
+    return value
 
 
 @dataclass(frozen=True, slots=True)
@@ -393,6 +563,7 @@ __all__ = [
     "DecisionStatus",
     "ExternalApprovalBinding",
     "ExternalApprovalVerifier",
+    "F10_1FHandoff",
     "FrozenProfile",
     "GateDecision",
     "HistoricalIdentityExclusion",
@@ -421,6 +592,10 @@ __all__ = [
     "SourcePlanBinding",
     "SyntheticTestAdapter",
     "TransitionPrerequisite",
+    "ZeroArgumentEffect",
+    "build_f_handoff",
     "require_execution_boundary",
     "synthetic_test_adapter",
+    "validate_challenge_artifact",
+    "validate_provenance_artifact",
 ]

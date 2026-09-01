@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol, cast
 
 import httpx
 
@@ -22,9 +22,6 @@ from role_radar.evaluation.controlled_acquisition.protocols import PLAN_VERSION_
 from role_radar.evaluation.controlled_acquisition.recency import (
     parse_timestamp,
     provider_recency,
-)
-from role_radar.evaluation.controlled_acquisition.source_plan import (
-    SourcePlan,
 )
 from role_radar.normalization.text import html_to_text
 
@@ -88,13 +85,23 @@ class CollectorTask:
     collector: CollectorAdapter
 
 
+class EphemeralPlan(Protocol):
+    """Minimal immutable plan shape required by the collector adapter."""
+
+    @property
+    def plan_version(self) -> str: ...
+
+    @property
+    def source_configs(self) -> tuple[Mapping[str, object], ...]: ...
+
+
 @dataclass(frozen=True, slots=True)
 class EphemeralCollectorTaskFactory:
     """Build collectors from verified plan-v2 configs without ORM source rows."""
 
     context: CollectorContext
 
-    def build(self, plan: SourcePlan) -> tuple[CollectorTask, ...]:
+    def build(self, plan: EphemeralPlan) -> tuple[CollectorTask, ...]:
         if plan.plan_version != PLAN_VERSION_V2:
             raise ValueError("plan_version_unsupported")
         tasks: list[CollectorTask] = []
@@ -113,9 +120,9 @@ class EphemeralCollectorTaskFactory:
                     source_id=source_id,
                     source_type=family,
                     name=source_key,
-                    configuration=dict(item["configuration"]),
+                    configuration=dict(cast(Mapping[str, object], item["configuration"])),
                     source_key=source_key,
-                    configuration_version=int(item["configuration_version"]),
+                    configuration_version=int(cast(int, item["configuration_version"])),
                 )
             )
             tasks.append(

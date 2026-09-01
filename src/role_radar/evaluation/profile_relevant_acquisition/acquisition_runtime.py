@@ -22,7 +22,7 @@ import re
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, Protocol
 
 import httpx
 
@@ -31,6 +31,7 @@ from role_radar.collectors.policy import CollectionRunBudget
 from role_radar.collectors.protocols import CollectorRuntime, SourceSnapshot
 from role_radar.collectors.registry import CollectorContext
 from role_radar.domain.dto import RawJob
+from role_radar.evaluation.controlled_acquisition.acquisition import CollectorTask
 from role_radar.evaluation.controlled_acquisition.protocols import PLAN_VERSION_V2
 from role_radar.evaluation.filesystem import (
     HISTORICAL_ROOTS,
@@ -53,6 +54,7 @@ from role_radar.evaluation.profile_relevant_acquisition.journal import (
 from role_radar.evaluation.profile_relevant_acquisition.journaled_transport import (
     JournaledAsyncTransport,
 )
+from role_radar.evaluation.profile_relevant_acquisition.source_plan import SourcePlan
 
 FORBIDDEN_JOURNALED_TRANSPORT: Final[str] = (
     "role_radar.evaluation.controlled_acquisition.acquisition.JournaledTransport"
@@ -70,6 +72,12 @@ class AcquisitionError(ValueError):
     def __init__(self, code: str) -> None:
         self.code: str = code
         super().__init__(code)
+
+
+class CollectorProtocol(Protocol):
+    async def collect(
+        self, snapshot: SourceSnapshot, runtime: CollectorRuntime
+    ) -> CollectionOutcome: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -199,6 +207,35 @@ def _validate_prereg_binding(config: AcquisitionScaffoldConfig) -> None:
             raise AcquisitionError("acquisition_binding_invalid")
 
 
+def _validate_source_plan_binding(
+    config: AcquisitionScaffoldConfig,
+    source_plan: SourcePlan,
+    budget: CollectionRunBudget,
+) -> None:
+    """Verify the exact canonical plan before collector construction."""
+
+    if not isinstance(source_plan, SourcePlan):
+        raise AcquisitionError("acquisition_source_plan_invalid")
+    try:
+        source_plan.__post_init__()
+    except (TypeError, ValueError) as exc:
+        raise AcquisitionError("acquisition_source_plan_invalid") from exc
+    if hashlib.sha256(source_plan.canonical_bytes).hexdigest() != source_plan.source_plan_sha256:
+        raise AcquisitionError("acquisition_source_plan_hash_mismatch")
+    if source_plan.source_plan_sha256 != config.source_plan_sha256:
+        raise AcquisitionError("acquisition_source_plan_hash_mismatch")
+    if source_plan.namespace != config.namespace:
+        raise AcquisitionError("acquisition_source_plan_namespace_mismatch")
+    if source_plan.root != str(config.evidence_root):
+        raise AcquisitionError("acquisition_source_plan_root_mismatch")
+    if source_plan.operation_id != config.operation_id:
+        raise AcquisitionError("acquisition_source_plan_operation_mismatch")
+    if source_plan.budget.budget_id != config.budget_id:
+        raise AcquisitionError("acquisition_source_plan_budget_mismatch")
+    if source_plan.budget.maximum != budget.maximum:
+        raise AcquisitionError("acquisition_source_plan_budget_mismatch")
+
+
 def _reject_live_transport_for_test_adapter(transport: object) -> None:
     module = getattr(type(transport), "__module__", "")
     name = getattr(type(transport), "__name__", "")
@@ -293,7 +330,7 @@ def canonical_observation_from_raw(
 def build_collector_context(
     *,
     transport: httpx.AsyncBaseTransport,
-    budget: Any | None = None,
+    budget: CollectionRunBudget | None = None,
     test_only_adapter: SyntheticTestAdapter | None = None,
     approval: ExternalApprovalBinding | None = None,
     approval_verifier: ExternalApprovalVerifier
@@ -312,6 +349,8 @@ def build_collector_context(
         )
     except AuthorizationError as exc:
         raise AcquisitionError(exc.code) from exc
+    if test_only_adapter is None:
+        raise AcquisitionError("acquisition_live_execution_disabled")
     if test_only_adapter is not None:
         _reject_live_transport_for_test_adapter(transport)
     if not isinstance(transport, httpx.AsyncBaseTransport):
@@ -325,14 +364,16 @@ def build_collector_context(
 
 def build_ephemeral_tasks(
     *,
-    source_plan: Any,
+    source_plan: SourcePlan,
     context: CollectorContext,
     test_only_adapter: SyntheticTestAdapter | None = None,
     approval: ExternalApprovalBinding | None = None,
     approval_verifier: ExternalApprovalVerifier
     | Callable[[ExternalApprovalBinding, str], bool]
     | None = None,
-) -> tuple[Any, ...]:
+) -> tuple[CollectorTask, ...]:
+    if not isinstance(source_plan, SourcePlan):
+        raise AcquisitionError("acquisition_source_plan_invalid")
     try:
         require_execution_boundary(
             artifact_sha256=approval.artifact_sha256 if approval is not None else "",
@@ -343,6 +384,8 @@ def build_ephemeral_tasks(
         )
     except AuthorizationError as exc:
         raise AcquisitionError(exc.code) from exc
+    if test_only_adapter is None:
+        raise AcquisitionError("acquisition_live_execution_disabled")
     plan_version: str | None = None
     maybe_version = getattr(source_plan, "plan_version", None)
     if maybe_version is not None:
@@ -370,10 +413,10 @@ def build_ephemeral_tasks(
 async def run_broad_acquisition_scaffold(
     *,
     config: AcquisitionScaffoldConfig,
-    source_plan: Any,
+    source_plan: SourcePlan,
     transport: httpx.AsyncBaseTransport,
     collector_runtime: CollectorRuntime | None = None,
-    budget: Any | None = None,
+    budget: CollectionRunBudget | None = None,
     before_after: Callable[[], tuple[dict[str, Any], dict[str, Any]]] | None = None,
     test_only_adapter: SyntheticTestAdapter | None = None,
     approval: ExternalApprovalBinding | None = None,
@@ -393,9 +436,12 @@ async def run_broad_acquisition_scaffold(
         )
     except AuthorizationError as exc:
         raise AcquisitionError(exc.code) from exc
+    if test_only_adapter is None:
+        raise AcquisitionError("acquisition_live_execution_disabled")
     if test_only_adapter is not None:
         _reject_live_transport_for_test_adapter(transport)
     _validate_prereg_binding(config)
+    _validate_source_plan_binding(config, source_plan, budget)
     if before_after is not None:
         before, _ = before_after()
         before_copy = dict(before)
@@ -666,14 +712,16 @@ def _seal_parent_pool(
 async def run_gate_d_broad_acquisition(
     *,
     config: AcquisitionScaffoldConfig,
-    source_plan: Any,
+    source_plan: SourcePlan,
     delegate: httpx.AsyncBaseTransport,
     budget: CollectionRunBudget | None = None,
     evidence_root: Path | None = None,
     journal: AcquisitionJournal | None = None,
     checkpoints: dict[str, SourceCheckpoint] | None = None,
     before_after: Callable[[], tuple[dict[str, Any], dict[str, Any]]] | None = None,
-    collector_factory: Callable[[SourceSnapshot, CollectorContext], Any] | None = None,
+    collector_factory: (
+        Callable[[SourceSnapshot, CollectorContext], CollectorProtocol] | None
+    ) = None,
     test_only_adapter: SyntheticTestAdapter | None = None,
     approval: ExternalApprovalBinding | None = None,
     approval_verifier: ExternalApprovalVerifier
@@ -701,17 +749,24 @@ async def run_gate_d_broad_acquisition(
         )
     except AuthorizationError as exc:
         raise AcquisitionError(exc.code) from exc
+    if test_only_adapter is None:
+        # R1 has no production acquisition path.  External approval may
+        # authenticate artifacts, but it cannot unlock a collector here.
+        raise AcquisitionError("acquisition_live_execution_disabled")
     if test_only_adapter is not None:
         _reject_live_transport_for_test_adapter(delegate)
     _validate_prereg_binding(config)
+    if not isinstance(source_plan, SourcePlan):
+        raise AcquisitionError("acquisition_source_plan_invalid")
+    if budget is None:
+        raise AcquisitionError("acquisition_budget_required")
+    _validate_source_plan_binding(config, source_plan, budget)
     if before_after is not None:
         before, _ = before_after()
         before_copy = dict(before)
     else:
         before_copy = None
 
-    if budget is None:
-        raise AcquisitionError("acquisition_budget_required")
     effective_budget = budget
     effective_journal = (
         journal

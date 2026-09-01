@@ -445,12 +445,16 @@ def _parser() -> argparse.ArgumentParser:
     acquire.add_argument("--acknowledgement", required=True)
     f10_1c = evaluation_commands.add_parser("f10-1c")
     f10_1c_commands = f10_1c.add_subparsers(dest="f10_1c_command", required=True)
+    f10_1c_commands.add_parser("preflight")
+    f10_1c_plan = f10_1c_commands.add_parser("plan")
+    f10_1c_plan.add_argument("--file")
     f10_1c_commands.add_parser("status")
     f10_1c_commands.add_parser("preview")
     freeze_f10_1c = f10_1c_commands.add_parser("freeze")
     freeze_f10_1c.add_argument("--acknowledgement", required=True)
     verify_f10_1c = f10_1c_commands.add_parser("verify")
-    verify_f10_1c.add_argument("--dataset-id", required=True)
+    verify_f10_1c.add_argument("--dataset-id")
+    f10_1c_commands.add_parser("abort")
     f10_2 = evaluation_commands.add_parser("f10-2")
     f10_2_commands = f10_2.add_subparsers(dest="f10_2_command", required=True)
     for command in ("status", "label", "review", "adjudicate", "preview-finalize"):
@@ -475,10 +479,21 @@ def _parser() -> argparse.ArgumentParser:
 
 def _run_evaluation(args: argparse.Namespace) -> int:
     """Gate-A CLI surface; live acquisition is deliberately fail-closed here."""
-    if args.evaluation_command == "f10-1c":
-        from role_radar.cli.evaluation_f10_1c import run
-
-        return run(args)
+    if args.evaluation_command in {"f10-1", "f10-1c"}:
+        # Both names are historical aliases.  Block every subcommand before
+        # settings, filesystem, database, provider, or old runtime imports.
+        print(
+            json.dumps(
+                {
+                    "schema_version": "f10.1-historical-cli-v1",
+                    "result": "blocked",
+                    "code": "historical_command_non_executable",
+                    "historical": True,
+                },
+                sort_keys=True,
+            )
+        )
+        return 2
     if args.evaluation_command == "f10-2":
         from role_radar.cli.evaluation_f10_2 import run
 

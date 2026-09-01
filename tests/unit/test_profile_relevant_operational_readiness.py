@@ -13,6 +13,7 @@ from role_radar.evaluation.profile_relevant_acquisition.contracts import (
     ArtifactClass,
     ChallengeArtifact,
     ExternalApprovalBinding,
+    OperationalContractError,
     ProvenanceArtifact,
     SourcePlanBinding,
     require_execution_boundary,
@@ -93,6 +94,41 @@ def test_loaders_are_canonical_and_hash_bound() -> None:
     with pytest.raises(ChallengeLoadError) as exc:
         load_challenge_bytes(tampered, expected_gate="C")
     assert exc.value.code == "challenge_hash_mismatch"
+
+
+def test_artifact_dtos_reject_forged_canonical_bytes_at_constructor() -> None:
+    challenge, provenance = _artifacts("C")
+    with pytest.raises(OperationalContractError) as challenge_error:
+        type(challenge)(
+            challenge.schema_version,
+            challenge.gate,
+            challenge.operation_id,
+            challenge.lineage_id,
+            challenge.prerequisite_status,
+            challenge.artifact_class,
+            challenge.seed_inputs,
+            challenge.policy_sha256,
+            challenge.payload_sha256,
+            challenge.challenge_sha256,
+            b"{}",
+        )
+    assert challenge_error.value.code == "canonical_record_invalid"
+
+    with pytest.raises(OperationalContractError) as provenance_error:
+        type(provenance)(
+            provenance.schema_version,
+            provenance.operation_id,
+            provenance.lineage_id,
+            provenance.commit_sha256,
+            provenance.window_sha256,
+            provenance.namespace_sha256,
+            provenance.policy_sha256,
+            provenance.artifact_class,
+            provenance.seed_inputs,
+            provenance.provenance_sha256,
+            b"{}",
+        )
+    assert provenance_error.value.code == "canonical_record_invalid"
 
 
 @pytest.mark.parametrize(
@@ -183,38 +219,23 @@ def test_invalid_artifact_or_production_dependency_never_delegates() -> None:
 
 
 def test_post_c_policy_binding_mismatch_never_delegates() -> None:
-    challenge, provenance = _artifacts("post-C")
+    _challenge, provenance = _artifacts("post-C")
     calls: list[str] = []
-    altered = type(provenance)(
-        provenance.schema_version,
-        provenance.operation_id,
-        provenance.lineage_id,
-        provenance.commit_sha256,
-        provenance.window_sha256,
-        provenance.namespace_sha256,
-        "d" * 64,
-        provenance.artifact_class,
-        provenance.seed_inputs,
-        provenance.provenance_sha256,
-        provenance.canonical_bytes,
-    )
     with pytest.raises(ValueError) as exc:
-        run_post_c_preregistration_runtime(
-            challenge=challenge,
-            provenance=altered,
-            seeds=provenance.seed_inputs,
-            source_plan=SourcePlanBinding(
-                operation_id="op",
-                lineage_id="lineage",
-                policy_sha256=HASH,
-                source_plan_sha256=HASH,
-                artifact_class=ArtifactClass.SYNTHETIC,
-                prerequisite_status="passed",
-            ),
-            delegate=lambda: calls.append("called"),
-            test_only_adapter=synthetic_test_adapter(),
+        type(provenance)(
+            provenance.schema_version,
+            provenance.operation_id,
+            provenance.lineage_id,
+            provenance.commit_sha256,
+            provenance.window_sha256,
+            provenance.namespace_sha256,
+            "d" * 64,
+            provenance.artifact_class,
+            provenance.seed_inputs,
+            provenance.provenance_sha256,
+            provenance.canonical_bytes,
         )
-    assert getattr(exc.value, "code", "") == "post_c_policy_mismatch"
+    assert getattr(exc.value, "code", "") == "provenance_hash_mismatch"
     assert calls == []
 
 

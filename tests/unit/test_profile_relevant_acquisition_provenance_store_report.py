@@ -12,6 +12,7 @@ from role_radar.discovery.planner_v2 import plan_profile_discovery
 from role_radar.evaluation.profile_relevant_acquisition.capability_seal import (
     build_capability_seal,
 )
+from role_radar.evaluation.profile_relevant_acquisition.contracts import synthetic_test_adapter
 from role_radar.evaluation.profile_relevant_acquisition.discovery_runtime import (
     ReportOnlyError,
     ReportOnlyRuntimeConfig,
@@ -134,14 +135,19 @@ def _provenance_with(**overrides: str) -> ProvenanceBundle:
 
 def test_private_store_is_namespace_bound_and_idempotent(tmp_path: Path) -> None:
     store = ProfileRelevantAcquisitionStore(tmp_path / "f10-1f", "synthetic-f10-1f")
+    adapter = synthetic_test_adapter()
     dataset_id = "a" * 64
     pool = (b'{"external_id":"1"}\n',)
     manifest = {"schema": "sealed-pool", "count": 1}
 
-    target = store.publish_sealed_pool(dataset_id=dataset_id, pool_lines=pool, manifest=manifest)
+    target = store.publish_sealed_pool(
+        dataset_id=dataset_id, pool_lines=pool, manifest=manifest, test_only_adapter=adapter
+    )
     assert store.verify(dataset_id)
     assert (
-        store.publish_sealed_pool(dataset_id=dataset_id, pool_lines=pool, manifest=manifest)
+        store.publish_sealed_pool(
+            dataset_id=dataset_id, pool_lines=pool, manifest=manifest, test_only_adapter=adapter
+        )
         == target
     )
 
@@ -150,6 +156,7 @@ def test_private_store_is_namespace_bound_and_idempotent(tmp_path: Path) -> None
             dataset_id=dataset_id,
             pool_lines=(b"different\n",),
             manifest=manifest,
+            test_only_adapter=adapter,
         )
     assert conflict.value.code == "store_id_conflict"
 
@@ -162,15 +169,35 @@ def test_private_store_is_namespace_bound_and_idempotent(tmp_path: Path) -> None
         artifact_count=1,
     )
     seal_object = json.loads(seal.canonical_bytes)
-    cap = store.publish_capability_seal(dataset_id=dataset_id, seal=seal_object)
-    assert store.publish_capability_seal(dataset_id=dataset_id, seal=seal_object) == cap
+    cap = store.publish_capability_seal(
+        dataset_id=dataset_id, seal=seal_object, test_only_adapter=adapter
+    )
+    assert (
+        store.publish_capability_seal(
+            dataset_id=dataset_id, seal=seal_object, test_only_adapter=adapter
+        )
+        == cap
+    )
     with pytest.raises(StoreError) as cap_conflict:
-        store.publish_capability_seal(dataset_id=dataset_id, seal={"changed": True})
+        store.publish_capability_seal(
+            dataset_id=dataset_id, seal={"changed": True}, test_only_adapter=adapter
+        )
     assert cap_conflict.value.code == "store_capability_conflict"
 
     with pytest.raises(StoreError) as namespace:
         ProfileRelevantAcquisitionStore(tmp_path / "other", namespace="NOT_VALID")
     assert namespace.value.code == "store_namespace_invalid"
+
+
+def test_store_publication_is_not_a_second_live_authority(tmp_path: Path) -> None:
+    store = ProfileRelevantAcquisitionStore(tmp_path / "f10-1f", "synthetic-f10-1f")
+    with pytest.raises(StoreError) as blocked:
+        store.publish_sealed_pool(
+            dataset_id="a" * 64,
+            pool_lines=(b"{}\n",),
+            manifest={"schema": "sealed-pool"},
+        )
+    assert blocked.value.code == "store_publication_test_only"
 
 
 def test_report_only_is_zero_mutation_and_sanitizes_evidence(tmp_path: Path) -> None:

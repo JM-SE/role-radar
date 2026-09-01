@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
 
-from role_radar.evaluation.profile_relevance.contracts import ProfileRelevanceInput
+from role_radar.evaluation.profile_relevance.contracts import (
+    PreviewComputationResult,
+    ProfileRelevanceInput,
+)
 from role_radar.evaluation.profile_relevance.preview_workflow import compute_preview
 from role_radar.evaluation.profile_relevant_acquisition.contracts import (
     ArtifactClass,
@@ -15,6 +17,8 @@ from role_radar.evaluation.profile_relevant_acquisition.contracts import (
     ProvenanceArtifact,
     SyntheticTestAdapter,
     require_execution_boundary,
+    validate_challenge_artifact,
+    validate_provenance_artifact,
 )
 
 
@@ -36,18 +40,28 @@ def run_gate_e_runtime(
     | None = None,
     expected_challenge_sha256: str | None = None,
     expected_provenance_sha256: str | None = None,
-) -> Any:
+) -> PreviewComputationResult:
     if not isinstance(challenge, ChallengeArtifact) or challenge.gate != "E":
         raise GateEError("gate_e_wrong_challenge")
     if not isinstance(provenance, ProvenanceArtifact):
         raise GateEError("gate_e_provenance_invalid")
+    try:
+        validate_challenge_artifact(challenge)
+        validate_provenance_artifact(provenance)
+    except ValueError as exc:
+        raise GateEError(getattr(exc, "code", "gate_e_artifact_invalid")) from exc
     if (
-        challenge.artifact_class is not ArtifactClass.SYNTHETIC
-        or provenance.artifact_class is not ArtifactClass.SYNTHETIC
+        challenge.artifact_class is ArtifactClass.LIVE_SHAPED
+        or provenance.artifact_class is ArtifactClass.LIVE_SHAPED
     ):
-        raise GateEError("gate_e_artifact_class_not_synthetic")
+        raise GateEError("gate_e_artifact_class_not_executable")
     if challenge.artifact_class is not provenance.artifact_class:
         raise GateEError("gate_e_artifact_class_mismatch")
+    if (challenge.artifact_class is ArtifactClass.SYNTHETIC and test_only_adapter is None) or (
+        challenge.artifact_class is ArtifactClass.APPROVED_PRODUCTION
+        and test_only_adapter is not None
+    ):
+        raise GateEError("gate_e_artifact_class_boundary")
     try:
         require_execution_boundary(
             artifact_sha256=challenge.challenge_sha256,
@@ -76,8 +90,8 @@ def run_gate_e_runtime(
         raise GateEError("gate_e_stale_provenance")
     if not isinstance(inputs, ProfileRelevanceInput):
         raise GateEError("gate_e_input_invalid")
-    # This is intentionally the only F10.1E call in this module.  In
-    # particular, no payload DTO or materializer name is imported here.
+    # This pure branch is the only production-artifact execution allowed in
+    # R1; it cannot reach acquisition, persistence, or a materializer.
     return compute_preview(inputs)
 
 

@@ -27,6 +27,7 @@ EXPECTED_MODULES = {
     "journal.py",
     "journaled_transport.py",
     "acquisition_runtime.py",
+    "coordinator.py",
     "gate_d_runtime.py",
     "parent_pool.py",
     "gate_e_preview.py",
@@ -204,3 +205,9 @@ def test_f10_1f_has_no_stale_date_or_default_execution_values() -> None:
     assert "20260825" not in source
     assert "CollectionRunBudget(maximum=100)" not in source
     assert "Path.cwd()" not in source
+
+
+def test_f10_1f_source_plan_is_not_the_legacy_defaulted_model() -> None:
+    source = (PACKAGE / "source_plan.py").read_text(encoding="utf-8")
+    assert "controlled_acquisition.source_plan" not in source
+    assert "from role_radar.evaluation.controlled_acquisition.source_plan" not in source

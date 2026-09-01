@@ -162,3 +162,22 @@ def test_historical_f10_1_live_commands_are_blocked_before_settings_or_dependenc
         "result": "blocked",
         "schema_version": "f10.1-historical-cli-v1",
     }
+
+
+@pytest.mark.parametrize("command", ("preflight", "plan", "status", "abort"))
+def test_historical_f10_1c_aliases_are_blocked_uniformly(
+    command: str,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from role_radar.cli import main as cli_main
+
+    monkeypatch.setattr(cli_main, "Settings", lambda: (_ for _ in ()).throw(AssertionError()))
+    args = ("evaluation", "f10-1c", command)
+    assert cli_main.main(args) == 2
+    assert _json(capsys) == {
+        "code": "historical_command_non_executable",
+        "historical": True,
+        "result": "blocked",
+        "schema_version": "f10.1-historical-cli-v1",
+    }

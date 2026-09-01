@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Callable
-from typing import Any
 
 from role_radar.evaluation.profile_relevant_acquisition.contracts import (
     ArtifactClass,
@@ -20,6 +19,8 @@ from role_radar.evaluation.profile_relevant_acquisition.contracts import (
     RuntimeEvidence,
     SyntheticTestAdapter,
     require_execution_boundary,
+    validate_challenge_artifact,
+    validate_provenance_artifact,
 )
 
 
@@ -33,7 +34,7 @@ def run_gate_f_runtime(
     *,
     challenge: ChallengeArtifact,
     provenance: ProvenanceArtifact,
-    materializer: Callable[[], Any],
+    materializer: Callable[[], object],
     test_only_adapter: SyntheticTestAdapter | None = None,
     approval: ExternalApprovalBinding | None = None,
     approval_verifier: ExternalApprovalVerifier
@@ -46,11 +47,17 @@ def run_gate_f_runtime(
         raise GateFError("gate_f_wrong_challenge")
     if not isinstance(provenance, ProvenanceArtifact):
         raise GateFError("gate_f_provenance_invalid")
+    try:
+        validate_challenge_artifact(challenge)
+        validate_provenance_artifact(provenance)
+    except ValueError as exc:
+        raise GateFError(getattr(exc, "code", "gate_f_artifact_invalid")) from exc
     if (
-        challenge.artifact_class is ArtifactClass.LIVE_SHAPED
-        or provenance.artifact_class is ArtifactClass.LIVE_SHAPED
+        challenge.artifact_class is not ArtifactClass.SYNTHETIC
+        or provenance.artifact_class is not ArtifactClass.SYNTHETIC
+        or test_only_adapter is None
     ):
-        raise GateFError("gate_f_artifact_class_not_synthetic")
+        raise GateFError("gate_f_artifact_class_boundary")
     if challenge.artifact_class is not provenance.artifact_class:
         raise GateFError("gate_f_artifact_class_mismatch")
     if test_only_adapter is not None and challenge.artifact_class is not ArtifactClass.SYNTHETIC:

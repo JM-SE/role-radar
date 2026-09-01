@@ -22,6 +22,7 @@ from role_radar.evaluation.filesystem import (
     sha256_bytes,
     write_no_replace,
 )
+from role_radar.evaluation.profile_relevant_acquisition.contracts import SyntheticTestAdapter
 
 NAMESPACE_RE: Final[re.Pattern[str]] = re.compile(r"^[a-z0-9][a-z0-9\-]+[a-z0-9]$")
 
@@ -92,9 +93,12 @@ class ProfileRelevantAcquisitionStore:
         dataset_id: str,
         pool_lines: tuple[bytes, ...],
         manifest: Mapping[str, Any],
+        test_only_adapter: SyntheticTestAdapter | None = None,
     ) -> Path:
         """Publish sealed pool + manifest atomically under fence, no-replace."""
 
+        if not isinstance(test_only_adapter, SyntheticTestAdapter):
+            raise StoreError("store_publication_test_only")
         _require_namespace(self.namespace)
         _require_root(self.root)
         if not pool_lines:
@@ -153,7 +157,10 @@ class ProfileRelevantAcquisitionStore:
         *,
         dataset_id: str,
         seal: Mapping[str, Any],
+        test_only_adapter: SyntheticTestAdapter | None = None,
     ) -> Path:
+        if not isinstance(test_only_adapter, SyntheticTestAdapter):
+            raise StoreError("store_publication_test_only")
         dataset_dir = self._dataset_dir(dataset_id)
         if not dataset_dir.is_dir():
             raise StoreError("store_dataset_not_found")
