@@ -36,13 +36,13 @@ GATED_COMMANDS: Final[frozenset[str]] = frozenset(
 )
 
 
-def _payload(command: str, result: str, code: str, **fields: object) -> str:
+def _payload(command: str, envelope_result: str, code: str, **fields: object) -> str:
     """Serialize only the public F10.1F CLI envelope."""
 
     value: dict[str, object] = {
         "schema_version": SCHEMA_VERSION,
         "command": command,
-        "result": result,
+        "result": envelope_result,
         "code": code,
     }
     value.update(fields)

@@ -263,7 +263,7 @@ def authorize_gate_c(
     binding = getattr(plan, "profile_binding", None)
     if (
         getattr(binding, "profile_id", None) != p.profile_id
-        or getattr(binding, "row_version", None) != p.profile_version
+        or str(getattr(binding, "row_version", None)) != p.profile_version
         or getattr(binding, "canonical_profile_sha256", None) != p.profile_sha256
     ):
         raise GateCAuthorizationError("profile_binding_mismatch")
@@ -274,11 +274,11 @@ def authorize_gate_c(
         raise GateCAuthorizationError("policy_binding_mismatch")
     limits = getattr(plan, "limits", {})
     expected_limits = (
-        ("max_brave_requests_per_run", authorization.max_brave_requests),
-        ("max_tavily_requests_per_run", authorization.max_tavily_requests),
-        ("max_unique_board_candidates_per_run", authorization.max_board_candidates),
-        ("max_unique_board_verifications_per_run", authorization.max_board_verifications),
-        ("max_verification_wire_attempts_per_run", authorization.max_wire_attempts),
+        ("MAX_BRAVE_REQUESTS_PER_RUN", authorization.max_brave_requests),
+        ("MAX_TAVILY_REQUESTS_PER_RUN", authorization.max_tavily_requests),
+        ("MAX_UNIQUE_BOARD_CANDIDATES_PER_RUN", authorization.max_board_candidates),
+        ("MAX_UNIQUE_BOARD_VERIFICATIONS_PER_RUN", authorization.max_board_verifications),
+        ("MAX_VERIFICATION_WIRE_ATTEMPTS_PER_RUN", authorization.max_wire_attempts),
     )
     if any(limits.get(name) != value for name, value in expected_limits):
         raise GateCAuthorizationError("budget_binding_mismatch")

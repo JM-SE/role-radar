@@ -90,6 +90,8 @@ def _official_configs(value: object) -> tuple[Mapping[str, object], ...]:
     for candidate in value:
         if not isinstance(candidate, BoardCandidateV2):
             raise GateCServiceError("official_board_configuration_invalid")
+        if candidate.source_type not in {"greenhouse", "lever"}:
+            raise GateCServiceError("official_board_configuration_non_official")
         config = dict(candidate.configuration)
         try:
             expected_key = canonical_source_key(candidate.source_type, config)
@@ -97,8 +99,6 @@ def _official_configs(value: object) -> tuple[Mapping[str, object], ...]:
             raise GateCServiceError("official_board_configuration_invalid") from exc
         if expected_key != candidate.source_key or candidate.source_key in seen:
             raise GateCServiceError("official_board_configuration_substituted")
-        if candidate.source_type not in {"greenhouse", "lever"}:
-            raise GateCServiceError("official_board_configuration_non_official")
         seen.add(candidate.source_key)
         output.append(
             {
