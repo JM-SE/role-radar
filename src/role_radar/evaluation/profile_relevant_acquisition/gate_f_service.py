@@ -160,6 +160,7 @@ def _replay_preflight(request: GateFAuthorizationRequest) -> GateFPublicResult |
         "pilot_count",
         "pilot_membership_sha256",
         "pool_sha256",
+        "preview_input_sha256",
         "provenance_sha256",
         "schema_version",
         "selection_sha256",
@@ -252,7 +253,7 @@ def _replay_preflight(request: GateFAuthorizationRequest) -> GateFPublicResult |
             "selection",
         ),
         DIRNAME_OPERATOR: (OPERATOR_LOGICAL_NAME,),
-        DIRNAME_PILOT: (PILOT_BINDING_LOGICAL_NAME, "pilot_sealed_view"),
+        DIRNAME_PILOT: (PILOT_BINDING_LOGICAL_NAME, "pilot_label_view"),
         DIRNAME_SEALED_HOLDOUT: (HOLDOUT_BINDING_LOGICAL_NAME, "holdout_sealed_view"),
     }
     group_hashes: dict[str, str] = {}
@@ -280,7 +281,8 @@ def _replay_preflight(request: GateFAuthorizationRequest) -> GateFPublicResult |
                         separators=(",", ":"),
                         allow_nan=False,
                     ).encode()
-                    != raw
+                    + b"\n"
+                        != raw
                 ):
                     raise ValueError
             except (OSError, UnicodeError, ValueError, TypeError):
@@ -350,7 +352,7 @@ def _replay_preflight(request: GateFAuthorizationRequest) -> GateFPublicResult |
         raise
     except Exception as exc:
         raise FreezeError("freeze_replay_conflict") from exc
-    if tuple(receipt.get("capability_kinds", ())) != ("private", "pilot", "sealed_holdout"):
+    if tuple(receipt.get("capability_kinds", ())) != ("pilot", "private", "sealed_holdout"):
         raise FreezeError("freeze_replay_conflict")
     return GateFPublicResult(
         request.dataset_id,
