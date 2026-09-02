@@ -27,7 +27,6 @@ from role_radar.evaluation.blind_labeling.policy import (
     LABEL_DOMAINS,
     LABELSET_ID_SCHEMA,
     OPAQUE_ID,
-    PILOT_COUNT,
     PILOT_FILE_SHA256,
     PILOT_SHA256,
     PROFILE_ID,
@@ -38,6 +37,7 @@ from role_radar.evaluation.blind_labeling.policy import (
     REVIEW_REPORT_SCHEMA,
     RUBRIC_SCHEMA,
     RUBRIC_VERSION,
+    current_pilot_count,
     semantic_hash,
 )
 from role_radar.evaluation.blind_labeling.session import final_decisions
@@ -188,7 +188,7 @@ def build_bundle(
         "dataset_id": DATASET_ID,
         "labelset_id": labelset_id,
         "counts": {
-            "total": PILOT_COUNT,
+            "total": current_pilot_count(),
             "reviewed": len(state.review_decisions),
             "adjudicated": len(state.adjudications),
         },
@@ -247,7 +247,7 @@ def external_manifest(internal: dict[str, Any], file_hashes: dict[str, str]) -> 
         "status": "finalized",
         "dataset_id": internal["dataset_id"],
         "labelset_id": internal["labelset_id"],
-        "count": PILOT_COUNT,
+        "count": current_pilot_count(),
         "reviewed_count": internal["counts"]["reviewed"],
         "adjudicated_count": internal["counts"]["adjudicated"],
         "frozen": internal["frozen"],
@@ -292,11 +292,11 @@ def validate_final_bundle(payloads: dict[str, bytes], labelset_id: str) -> dict[
             raise ValidationError("final_labels_invalid")
         decision_from_dict(value["decision"])
         labels.append(value)
-    if len(labels) != PILOT_COUNT or [value["opaque_id"] for value in labels] != sorted(
+    if len(labels) != current_pilot_count() or [value["opaque_id"] for value in labels] != sorted(
         value["opaque_id"] for value in labels
     ):
         raise ValidationError("final_labels_invalid")
-    if len({value["opaque_id"] for value in labels}) != PILOT_COUNT:
+    if len({value["opaque_id"] for value in labels}) != current_pilot_count():
         raise ValidationError("final_labels_invalid")
     labels_by_id = {value["opaque_id"]: value["decision"] for value in labels}
 
@@ -423,7 +423,7 @@ def validate_final_bundle(payloads: dict[str, bytes], labelset_id: str) -> dict[
     if set(internal["counts"]) != {"total", "reviewed", "adjudicated"}:
         raise ValidationError("final_manifest_invalid")
     if (
-        internal["counts"]["total"] != PILOT_COUNT
+        internal["counts"]["total"] != current_pilot_count()
         or internal["counts"]["reviewed"] != review["reviewed_count"]
         or internal["counts"]["adjudicated"] != review["adjudicated_count"]
     ):

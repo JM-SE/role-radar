@@ -11,11 +11,11 @@ from role_radar.evaluation.blind_labeling.contracts import PilotSnapshot
 from role_radar.evaluation.blind_labeling.policy import (
     DATASET_ID,
     MAX_PILOT_FILE_BYTES,
-    PILOT_COUNT,
     PILOT_FILE_SHA256,
     PILOT_FILENAME,
     PILOT_SHA256,
     SOURCE_ROOT,
+    current_pilot_count,
 )
 from role_radar.evaluation.blind_labeling.validation import ValidationError, parse_pilot_line
 
@@ -156,7 +156,7 @@ class PilotSource:
         if actual_file_sha != self.pilot_file_sha256:
             raise PilotSourceError("pilot_file_hash_mismatch")
         lines = data.splitlines(keepends=True)
-        if len(lines) != PILOT_COUNT or any(not line.strip() for line in lines):
+        if len(lines) != current_pilot_count() or any(not line.strip() for line in lines):
             raise PilotSourceError("pilot_cardinality_invalid")
         items = []
         try:
@@ -164,7 +164,7 @@ class PilotSource:
                 items.append(parse_pilot_line(line))
         except ValidationError as exc:
             raise PilotSourceError(exc.code) from exc
-        if len({item.opaque_id for item in items}) != PILOT_COUNT:
+        if len({item.opaque_id for item in items}) != current_pilot_count():
             raise PilotSourceError("pilot_duplicate_id")
         return PilotSnapshot(tuple(items), self.dataset_id, self.pilot_sha256, actual_file_sha)
 

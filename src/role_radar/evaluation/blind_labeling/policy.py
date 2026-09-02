@@ -5,6 +5,9 @@ from __future__ import annotations
 
 import hashlib
 import re
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from types import MappingProxyType
 from typing import Final
 
@@ -35,6 +38,22 @@ CLI_OUTPUT_SCHEMA: Final = "f10.2-cli-output-v1"
 LABELSET_ID_SCHEMA: Final = "f10.2-labelset-id-v1"
 
 PILOT_COUNT: Final = 50
+_ACTIVE_PILOT_COUNT: ContextVar[int] = ContextVar("active_pilot_count", default=PILOT_COUNT)
+
+
+def current_pilot_count() -> int:
+    return _ACTIVE_PILOT_COUNT.get()
+
+
+@contextmanager
+def pilot_count_scope(count: int) -> Iterator[None]:
+    token = _ACTIVE_PILOT_COUNT.set(count)
+    try:
+        yield
+    finally:
+        _ACTIVE_PILOT_COUNT.reset(token)
+
+
 REVIEW_NON_MAYBE_LIMIT: Final = 10
 NOTE_MAX_CODEPOINTS: Final = 280
 MAX_PILOT_FILE_BYTES: Final = 16 * 1024 * 1024
