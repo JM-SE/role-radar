@@ -282,7 +282,7 @@ def _replay_preflight(request: GateFAuthorizationRequest) -> GateFPublicResult |
                         allow_nan=False,
                     ).encode()
                     + b"\n"
-                        != raw
+                    != raw
                 ):
                     raise ValueError
             except (OSError, UnicodeError, ValueError, TypeError):
