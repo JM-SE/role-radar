@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from typing import Any
 
 from role_radar.evaluation.blind_labeling.contracts import (
@@ -49,11 +50,54 @@ from role_radar.evaluation.blind_labeling.validation import (
 )
 
 
-def rubric_payload() -> dict[str, Any]:
+@dataclass(frozen=True, slots=True)
+class ActiveLabelingBinding:
+    """Immutable active R2 snapshot used by R3; legacy defaults stay isolated."""
+
+    dataset_id: str
+    pilot_sha256: str
+    pilot_view_sha256: str
+    corpus_sha256: str
+    holdout_sha256: str
+    profile_id: str
+    profile_version: int
+    profile_schema: int
+    profile_sha256: str
+    rubric_version: str
+    rubric_sha256: str
+    protocol_version: str
+    code_commit: str
+    alembic_head: str
+    count: int
+
+
+def legacy_active_binding() -> ActiveLabelingBinding:
+    return ActiveLabelingBinding(
+        DATASET_ID,
+        PILOT_SHA256,
+        PILOT_FILE_SHA256,
+        CORPUS_SHA256,
+        HOLDOUT_SHA256,
+        PROFILE_ID,
+        PROFILE_VERSION,
+        PROFILE_SCHEMA,
+        PROFILE_SHA256,
+        RUBRIC_VERSION,
+        rubric_hash(),
+        PROTOCOL_VERSION,
+        CODE_COMMIT,
+        ALEMBIC_HEAD,
+        current_pilot_count(),
+    )
+
+
+def rubric_payload(
+    *, version: str = RUBRIC_VERSION, protocol: str = PROTOCOL_VERSION
+) -> dict[str, Any]:
     return {
         "schema_version": RUBRIC_SCHEMA,
-        "version": RUBRIC_VERSION,
-        "protocol": PROTOCOL_VERSION,
+        "version": version,
+        "protocol": protocol,
         "definitions": dict(LABEL_DEFINITIONS),
         "reasons": {key: list(value) for key, value in LABEL_DOMAINS.items()},
         "evidence": {
@@ -65,8 +109,8 @@ def rubric_payload() -> dict[str, Any]:
     }
 
 
-def rubric_hash() -> str:
-    return semantic_hash("f10.2:rubric-v1", rubric_payload())
+def rubric_hash(*, version: str = RUBRIC_VERSION, protocol: str = PROTOCOL_VERSION) -> str:
+    return semantic_hash("f10.2:rubric-v1", rubric_payload(version=version, protocol=protocol))
 
 
 def _audit_semantics(state: SessionState) -> list[dict[str, Any]]:
@@ -154,8 +198,12 @@ def _review_payload(state: SessionState) -> dict[str, Any]:
 
 
 def build_bundle(
-    snapshot: PilotSnapshot, state: SessionState, finalized_at: str
+    snapshot: PilotSnapshot,
+    state: SessionState,
+    finalized_at: str,
+    active_binding: ActiveLabelingBinding | None = None,
 ) -> tuple[dict[str, bytes], dict[str, Any], str]:
+    binding = active_binding or legacy_active_binding()
     decisions = final_decisions(state)
     labels = [
         {"opaque_id": item.opaque_id, "decision": decision_dict(decisions[item.opaque_id])}
@@ -165,18 +213,22 @@ def build_bundle(
     review = _review_payload(state)
     review_hash = semantic_hash("f10.2:review-report-v1", review)
     audit_hash = semantic_hash("f10.2:audit-v1", _audit_semantics(state))
-    rubric = rubric_payload()
-    rubric_sha = rubric_hash()
+    rubric = rubric_payload(version=binding.rubric_version, protocol=binding.protocol_version)
     preimage = {
         "schema": LABELSET_ID_SCHEMA,
-        "dataset_id": DATASET_ID,
-        "corpus_sha256": CORPUS_SHA256,
-        "pilot_sha256": PILOT_SHA256,
-        "pilot_view_sha256": PILOT_FILE_SHA256,
-        "holdout_sha256": HOLDOUT_SHA256,
-        "profile": [PROFILE_ID, PROFILE_VERSION, PROFILE_SCHEMA, PROFILE_SHA256],
-        "protocol": PROTOCOL_VERSION,
-        "rubric": [RUBRIC_VERSION, rubric_sha],
+        "dataset_id": binding.dataset_id,
+        "corpus_sha256": binding.corpus_sha256,
+        "pilot_sha256": binding.pilot_sha256,
+        "pilot_view_sha256": binding.pilot_view_sha256,
+        "holdout_sha256": binding.holdout_sha256,
+        "profile": [
+            binding.profile_id,
+            binding.profile_version,
+            binding.profile_schema,
+            binding.profile_sha256,
+        ],
+        "protocol": binding.protocol_version,
+        "rubric": [binding.rubric_version, binding.rubric_sha256],
         "review_plan_sha256": review["review_plan_sha256"],
         "labels_sha256": labels_hash,
         "review_sha256": review_hash,
@@ -185,32 +237,32 @@ def build_bundle(
     labelset_id = semantic_hash("f10.2:labelset-id-v1", preimage)
     internal = {
         "schema_version": INTERNAL_MANIFEST_SCHEMA,
-        "dataset_id": DATASET_ID,
+        "dataset_id": binding.dataset_id,
         "labelset_id": labelset_id,
         "counts": {
-            "total": current_pilot_count(),
+            "total": binding.count,
             "reviewed": len(state.review_decisions),
             "adjudicated": len(state.adjudications),
         },
         "frozen": {
-            "corpus_sha256": CORPUS_SHA256,
-            "pilot_sha256": PILOT_SHA256,
-            "pilot_view_sha256": PILOT_FILE_SHA256,
-            "holdout_sha256": HOLDOUT_SHA256,
+            "corpus_sha256": binding.corpus_sha256,
+            "pilot_sha256": binding.pilot_sha256,
+            "pilot_view_sha256": binding.pilot_view_sha256,
+            "holdout_sha256": binding.holdout_sha256,
         },
         "profile": {
-            "id": PROFILE_ID,
-            "version": PROFILE_VERSION,
-            "schema": PROFILE_SCHEMA,
-            "sha256": PROFILE_SHA256,
+            "id": binding.profile_id,
+            "version": binding.profile_version,
+            "schema": binding.profile_schema,
+            "sha256": binding.profile_sha256,
         },
-        "protocol": PROTOCOL_VERSION,
+        "protocol": binding.protocol_version,
         "protocol_schema": "f10.2-cli-output-v1",
-        "rubric": {"version": RUBRIC_VERSION, "sha256": rubric_sha},
+        "rubric": {"version": binding.rubric_version, "sha256": binding.rubric_sha256},
         "review_plan_sha256": review["review_plan_sha256"],
         "semantic_hashes": {"labels": labels_hash, "review": review_hash, "audit": audit_hash},
-        "alembic_head": ALEMBIC_HEAD,
-        "code_commit": CODE_COMMIT,
+        "alembic_head": binding.alembic_head,
+        "code_commit": binding.code_commit,
         "finalized_at": finalized_at,
         "preimage": preimage,
     }
@@ -247,7 +299,7 @@ def external_manifest(internal: dict[str, Any], file_hashes: dict[str, str]) -> 
         "status": "finalized",
         "dataset_id": internal["dataset_id"],
         "labelset_id": internal["labelset_id"],
-        "count": current_pilot_count(),
+        "count": internal["counts"]["total"],
         "reviewed_count": internal["counts"]["reviewed"],
         "adjudicated_count": internal["counts"]["adjudicated"],
         "frozen": internal["frozen"],
@@ -259,7 +311,12 @@ def external_manifest(internal: dict[str, Any], file_hashes: dict[str, str]) -> 
     }
 
 
-def validate_final_bundle(payloads: dict[str, bytes], labelset_id: str) -> dict[str, Any]:
+def validate_final_bundle(
+    payloads: dict[str, bytes],
+    labelset_id: str,
+    active_binding: ActiveLabelingBinding | None = None,
+) -> dict[str, Any]:
+    binding = active_binding or legacy_active_binding()
     expected_names = {
         "labels.jsonl",
         "audit.jsonl",
@@ -369,7 +426,7 @@ def validate_final_bundle(payloads: dict[str, bytes], labelset_id: str) -> dict[
             raise ValidationError("final_review_invalid")
 
     rubric = parse_object("rubric.json")
-    if rubric != rubric_payload():
+    if rubric != rubric_payload(version=binding.rubric_version, protocol=binding.protocol_version):
         raise ValidationError("final_rubric_invalid")
     internal = parse_object("internal-manifest.json")
     expected_internal = {
@@ -391,39 +448,44 @@ def validate_final_bundle(payloads: dict[str, bytes], labelset_id: str) -> dict[
     }
     if set(internal) != expected_internal or internal["labelset_id"] != labelset_id:
         raise ValidationError("final_manifest_invalid")
-    if internal["dataset_id"] != DATASET_ID or internal["protocol"] != PROTOCOL_VERSION:
+    if (
+        internal["dataset_id"] != binding.dataset_id
+        or internal["protocol"] != binding.protocol_version
+    ):
         raise ValidationError("final_manifest_invalid")
     if (
         internal["protocol_schema"] != "f10.2-cli-output-v1"
-        or internal["code_commit"] != CODE_COMMIT
+        or internal["code_commit"] != binding.code_commit
     ):
         raise ValidationError("final_manifest_invalid")
-    if internal["rubric"] != {"version": RUBRIC_VERSION, "sha256": rubric_hash()}:
+    if internal["rubric"] != {"version": binding.rubric_version, "sha256": binding.rubric_sha256}:
         raise ValidationError("final_manifest_invalid")
     if internal["review_plan_sha256"] != review["review_plan_sha256"]:
         raise ValidationError("final_manifest_invalid")
     if internal["frozen"] != {
-        "corpus_sha256": CORPUS_SHA256,
-        "pilot_sha256": PILOT_SHA256,
-        "pilot_view_sha256": PILOT_FILE_SHA256,
-        "holdout_sha256": HOLDOUT_SHA256,
+        "corpus_sha256": binding.corpus_sha256,
+        "pilot_sha256": binding.pilot_sha256,
+        "pilot_view_sha256": binding.pilot_view_sha256,
+        "holdout_sha256": binding.holdout_sha256,
     }:
         raise ValidationError("final_manifest_invalid")
     if internal["profile"] != {
-        "id": PROFILE_ID,
-        "version": PROFILE_VERSION,
-        "schema": PROFILE_SCHEMA,
-        "sha256": PROFILE_SHA256,
+        "id": binding.profile_id,
+        "version": binding.profile_version,
+        "schema": binding.profile_schema,
+        "sha256": binding.profile_sha256,
     }:
         raise ValidationError("final_manifest_invalid")
-    if internal["alembic_head"] != ALEMBIC_HEAD or not isinstance(internal["finalized_at"], str):
+    if internal["alembic_head"] != binding.alembic_head or not isinstance(
+        internal["finalized_at"], str
+    ):
         raise ValidationError("final_manifest_invalid")
     if set(internal["semantic_hashes"]) != {"labels", "review", "audit"}:
         raise ValidationError("final_manifest_invalid")
     if set(internal["counts"]) != {"total", "reviewed", "adjudicated"}:
         raise ValidationError("final_manifest_invalid")
     if (
-        internal["counts"]["total"] != current_pilot_count()
+        internal["counts"]["total"] != binding.count
         or internal["counts"]["reviewed"] != review["reviewed_count"]
         or internal["counts"]["adjudicated"] != review["adjudicated_count"]
     ):
@@ -490,15 +552,21 @@ def validate_final_bundle(payloads: dict[str, bytes], labelset_id: str) -> dict[
         or preimage.get("labels_sha256") != internal["semantic_hashes"]["labels"]
         or preimage.get("review_sha256") != internal["semantic_hashes"]["review"]
         or preimage.get("audit_sha256") != internal["semantic_hashes"]["audit"]
-        or preimage.get("dataset_id") != DATASET_ID
+        or preimage.get("dataset_id") != binding.dataset_id
         or preimage.get("schema") != LABELSET_ID_SCHEMA
-        or preimage.get("corpus_sha256") != CORPUS_SHA256
-        or preimage.get("pilot_sha256") != PILOT_SHA256
-        or preimage.get("pilot_view_sha256") != PILOT_FILE_SHA256
-        or preimage.get("holdout_sha256") != HOLDOUT_SHA256
-        or preimage.get("protocol") != PROTOCOL_VERSION
-        or preimage.get("profile") != [PROFILE_ID, PROFILE_VERSION, PROFILE_SCHEMA, PROFILE_SHA256]
-        or preimage.get("rubric") != [RUBRIC_VERSION, rubric_hash()]
+        or preimage.get("corpus_sha256") != binding.corpus_sha256
+        or preimage.get("pilot_sha256") != binding.pilot_sha256
+        or preimage.get("pilot_view_sha256") != binding.pilot_view_sha256
+        or preimage.get("holdout_sha256") != binding.holdout_sha256
+        or preimage.get("protocol") != binding.protocol_version
+        or preimage.get("profile")
+        != [
+            binding.profile_id,
+            binding.profile_version,
+            binding.profile_schema,
+            binding.profile_sha256,
+        ]
+        or preimage.get("rubric") != [binding.rubric_version, binding.rubric_sha256]
         or preimage.get("review_plan_sha256") != review["review_plan_sha256"]
     ):
         raise ValidationError("final_manifest_invalid")
@@ -508,8 +576,10 @@ def validate_final_bundle(payloads: dict[str, bytes], labelset_id: str) -> dict[
 
 
 __all__ = [
+    "ActiveLabelingBinding",
     "build_bundle",
     "external_manifest",
+    "legacy_active_binding",
     "rubric_hash",
     "rubric_payload",
     "validate_final_bundle",

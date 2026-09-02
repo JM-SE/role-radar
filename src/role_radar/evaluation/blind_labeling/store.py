@@ -30,7 +30,10 @@ from role_radar.evaluation.blind_labeling.filesystem import (
     read_bounded,
     read_bounded_fd,
 )
-from role_radar.evaluation.blind_labeling.materialization import validate_final_bundle
+from role_radar.evaluation.blind_labeling.materialization import (
+    ActiveLabelingBinding,
+    validate_final_bundle,
+)
 from role_radar.evaluation.blind_labeling.policy import (
     DRAFT_SCHEMA,
     HEX64,
@@ -120,7 +123,9 @@ def state_payload_hash(state: SessionState) -> str:
     return hashlib.sha256(canonical_line(_state_dict(state))).hexdigest()
 
 
-def _state_from_dict(value: dict[str, Any]) -> SessionState:
+def _state_from_dict(
+    value: dict[str, Any], *, expected_protocol_version: str | None = None
+) -> SessionState:
     expected_keys = {
         "dataset_id",
         "pilot_sha256",
@@ -213,7 +218,7 @@ def _state_from_dict(value: dict[str, Any]) -> SessionState:
             events,
             intent,
         )
-        validate_state(state)
+        validate_state(state, expected_protocol_version=expected_protocol_version)
         return state
     except StoreError:
         raise
@@ -222,10 +227,19 @@ def _state_from_dict(value: dict[str, Any]) -> SessionState:
 
 
 class LabelingStore:
-    def __init__(self, root: Path | None = None, *, dataset_id: str, rubric_version: str) -> None:
+    def __init__(
+        self,
+        root: Path | None = None,
+        *,
+        dataset_id: str,
+        rubric_version: str,
+        active_binding: ActiveLabelingBinding | None = None,
+    ) -> None:
         self.root = root or Path(OUTPUT_ROOT)
         self.dataset_id = dataset_id
         self.rubric_version = rubric_version
+        self.active_binding = active_binding
+        self.protocol_version = active_binding.protocol_version if active_binding else None
 
     @property
     def session_root(self) -> Path:
@@ -281,11 +295,12 @@ class LabelingStore:
             expected = hashlib.sha256(canonical_line(payload)).hexdigest()
             if raw["payload_sha256"] != expected:
                 raise StoreError("draft_payload_tampered")
-            state = _state_from_dict(payload)
+            state = _state_from_dict(payload, expected_protocol_version=self.protocol_version)
             validate_state(
                 state,
                 expected_dataset_id=self.dataset_id,
                 expected_rubric_version=self.rubric_version,
+                expected_protocol_version=self.protocol_version,
             )
             return state
         except StoreError:
@@ -299,6 +314,7 @@ class LabelingStore:
                 state,
                 expected_dataset_id=self.dataset_id,
                 expected_rubric_version=self.rubric_version,
+                expected_protocol_version=self.protocol_version,
             )
         except Exception as exc:
             raise StoreError(getattr(exc, "code", "draft_state_invalid")) from exc
@@ -333,6 +349,7 @@ class LabelingStore:
                     state,
                     expected_dataset_id=self.dataset_id,
                     expected_rubric_version=self.rubric_version,
+                    expected_protocol_version=self.protocol_version,
                 )
             except Exception as exc:
                 raise StoreError(getattr(exc, "code", "draft_state_invalid")) from exc
@@ -372,7 +389,7 @@ class LabelingStore:
             f"{hashlib.sha256(full[name]).hexdigest()}  {name}\n" for name in sorted(payloads)
         ).encode("ascii")
         try:
-            validate_final_bundle(payloads, labelset_id)
+            validate_final_bundle(payloads, labelset_id, self.active_binding)
         except (TypeError, ValueError, KeyError) as exc:
             raise StoreError("final_files_invalid") from exc
         staging = Path(tempfile.mkdtemp(prefix=f".{labelset_id}.", dir=final_root))
@@ -480,7 +497,7 @@ class LabelingStore:
     def verify_final(self, labelset_id: str) -> bool:
         try:
             payloads, _hashes = self._final_payloads(labelset_id)
-            validate_final_bundle(payloads, labelset_id)
+            validate_final_bundle(payloads, labelset_id, self.active_binding)
             return True
         except (
             OSError,

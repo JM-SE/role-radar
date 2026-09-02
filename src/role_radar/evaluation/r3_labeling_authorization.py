@@ -49,6 +49,11 @@ class R2GateFBinding:
     count: int
     destination: str
     capability_seal_sha256: str
+    corpus_sha256: str | None = None
+    holdout_sha256: str | None = None
+    rubric_sha256: str | None = None
+    code_commit: str | None = None
+    alembic_head: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

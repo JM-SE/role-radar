@@ -39,10 +39,17 @@ LABELSET_ID_SCHEMA: Final = "f10.2-labelset-id-v1"
 
 PILOT_COUNT: Final = 50
 _ACTIVE_PILOT_COUNT: ContextVar[int] = ContextVar("active_pilot_count", default=PILOT_COUNT)
+_ACTIVE_PROTOCOL_VERSION: ContextVar[str] = ContextVar(
+    "active_protocol_version", default=PROTOCOL_VERSION
+)
 
 
 def current_pilot_count() -> int:
     return _ACTIVE_PILOT_COUNT.get()
+
+
+def current_protocol_version() -> str:
+    return _ACTIVE_PROTOCOL_VERSION.get()
 
 
 @contextmanager
@@ -52,6 +59,15 @@ def pilot_count_scope(count: int) -> Iterator[None]:
         yield
     finally:
         _ACTIVE_PILOT_COUNT.reset(token)
+
+
+@contextmanager
+def protocol_version_scope(version: str) -> Iterator[None]:
+    token = _ACTIVE_PROTOCOL_VERSION.set(version)
+    try:
+        yield
+    finally:
+        _ACTIVE_PROTOCOL_VERSION.reset(token)
 
 
 REVIEW_NON_MAYBE_LIMIT: Final = 10

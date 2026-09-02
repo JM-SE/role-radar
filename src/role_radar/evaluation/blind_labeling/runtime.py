@@ -17,9 +17,10 @@ from role_radar.evaluation.blind_labeling.contracts import (
     SessionState,
 )
 from role_radar.evaluation.blind_labeling.materialization import (
+    ActiveLabelingBinding,
     build_bundle,
     external_manifest,
-    rubric_hash,
+    legacy_active_binding,
 )
 from role_radar.evaluation.blind_labeling.pilot_source import PilotSource
 from role_radar.evaluation.blind_labeling.policy import (
@@ -27,10 +28,6 @@ from role_radar.evaluation.blind_labeling.policy import (
     DOMAIN_REOPEN,
     DOMAIN_START,
     HEX64,
-    PROFILE_ID,
-    PROFILE_SCHEMA,
-    PROFILE_SHA256,
-    PROFILE_VERSION,
     PROTOCOL_VERSION,
     RUBRIC_VERSION,
     challenge,
@@ -73,6 +70,7 @@ class BlindLabelingRuntime:
         dataset_id: str | None = None,
         pilot_sha256: str | None = None,
         pilot_view_sha256: str | None = None,
+        active_binding: ActiveLabelingBinding | None = None,
     ) -> None:
         self.source = source
         self.store = store
@@ -80,6 +78,10 @@ class BlindLabelingRuntime:
         self.dataset_id = dataset_id
         self.pilot_sha256 = pilot_sha256
         self.pilot_view_sha256 = pilot_view_sha256
+        self.active_binding = active_binding
+
+    def _binding(self) -> ActiveLabelingBinding:
+        return self.active_binding or legacy_active_binding()
 
     def _snapshot(self) -> PilotSnapshot:
         try:
@@ -102,12 +104,15 @@ class BlindLabelingRuntime:
         return self._state()
 
     def status(self) -> dict[str, Any]:
+        binding = self._binding()
         snapshot = self._snapshot()
         state = None
         if self.store.exists():
             state = self._state()
             try:
-                validate_state_against_snapshot(state, snapshot)
+                validate_state_against_snapshot(
+                    state, snapshot, expected_protocol_version=self._binding().protocol_version
+                )
             except SessionError as exc:
                 raise RuntimeErrorCode(exc.code) from exc
         payload: dict[str, Any] = {
@@ -117,13 +122,13 @@ class BlindLabelingRuntime:
             "pilot_count": len(snapshot.items),
             "pilot_sha256": snapshot.pilot_sha256,
             "pilot_view_sha256": snapshot.pilot_view_sha256,
-            "profile_id": PROFILE_ID,
-            "profile_version": PROFILE_VERSION,
-            "profile_schema": PROFILE_SCHEMA,
-            "profile_sha256": PROFILE_SHA256,
-            "rubric": RUBRIC_VERSION,
-            "rubric_sha256": rubric_hash(),
-            "protocol": PROTOCOL_VERSION,
+            "profile_id": binding.profile_id,
+            "profile_version": binding.profile_version,
+            "profile_schema": binding.profile_schema,
+            "profile_sha256": binding.profile_sha256,
+            "rubric": binding.rubric_version,
+            "rubric_sha256": binding.rubric_sha256,
+            "protocol": binding.protocol_version,
             "completed_count": 0 if state is None else len(state.first_pass),
             "review_count": 0 if state is None else len(state.review_decisions),
             "adjudication_count": 0 if state is None else len(state.adjudications),
@@ -133,14 +138,19 @@ class BlindLabelingRuntime:
                 "dataset_id": snapshot.dataset_id,
                 "pilot_sha256": snapshot.pilot_sha256,
                 "pilot_view_sha256": snapshot.pilot_view_sha256,
-                "profile": [PROFILE_ID, PROFILE_VERSION, PROFILE_SCHEMA, PROFILE_SHA256],
-                "rubric": [RUBRIC_VERSION, payload["rubric_sha256"]],
-                "protocol": PROTOCOL_VERSION,
-                "count": current_pilot_count(),
+                "profile": [
+                    binding.profile_id,
+                    binding.profile_version,
+                    binding.profile_schema,
+                    binding.profile_sha256,
+                ],
+                "rubric": [binding.rubric_version, payload["rubric_sha256"]],
+                "protocol": binding.protocol_version,
+                "count": binding.count,
             }
             digest = challenge(DOMAIN_START, preimage)
             payload["acknowledgement"] = (
-                f"START F10.2 dataset_id={snapshot.dataset_id} pilot_sha256={snapshot.pilot_sha256} pilot_view_sha256={snapshot.pilot_view_sha256} profile_id={PROFILE_ID} profile_version=2 profile_schema=1 profile_sha256={PROFILE_SHA256} rubric={RUBRIC_VERSION} rubric_sha256={payload['rubric_sha256']} protocol={PROTOCOL_VERSION} count={current_pilot_count()} challenge_sha256={digest}"
+                f"START F10.2 dataset_id={snapshot.dataset_id} pilot_sha256={snapshot.pilot_sha256} pilot_view_sha256={snapshot.pilot_view_sha256} profile_id={binding.profile_id} profile_version={binding.profile_version} profile_schema={binding.profile_schema} profile_sha256={binding.profile_sha256} rubric={binding.rubric_version} rubric_sha256={payload['rubric_sha256']} protocol={binding.protocol_version} count={binding.count} challenge_sha256={digest}"
             )
         elif (
             state.review_plan is not None
@@ -180,7 +190,11 @@ class BlindLabelingRuntime:
         if not isinstance(expected, str) or not secrets.compare_digest(acknowledgement, expected):
             raise RuntimeErrorCode("acknowledgement_mismatch")
         state = new_session(
-            snapshot, RUBRIC_VERSION, str(status["rubric_sha256"]), PROTOCOL_VERSION, self.clock()
+            snapshot,
+            self._binding().rubric_version,
+            str(status["rubric_sha256"]),
+            self._binding().protocol_version,
+            self.clock(),
         )
         try:
             self.store.create(state)
@@ -207,7 +221,9 @@ class BlindLabelingRuntime:
                 expected_revision=state.revision,
                 allowed_item_ids=frozenset(item.opaque_id for item in snapshot.items),
             )
-            validate_state_against_snapshot(next_state, snapshot)
+            validate_state_against_snapshot(
+                next_state, snapshot, expected_protocol_version=self._binding().protocol_version
+            )
         except SessionError as exc:
             raise RuntimeErrorCode(exc.code) from exc
         try:
@@ -221,7 +237,9 @@ class BlindLabelingRuntime:
         snapshot = self._snapshot()
         try:
             next_state = seal_for_review(state, snapshot, self.clock())
-            validate_state_against_snapshot(next_state, snapshot)
+            validate_state_against_snapshot(
+                next_state, snapshot, expected_protocol_version=self._binding().protocol_version
+            )
             if next_state is not state:
                 self.store.save(next_state, expected_revision=state.revision)
         except (SessionError, StoreError) as exc:
@@ -272,10 +290,12 @@ class BlindLabelingRuntime:
         state = self._state()
         snapshot = self._snapshot()
         try:
-            validate_state(state)
-            validate_state_against_snapshot(state, snapshot)
+            validate_state(state, expected_protocol_version=self._binding().protocol_version)
+            validate_state_against_snapshot(
+                state, snapshot, expected_protocol_version=self._binding().protocol_version
+            )
             payloads, internal, labelset_id = build_bundle(
-                snapshot, state, self._finalized_at(state)
+                snapshot, state, self._finalized_at(state), self._binding()
             )
         except (SessionError, ValidationError, ValueError) as exc:
             raise RuntimeErrorCode(str(getattr(exc, "code", "not_ready_to_finalize"))) from exc
@@ -312,7 +332,7 @@ class BlindLabelingRuntime:
             "status": "ready_to_finalize",
             "dataset_id": snapshot.dataset_id,
             "labelset_id": labelset_id,
-            "count": current_pilot_count(),
+            "count": self._binding().count,
             "draft_revision": draft_revision,
             "draft_payload_sha256": draft_payload_sha256,
             "final_labels_sha256": internal["semantic_hashes"]["labels"],
@@ -326,7 +346,7 @@ class BlindLabelingRuntime:
                 f"final_labels_sha256={internal['semantic_hashes']['labels']} "
                 f"review_report_sha256={internal['semantic_hashes']['review']} "
                 f"audit_sha256={internal['semantic_hashes']['audit']} "
-                f"labelset_id={labelset_id} count=50 challenge_sha256={digest}"
+                f"labelset_id={labelset_id} count={self._binding().count} challenge_sha256={digest}"
             ),
         }
 
@@ -364,7 +384,9 @@ class BlindLabelingRuntime:
         else:
             if state.finalization_intent.labelset_id != preview["labelset_id"]:
                 raise RuntimeErrorCode("finalization_intent_mismatch")
-        payloads, internal, labelset_id = build_bundle(snapshot, state, finalized_at)
+        payloads, internal, labelset_id = build_bundle(
+            snapshot, state, finalized_at, self._binding()
+        )
         try:
             self.store.publish_final(
                 labelset_id=labelset_id,
@@ -377,7 +399,7 @@ class BlindLabelingRuntime:
         if state.phase is SessionPhase.FINALIZED:
             return FinalizedBundle(
                 labelset_id,
-                {"status": "finalized", "labelset_id": labelset_id, "count": current_pilot_count()},
+                {"status": "finalized", "labelset_id": labelset_id, "count": self._binding().count},
             )
         try:
             finalized = mark_finalized(state, self.clock())
@@ -386,7 +408,7 @@ class BlindLabelingRuntime:
             raise RuntimeErrorCode(getattr(exc, "code", "final_state_failed")) from exc
         return FinalizedBundle(
             labelset_id,
-            {"status": "finalized", "labelset_id": labelset_id, "count": current_pilot_count()},
+            {"status": "finalized", "labelset_id": labelset_id, "count": self._binding().count},
         )
 
     def verify(self, labelset_id: str) -> dict[str, Any]:

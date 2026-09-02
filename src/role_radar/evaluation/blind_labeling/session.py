@@ -19,8 +19,8 @@ from role_radar.evaluation.blind_labeling.policy import (
     DATASET_ID,
     HEX64,
     OPAQUE_ID,
-    PROTOCOL_VERSION,
     current_pilot_count,
+    current_protocol_version,
 )
 from role_radar.evaluation.blind_labeling.review import build_review_plan, first_pass_hash
 from role_radar.evaluation.blind_labeling.validation import ValidationError, validate_decision
@@ -37,6 +37,7 @@ def validate_state(
     *,
     expected_dataset_id: str | None = None,
     expected_rubric_version: str | None = None,
+    expected_protocol_version: str | None = None,
 ) -> None:
     if not isinstance(state, SessionState):
         raise SessionError("draft_state_invalid")
@@ -55,7 +56,7 @@ def validate_state(
         raise SessionError("draft_binding_invalid")
     if not isinstance(state.rubric_version, str) or not state.rubric_version:
         raise SessionError("draft_binding_invalid")
-    if state.protocol_version != PROTOCOL_VERSION:
+    if state.protocol_version != (expected_protocol_version or current_protocol_version()):
         raise SessionError("draft_binding_invalid")
     if (
         type(state.revision) is not int
@@ -219,8 +220,14 @@ def begin_finalization(
     )
 
 
-def validate_state_against_snapshot(state: SessionState, snapshot: PilotSnapshot) -> None:
-    validate_state(state, expected_dataset_id=snapshot.dataset_id)
+def validate_state_against_snapshot(
+    state: SessionState, snapshot: PilotSnapshot, *, expected_protocol_version: str | None = None
+) -> None:
+    validate_state(
+        state,
+        expected_dataset_id=snapshot.dataset_id,
+        expected_protocol_version=expected_protocol_version,
+    )
     snapshot_ids = tuple(sorted(item.opaque_id for item in snapshot.items))
     first_pass_ids = tuple(item_id for item_id, _decision in state.first_pass)
     if len(snapshot.items) != current_pilot_count() or (
