@@ -68,6 +68,40 @@ class R3Authorization:
     synthetic_fixture: bool = False
 
 
+# This is an offline, test-only Gate F identity.  It is deliberately an exact
+# immutable fixture rather than a value derived from the publication supplied
+# by a caller.  It is not an approval root for production data.
+SYNTHETIC_GATE_F_TRUST_ANCHOR: Final[R2GateFBinding] = R2GateFBinding(
+    receipt_sha256="5d440b22e6d1608c6a56ffeb9a10e0e3ad8a37d35846b8565ee851172c0a1cf5",
+    manifest_sha256="47135db85a534eea904359f292a919dbb8fcb830d83dd03ba45988a6980d31ab",
+    dataset_id="c" * 64,
+    pilot_sha256="d" * 64,
+    pilot_view_sha256="a25066ca8293d77c949a4d64bce857984c7b318ca886ed18efc501853bfc1783",
+    profile_id="synthetic-profile",
+    profile_version=1,
+    profile_schema=1,
+    profile_sha256="f" * 64,
+    rubric_version="synthetic-rubric",
+    protocol_version="synthetic-protocol",
+    count=2,
+    destination="synthetic://r2-gate-f/pilot",
+    capability_seal_sha256="1" * 64,
+    corpus_sha256="2" * 64,
+    holdout_sha256="3" * 64,
+    rubric_sha256="bf6421ccda2dcb3a7ef5bf64a5007c7f4e7b56ea02d4bc58853a16a13dc55fbf",
+    code_commit="4" * 64,
+    alembic_head="5" * 64,
+    namespace="synthetic://r2-gate-f/pilot",
+    capability_seal_hashes=(
+        "65cc947f7317f6015ccecfe5962972a5b67de20df11e83c10e2bc2e1e828434d",
+        "bde2f76be06bc86f14575114258c3e4ae2532fc4a84cf1a149a8c35c60561060",
+        "96d8beb0f899d820e7c1d7c7b3ef57b7df2ab476947417d2b8bd61a00de1ecf5",
+    ),
+    capability_artifact_counts=(1, 1, 1),
+    pilot_group_sha256="a25066ca8293d77c949a4d64bce857984c7b318ca886ed18efc501853bfc1783",
+)
+
+
 def validate_authorization(
     authorization: R3Authorization,
     expected: R2GateFBinding,
@@ -97,6 +131,7 @@ def validate_authorization(
 
 __all__ = [
     "PUBLIC_BLOCK_CODES",
+    "SYNTHETIC_GATE_F_TRUST_ANCHOR",
     "R2GateFBinding",
     "R3Authorization",
     "R3AuthorizationError",

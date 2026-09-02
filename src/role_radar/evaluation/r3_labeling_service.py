@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,7 @@ from role_radar.evaluation.blind_labeling.runtime import BlindLabelingRuntime, R
 from role_radar.evaluation.blind_labeling.store import LabelingStore
 from role_radar.evaluation.r3_labeling_authorization import (
     PUBLIC_BLOCK_CODES,
+    SYNTHETIC_GATE_F_TRUST_ANCHOR,
     R3Authorization,
     R3AuthorizationError,
     validate_authorization,
@@ -69,8 +71,14 @@ class R3LabelingService:
         clock: Callable[[], str] | None = None,
         runtime_factory: Callable[..., BlindLabelingRuntime] = BlindLabelingRuntime,
     ) -> None:
+        self._authorization = authorization
+        self._clock = clock
         try:
-            binding = validate_authorization(authorization, publication.binding)
+            binding = validate_authorization(
+                authorization,
+                SYNTHETIC_GATE_F_TRUST_ANCHOR,
+                now=self._authorization_now(),
+            )
             snapshot = adapt_pilot_view(publication, binding)
         except R3AuthorizationError:
             raise
@@ -120,8 +128,27 @@ class R3LabelingService:
         except Exception:
             raise R3LabelingError("runtime_failed") from None
 
+    def _authorization_now(self) -> datetime:
+        value = self._clock() if self._clock is not None else datetime.now(UTC)
+        if isinstance(value, datetime):
+            return value.astimezone(UTC)
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).astimezone(UTC)
+
+    def _reauthorize(self) -> None:
+        try:
+            validate_authorization(
+                self._authorization,
+                SYNTHETIC_GATE_F_TRUST_ANCHOR,
+                now=self._authorization_now(),
+            )
+        except R3AuthorizationError:
+            raise
+        except Exception:
+            raise R3LabelingError("authorization_required") from None
+
     @property
     def snapshot(self) -> PilotSnapshot:
+        self._reauthorize()
         return self._snapshot
 
     @staticmethod
@@ -160,30 +187,41 @@ class R3LabelingService:
             raise R3LabelingError("runtime_failed") from None
 
     def start(self, acknowledgement: str | None = None) -> dict[str, str | int]:
+        self._reauthorize()
         if acknowledgement is None:
+            self._reauthorize()
             status = self._call(self._runtime.status)
             acknowledgement = str(status["acknowledgement"])
+        self._reauthorize()
         return self._public(self._call(self._runtime.start, acknowledgement))
 
     def save_first_pass(self, item_id: str, decision: Decision) -> dict[str, str | int]:
+        self._reauthorize()
         return self._public(self._call(self._runtime.save_first_pass, item_id, decision))
 
     def begin_review(self) -> dict[str, str | int]:
+        self._reauthorize()
         return self._public(self._call(self._runtime.begin_review))
 
     def save_review(self, item_id: str, decision: Decision) -> dict[str, str | int]:
+        self._reauthorize()
         return self._public(self._call(self._runtime.save_review, item_id, decision))
 
     def adjudicate(self, item_id: str, decision: Decision) -> dict[str, str | int]:
+        self._reauthorize()
         return self._public(self._call(self._runtime.adjudicate, item_id, decision))
 
     def preview_finalize(self) -> dict[str, str | int]:
+        self._reauthorize()
         return self._public(self._call(self._runtime.preview_finalize))
 
     def finalize(self, acknowledgement: str | None = None) -> dict[str, str | int]:
+        self._reauthorize()
         if acknowledgement is None:
+            self._reauthorize()
             preview = self._call(self._runtime.preview_finalize)
             acknowledgement = str(preview["challenge"])
+        self._reauthorize()
         bundle: FinalizedBundle = self._call(self._runtime.finalize, acknowledgement)
         return {
             "status": "finalized",

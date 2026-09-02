@@ -1,6 +1,7 @@
 import hashlib
 import json
 from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -243,3 +244,56 @@ def test_public_runtime_codes_are_allowlisted_and_sanitized(tmp_path: Path) -> N
         service.start()
     assert error.value.code == "runtime_failed"
     assert str(error.value) == "runtime_failed"
+
+
+def test_expired_authorization_is_rechecked_before_runtime_effects(tmp_path: Path) -> None:
+    binding, publication = _fixture()
+    now = datetime(2026, 1, 1, tzinfo=UTC)
+    current = [now]
+    calls: list[str] = []
+
+    class SentinelRuntime:
+        def start(self, *_args: object) -> object:
+            calls.append("start")
+            raise AssertionError("expired operation reached runtime")
+
+    service = R3LabelingService(
+        R3Authorization(
+            R3Operation.SYNTHETIC_OFFLINE,
+            binding,
+            expires_at=now + timedelta(seconds=1),
+            synthetic_fixture=True,
+        ),
+        publication,
+        root=tmp_path,
+        clock=lambda: current[0].isoformat().replace("+00:00", "Z"),
+        runtime_factory=lambda **_kwargs: SentinelRuntime(),  # type: ignore[arg-type]
+    )
+    current[0] = now + timedelta(seconds=1)
+    with pytest.raises(R3AuthorizationError) as error:
+        service.start("ignored")
+    assert error.value.code == R3BlockCode.EXPIRED.value
+    assert calls == []
+    assert not list(tmp_path.iterdir())
+
+
+def test_unknown_self_consistent_fixture_is_rejected_before_runtime(tmp_path: Path) -> None:
+    binding, publication = _fixture()
+    altered = replace(binding, dataset_id="e" * 64)
+    publication = replace(publication, binding=altered)
+    runtime_created: list[bool] = []
+
+    def sentinel_runtime(**_kwargs: object) -> object:
+        runtime_created.append(True)
+        raise AssertionError("unknown fixture reached runtime construction")
+
+    with pytest.raises(R3AuthorizationError) as error:
+        R3LabelingService(
+            R3Authorization(R3Operation.SYNTHETIC_OFFLINE, altered, synthetic_fixture=True),
+            publication,
+            root=tmp_path,
+            runtime_factory=sentinel_runtime,  # type: ignore[arg-type]
+        )
+    assert error.value.code == R3BlockCode.BINDING_INVALID.value
+    assert runtime_created == []
+    assert not list(tmp_path.iterdir())
