@@ -4,20 +4,31 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any, cast
 
 import pytest
 
 from role_radar.cli import evaluation_f10_1f
 from role_radar.evaluation.profile_relevance.policy import MAX_CORPUS_CARDINALITY
 from role_radar.evaluation.profile_relevant_acquisition import gate_e_preview
+from role_radar.evaluation.profile_relevant_acquisition.gate_e_authorization import (
+    GateEAuthorizationError,
+    GateEAuthorizationRequest,
+)
 from role_radar.evaluation.profile_relevant_acquisition.gate_e_preview import (
     GateEError,
     GateEPreviewRecord,
     run_gate_e_preview,
 )
-from role_radar.evaluation.profile_relevant_acquisition.gate_e_service import GateEPublicResult
+from role_radar.evaluation.profile_relevant_acquisition.gate_e_service import (
+    GateEPublicResult,
+    run_gate_e_offline_preview,
+)
 from tests.unit.test_profile_relevance_materialization import _build_input
 from tests.unit.test_profile_relevant_acquisition_provenance_store_report import _provenance
+from tests.unit.test_profile_relevant_gate_d_bounded_acquisition import _request
 
 
 def _open_snapshot():
@@ -145,3 +156,32 @@ def test_cli_preview_keeps_generic_pre_runtime_block(capsys) -> None:
     payload = json.loads(capsys.readouterr().out)
     assert payload["code"] == "BLOCK-0"
     assert payload["live_execution"] == "disabled"
+
+
+def test_gate_d_expiry_is_rechecked_before_gate_e_adapter(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    gate_d_request = _request(tmp_path)
+    authorization = GateEAuthorizationRequest(
+        operation_id=gate_d_request.operation_id,
+        lineage_id=gate_d_request.lineage_id,
+        gate_d_request=gate_d_request,
+        gate_d_result=cast(Any, object()),
+        parent_pool_manifest=cast(Any, object()),
+        post_c_request=gate_d_request.post_c_request,
+        post_c_seal=gate_d_request.post_c_seal,
+        provenance=cast(Any, object()),
+        current_commit_sha256=gate_d_request.current_commit_sha256,
+        profile_relevance_input=object(),
+    )
+    monkeypatch.setattr(
+        "role_radar.evaluation.profile_relevant_acquisition.gate_e_service.adapt_gate_e_input",
+        lambda _authorized: pytest.fail("Gate E adapter reached after Gate D expiry"),
+    )
+
+    with pytest.raises(GateEAuthorizationError) as blocked:
+        run_gate_e_offline_preview(
+            authorization=authorization,
+            clock=lambda: datetime(2099, 1, 1, tzinfo=UTC),
+        )
+    assert blocked.value.code == "authorization_expired"

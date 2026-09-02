@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 
 from role_radar.evaluation.profile_relevant_acquisition.gate_e_authorization import (
     GateEAuthorizationError,
@@ -66,9 +68,11 @@ class GateEPreviewOutcome:
     record: GateEPreviewRecord | None = None
 
 
-def run_gate_e_offline_preview(*, authorization: GateEAuthorizationRequest) -> GateEPreviewOutcome:
+def run_gate_e_offline_preview(
+    *, authorization: GateEAuthorizationRequest, clock: Callable[[], datetime] | None = None
+) -> GateEPreviewOutcome:
     try:
-        authorized = authorize_gate_e(authorization)
+        authorized = authorize_gate_e(authorization, now=clock() if clock else None)
         inputs = adapt_gate_e_input(authorized)
         result, record = run_gate_e_preview(inputs=inputs, provenance=authorization.provenance)
         public = GateEPublicResult(

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 from role_radar.evaluation.profile_relevant_acquisition.acquisition_runtime import (
@@ -15,7 +16,9 @@ from role_radar.evaluation.profile_relevant_acquisition.acquisition_runtime impo
     ParentPoolManifest,
 )
 from role_radar.evaluation.profile_relevant_acquisition.gate_d_authorization import (
+    GateDAuthorizationError,
     GateDAuthorizationRequest,
+    authorize_gate_d,
 )
 from role_radar.evaluation.profile_relevant_acquisition.post_c_preregistration_contracts import (
     PostCPreregistrationRequest,
@@ -65,11 +68,21 @@ class AuthorizedGateE:
     request: GateEAuthorizationRequest
 
 
-def authorize_gate_e(request: GateEAuthorizationRequest) -> AuthorizedGateE:
+def authorize_gate_e(
+    request: GateEAuthorizationRequest, *, now: datetime | None = None
+) -> AuthorizedGateE:
     """Reconcile B→C→Post-C→D and the exact sealed parent-pool snapshot."""
 
     if not isinstance(request, GateEAuthorizationRequest):
         raise GateEAuthorizationError("gate_e_authorization_required")
+    # Revalidate the complete Gate D binding set at this execution boundary.
+    # Earlier authorization is not permission to reach the adapter after expiry.
+    try:
+        authorize_gate_d(request.gate_d_request, now=now)
+    except GateDAuthorizationError as exc:
+        raise GateEAuthorizationError(exc.code) from exc
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise GateEAuthorizationError("gate_e_gate_d_invalid") from exc
     if type(request.operation_id) is not str or not request.operation_id.strip():
         raise GateEAuthorizationError("gate_e_operation_invalid")
     if type(request.lineage_id) is not str or not request.lineage_id.strip():
