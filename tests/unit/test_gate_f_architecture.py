@@ -58,6 +58,8 @@ FORBIDDEN_REFERENCE_PARTS = (
     "register_source",
     "register_job",
 )
+
+
 def _tree_and_imports(path: Path) -> tuple[ast.AST, set[str]]:
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     imports: set[str] = set()
@@ -88,14 +90,12 @@ def test_gate_f_authority_has_no_forbidden_architecture_edges() -> None:
         path = GATE_F_ROOT / filename
         tree, imports = _tree_and_imports(path)
         assert not any(
-            any(part in imported.lower() for part in FORBIDDEN_IMPORT_PARTS)
-            for imported in imports
+            any(part in imported.lower() for part in FORBIDDEN_IMPORT_PARTS) for imported in imports
         ), path
 
         references = _references(tree)
         assert not any(
-            any(part in reference for part in FORBIDDEN_REFERENCE_PARTS)
-            for reference in references
+            any(part in reference for part in FORBIDDEN_REFERENCE_PARTS) for reference in references
         ), path
 
         calls = {
