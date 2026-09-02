@@ -513,7 +513,7 @@ class LabelingStore:
     def final_manifest(self, labelset_id: str) -> tuple[dict[str, Any], dict[str, str]]:
         try:
             payloads, hashes = self._final_payloads(labelset_id)
-            internal = validate_final_bundle(payloads, labelset_id)
+            internal = validate_final_bundle(payloads, labelset_id, self.active_binding)
             return internal, hashes
         except (
             OSError,

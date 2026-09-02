@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import hashlib
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from role_radar.evaluation.blind_labeling.contracts import Decision, FinalizedBundle, PilotSnapshot
-from role_radar.evaluation.blind_labeling.materialization import ActiveLabelingBinding, rubric_hash
+from role_radar.evaluation.blind_labeling.materialization import ActiveLabelingBinding
 from role_radar.evaluation.blind_labeling.policy import pilot_count_scope, protocol_version_scope
 from role_radar.evaluation.blind_labeling.runtime import BlindLabelingRuntime, RuntimeErrorCode
 from role_radar.evaluation.blind_labeling.store import LabelingStore
@@ -52,25 +51,21 @@ class R3LabelingService:
         self._snapshot = snapshot
         self._active_count = binding.count
 
-        def active_hash(value: str | None, name: str) -> str:
-            return value or hashlib.sha256(f"r3:{name}:{binding.dataset_id}".encode()).hexdigest()
-
         active_binding = ActiveLabelingBinding(
             binding.dataset_id,
             binding.pilot_sha256,
             binding.pilot_view_sha256,
-            active_hash(binding.corpus_sha256, "corpus"),
-            active_hash(binding.holdout_sha256, "holdout"),
+            binding.corpus_sha256 or "",
+            binding.holdout_sha256 or "",
             binding.profile_id,
             binding.profile_version,
             binding.profile_schema,
             binding.profile_sha256,
             binding.rubric_version,
-            binding.rubric_sha256
-            or rubric_hash(version=binding.rubric_version, protocol=binding.protocol_version),
+            binding.rubric_sha256 or "",
             binding.protocol_version,
-            binding.code_commit or "r3-active-code",
-            binding.alembic_head or "r3-active-alembic",
+            binding.code_commit or "",
+            binding.alembic_head or "",
             binding.count,
         )
         self._active_binding = active_binding

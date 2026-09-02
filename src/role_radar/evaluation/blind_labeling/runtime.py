@@ -28,10 +28,7 @@ from role_radar.evaluation.blind_labeling.policy import (
     DOMAIN_REOPEN,
     DOMAIN_START,
     HEX64,
-    PROTOCOL_VERSION,
-    RUBRIC_VERSION,
     challenge,
-    current_pilot_count,
 )
 from role_radar.evaluation.blind_labeling.session import (
     SessionError,
@@ -168,7 +165,7 @@ class BlindLabelingRuntime:
                 },
             )
             payload["acknowledgement"] = (
-                f"REOPEN F10.2 dataset_id={snapshot.dataset_id} rubric={RUBRIC_VERSION} protocol={PROTOCOL_VERSION} draft_revision={state.revision} draft_payload_sha256={self._payload_hash(state)} first_pass_sha256={state.first_pass_sha256} review_plan_sha256={state.review_plan.plan_sha256} challenge_sha256={digest}"
+                f"REOPEN F10.2 dataset_id={snapshot.dataset_id} rubric={self._binding().rubric_version} protocol={self._binding().protocol_version} draft_revision={state.revision} draft_payload_sha256={self._payload_hash(state)} first_pass_sha256={state.first_pass_sha256} review_plan_sha256={state.review_plan.plan_sha256} challenge_sha256={digest}"
             )
         return payload
 
@@ -206,7 +203,7 @@ class BlindLabelingRuntime:
             "schema_version": "f10.2-cli-output-v1",
             "status": "labeling",
             "dataset_id": snapshot.dataset_id,
-            "count": current_pilot_count(),
+            "count": self._binding().count,
         }
 
     def save_first_pass(self, item_id: str, decision: Decision) -> dict[str, Any]:
@@ -340,8 +337,8 @@ class BlindLabelingRuntime:
             "audit_sha256": internal["semantic_hashes"]["audit"],
             "file_hashes": hashes,
             "challenge": (
-                f"FINALIZE F10.2 dataset_id={snapshot.dataset_id} rubric={RUBRIC_VERSION} "
-                f"protocol={PROTOCOL_VERSION} draft_revision={draft_revision} "
+                f"FINALIZE F10.2 dataset_id={snapshot.dataset_id} rubric={self._binding().rubric_version} "
+                f"protocol={self._binding().protocol_version} draft_revision={draft_revision} "
                 f"draft_payload_sha256={draft_payload_sha256} "
                 f"final_labels_sha256={internal['semantic_hashes']['labels']} "
                 f"review_report_sha256={internal['semantic_hashes']['review']} "

@@ -54,6 +54,10 @@ class R2GateFBinding:
     rubric_sha256: str | None = None
     code_commit: str | None = None
     alembic_head: str | None = None
+    namespace: str | None = None
+    capability_seal_hashes: tuple[str, ...] | None = None
+    capability_artifact_counts: tuple[int, ...] | None = None
+    pilot_group_sha256: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
