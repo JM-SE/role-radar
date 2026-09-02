@@ -17,6 +17,25 @@ from role_radar.evaluation.profile_relevant_acquisition.gate_e_preview import (
     run_gate_e_preview,
 )
 
+PUBLIC_FIELDS = (
+    "operation_id",
+    "preregistration_sha256",
+    "source_plan_sha256",
+    "preview_input_sha256",
+    "selection_sha256",
+    "partition_sha256",
+    "pilot_membership_sha256",
+    "holdout_membership_sha256",
+    "sanitized_preview_sha256",
+    "provenance_sha256",
+    "corpus_count",
+    "pilot_count",
+    "holdout_count",
+    "feasibility",
+    "status",
+    "code",
+)
+
 
 @dataclass(frozen=True, slots=True)
 class GateEPublicResult:
@@ -38,7 +57,7 @@ class GateEPublicResult:
     code: str
 
     def as_dict(self) -> dict[str, object]:
-        return {name: getattr(self, name) for name in self.__dataclass_fields__}
+        return {name: getattr(self, name) for name in PUBLIC_FIELDS}
 
 
 @dataclass(frozen=True, slots=True)

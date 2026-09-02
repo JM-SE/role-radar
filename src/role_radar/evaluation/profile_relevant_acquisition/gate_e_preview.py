@@ -18,6 +18,22 @@ from role_radar.evaluation.profile_relevance.contracts import (
     PreviewComputationResult,
     ProfileRelevanceInput,
 )
+from role_radar.evaluation.profile_relevance.hashing import domain_hash_bytes
+from role_radar.evaluation.profile_relevance.policy import (
+    DOMAIN_PARTITION_POLICY,
+    DOMAIN_POLICY,
+    DOMAIN_PREVIEW_COMPUTATION,
+    DOMAIN_SAMPLING_POLICY,
+    EXECUTION_SCOPE_SYNTHETIC,
+    MAX_CANONICAL_BYTES,
+    MAX_CORPUS_CARDINALITY,
+    MAX_EXCLUSION_DIGESTS,
+    MAX_HOLDOUT_CARDINALITY,
+    MAX_OBSERVATIONS,
+    MAX_PILOT_CARDINALITY,
+    MAX_QUOTA_CELLS,
+    SCHEMA_INPUT,
+)
 from role_radar.evaluation.profile_relevance.preview_workflow import compute_preview
 from role_radar.evaluation.profile_relevant_acquisition.provenance import (
     ProvenanceBundle,
@@ -172,6 +188,42 @@ def _validate_inputs_gate_e(
     # ensure the preview input binding is present.
     if inputs.input_schema_version != "f10.1e-profile-relevance-input-v1":
         raise GateEError("gate_e_schema_invalid")
+    if any(
+        policy.execution_scope != EXECUTION_SCOPE_SYNTHETIC
+        for policy in (
+            inputs.relevance_policy,
+            inputs.sampling_policy,
+            inputs.partition_policy,
+        )
+    ):
+        raise GateEError("offline_scope_required")
+    if inputs.input_schema_version != SCHEMA_INPUT:
+        raise GateEError("input_schema_invalid")
+    if (
+        len(inputs.sealed_snapshot.observations) > MAX_OBSERVATIONS
+        or len(inputs.canonical_aggregate_bytes) > MAX_CANONICAL_BYTES
+        or len(inputs.historical_exclusion.digests) > MAX_EXCLUSION_DIGESTS
+        or len(inputs.sampling_policy.quotas) > MAX_QUOTA_CELLS
+        or inputs.sampling_policy.corpus_cardinality > MAX_CORPUS_CARDINALITY
+        or inputs.partition_policy.total_count > MAX_HOLDOUT_CARDINALITY + MAX_PILOT_CARDINALITY
+        or inputs.partition_policy.pilot_count > MAX_PILOT_CARDINALITY
+        or inputs.partition_policy.holdout_count > MAX_HOLDOUT_CARDINALITY
+    ):
+        raise GateEError("input_limit_exceeded")
+    if (
+        domain_hash_bytes(DOMAIN_POLICY, inputs.relevance_policy.canonical_bytes)
+        != inputs.relevance_policy.policy_sha256
+        or domain_hash_bytes(DOMAIN_SAMPLING_POLICY, inputs.sampling_policy.canonical_bytes)
+        != inputs.sampling_policy.sampling_policy_sha256
+        or domain_hash_bytes(DOMAIN_PARTITION_POLICY, inputs.partition_policy.canonical_bytes)
+        != inputs.partition_policy.partition_policy_sha256
+    ):
+        raise GateEError("gate_e_policy_mismatch")
+    if (
+        domain_hash_bytes(DOMAIN_PREVIEW_COMPUTATION, inputs.canonical_aggregate_bytes)
+        != inputs.preview_input_sha256
+    ):
+        raise GateEError("gate_e_preview_binding_mismatch")
 
 
 def build_gate_e_record(

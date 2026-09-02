@@ -207,7 +207,10 @@ def _run_gated_placeholder(args: Any) -> int:
     if command not in GATED_COMMANDS:
         return _run_blocked_verify("command_invalid")
     if command == "preview":
-        return _print_block(command, "gate_e_authorization_required")
+        # Preserve the established transition contract.  The CLI intentionally
+        # has no artifact-backed Gate E adapter yet; preview therefore remains
+        # a pre-runtime generic BLOCK-0, just like the other gated commands.
+        return _print_block(command, live_execution="disabled")
     if command == "acquire" and getattr(args, "file", None) is not None:
         return _print_block(command, "gate_d_authorization_required")
     if command == "run-report-only":
