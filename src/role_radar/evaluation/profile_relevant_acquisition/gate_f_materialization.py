@@ -18,6 +18,7 @@ from role_radar.evaluation.profile_relevance.contracts import (
     ApprovedPreview,
     MaterializationContext,
     MaterializedPayloads,
+    PreviewComputationResult,
 )
 from role_radar.evaluation.profile_relevance.materialization import materialize_payload_bytes
 from role_radar.evaluation.profile_relevance.preview_workflow import compute_preview
@@ -85,6 +86,7 @@ def _recompute_and_require_exact_equality(
     *,
     approved_preview: ApprovedPreview,
     materialization_context: MaterializationContext,
+    approved_result: PreviewComputationResult | None = None,
 ) -> None:
     # Cross-gate substitution guards before recompute.
     if materialization_context.expected_approved_preview != approved_preview:
@@ -97,7 +99,7 @@ def _recompute_and_require_exact_equality(
     if materialization_context.lineage_binding_sha256 != approved_preview.lineage_binding_sha256:
         raise GateFError("gate_f_cross_gate_substitution")
 
-    recomputed = compute_preview(materialization_context.inputs)
+    recomputed = approved_result or compute_preview(materialization_context.inputs)
 
     inputs = materialization_context.inputs
     if inputs.preview_input_sha256 != approved_preview.preview_input_sha256:
@@ -111,12 +113,14 @@ def _recompute_and_require_exact_equality(
     if recomputed.holdout_membership_sha256 != approved_preview.holdout_membership_sha256:
         raise GateFError("gate_f_holdout_membership_mismatch")
 
-    # Verify deterministic recomputation — second call must match first.
-    recomputed2 = compute_preview(materialization_context.inputs)
-    if recomputed2.selection_sha256 != recomputed.selection_sha256:
-        raise GateFError("gate_f_recompute_mismatch")
-    if recomputed2.partition_sha256 != recomputed.partition_sha256:
-        raise GateFError("gate_f_recompute_mismatch")
+    # Legacy callers retain deterministic recomputation; Gate F consumes the
+    # exact E result and deliberately does not rerun selection/partition.
+    if approved_result is None:
+        recomputed2 = compute_preview(materialization_context.inputs)
+        if recomputed2.selection_sha256 != recomputed.selection_sha256:
+            raise GateFError("gate_f_recompute_mismatch")
+        if recomputed2.partition_sha256 != recomputed.partition_sha256:
+            raise GateFError("gate_f_recompute_mismatch")
 
 
 def run_gate_f_materialization(
@@ -124,6 +128,7 @@ def run_gate_f_materialization(
     approved_preview: ApprovedPreview,
     materialization_context: MaterializationContext,
     test_only_adapter: SyntheticTestAdapter | None = None,
+    approved_result: PreviewComputationResult | None = None,
     approval: ExternalApprovalBinding | None = None,
     approval_verifier: ExternalApprovalVerifier | None = None,
 ) -> MaterializedPayloads:
@@ -145,9 +150,15 @@ def run_gate_f_materialization(
     if approval is not None and approval.approval_binding_sha256 != ap.approval_binding_sha256:
         raise GateFError("gate_f_approval_binding_mismatch")
     ctx = _validate_materialization_context(materialization_context)
-    _recompute_and_require_exact_equality(approved_preview=ap, materialization_context=ctx)
+    _recompute_and_require_exact_equality(
+        approved_preview=ap,
+        materialization_context=ctx,
+        approved_result=approved_result,
+    )
     # Materialization recomputes/verifies bindings again before byte construction.
-    payloads: MaterializedPayloads = materialize_payload_bytes(ap, ctx)
+    payloads: MaterializedPayloads = materialize_payload_bytes(
+        ap, ctx, approved_result=approved_result
+    )
     # Payload contracts: six private, one operator, two pilot, two holdout.
     if len(payloads.private_payloads) != 6:
         raise GateFError("gate_f_private_payload_count_invalid")

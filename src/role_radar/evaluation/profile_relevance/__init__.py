@@ -70,6 +70,8 @@ def compute_preview(inputs: ProfileRelevanceInput) -> PreviewComputationResult:
 def materialize_payload_bytes(
     approved_preview: ApprovedPreview,
     materialization_context: MaterializationContext,
+    *,
+    approved_result: PreviewComputationResult | None = None,
 ) -> MaterializedPayloads:
     """Separate pure materialization seam — recomputes preview and returns bytes."""
     try:
@@ -77,7 +79,9 @@ def materialize_payload_bytes(
             materialize_payload_bytes as _impl,
         )
 
-        result2: MaterializedPayloads = _impl(approved_preview, materialization_context)
+        result2: MaterializedPayloads = _impl(
+            approved_preview, materialization_context, approved_result=approved_result
+        )
         return result2
     except ImportError as exc:
         # Stub: verify bindings are present, else fail closed before any bytes.

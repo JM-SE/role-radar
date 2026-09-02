@@ -10,6 +10,7 @@ from role_radar.evaluation.profile_relevance.contracts import (
     CanonicalPayload,
     MaterializationContext,
     MaterializedPayloads,
+    PreviewComputationResult,
     _materialization_binding_sha256,
     _payload_group_sha256,
 )
@@ -102,8 +103,15 @@ def _safe_display_value(value: object, *, required: bool = True) -> str | None:
 def materialize_payload_bytes(
     approved_preview: ApprovedPreview,
     materialization_context: MaterializationContext,
+    *,
+    approved_result: PreviewComputationResult | None = None,
 ) -> MaterializedPayloads:
-    """Validate bindings, recompute preview, and construct four immutable payload tuples."""
+    """Validate bindings and construct payloads from the approved preview result.
+
+    The historical two-argument seam retains its defensive recomputation for
+    existing callers. Gate F supplies the already-authorized E result so the
+    effect boundary cannot silently run selection or partition again.
+    """
     if not isinstance(approved_preview, ApprovedPreview):
         raise ApprovedPreviewRequiredError("approved_preview_required")
     if not isinstance(materialization_context, MaterializationContext):
@@ -171,10 +179,14 @@ def materialize_payload_bytes(
     if materialization_context.materialization_context_sha256 != expected_ctx_hash:
         raise MaterializationContextMismatchError("materialization_context_mismatch")
 
-    # Recompute preview from exact inputs and verify exact equality of all bound hashes
-    from role_radar.evaluation.profile_relevance.preview_workflow import compute_preview
+    if approved_result is None:
+        from role_radar.evaluation.profile_relevance.preview_workflow import compute_preview
 
-    recomputed = compute_preview(materialization_context.inputs)
+        recomputed = compute_preview(materialization_context.inputs)
+    else:
+        if not isinstance(approved_result, PreviewComputationResult):
+            raise MaterializationContextInvalidError("materialization_context_invalid")
+        recomputed = approved_result
 
     inputs = materialization_context.inputs
     # Input/preview equality
