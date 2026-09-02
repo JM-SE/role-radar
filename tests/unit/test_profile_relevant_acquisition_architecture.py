@@ -40,6 +40,8 @@ EXPECTED_MODULES = {
     "gate_b_preflight.py",
     "gate_c_authorization.py",
     "gate_c_service.py",
+    "post_c_preregistration_contracts.py",
+    "post_c_preregistration_service.py",
     "output.py",
     "__init__.py",
 }
