@@ -224,6 +224,24 @@ def test_binding_cardinality_and_identity_mismatches_stop_before_writer(
     assert writer.writes == 0
 
 
+def test_candidate_commit_identity_mismatch_stops_before_writer(tmp_path: Path) -> None:
+    request = _request(tmp_path)
+    writer = MemoryWriter(tmp_path)
+    provenance = replace(request.provenance, candidate_commit_sha256="f" * 64)
+    with pytest.raises(PostCPreregistrationError, match="post_c_candidate_commit_mismatch"):
+        preregister_post_c(request=replace(request, provenance=provenance), writer=writer)
+    assert writer.writes == 0
+
+
+def test_policy_id_identity_mismatch_stops_before_writer(tmp_path: Path) -> None:
+    request = _request(tmp_path)
+    writer = MemoryWriter(tmp_path)
+    provenance = replace(request.provenance, policy_id="other-policy")
+    with pytest.raises(PostCPreregistrationError, match="post_c_policy_id_mismatch"):
+        preregister_post_c(request=replace(request, provenance=provenance), writer=writer)
+    assert writer.writes == 0
+
+
 def test_root_writer_mismatch_and_bad_writer_are_pre_effect(tmp_path: Path) -> None:
     request = _request(tmp_path)
     writer = MemoryWriter(tmp_path / "different")

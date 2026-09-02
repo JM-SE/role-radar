@@ -111,6 +111,10 @@ class PostCPreregistrationRequest:
             raise PostCPreregistrationError("post_c_gate_b_not_ready")
         if auth.operation_id != self.operation_id or auth.lineage_id != self.lineage_id:
             raise PostCPreregistrationError("post_c_operation_lineage_mismatch")
+        if prov.candidate_commit_sha256 != packet.code_commit_sha256:
+            raise PostCPreregistrationError("post_c_candidate_commit_mismatch")
+        if prov.policy_id != packet.policy_id:
+            raise PostCPreregistrationError("post_c_policy_id_mismatch")
         if (
             auth.provenance != prov
             or prov.gate_b_packet_sha256 != self.accepted_gate_b.packet_sha256
