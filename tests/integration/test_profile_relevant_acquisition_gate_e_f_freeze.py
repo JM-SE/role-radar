@@ -1,7 +1,7 @@
 """Offline Gate E/F and F10.1F freeze transaction coverage."""
 
 # The cross-gate fixture is intentionally explicit; keep its long binding rows readable.
-# ruff: noqa: E501, RUF005
+# ruff: noqa: RUF005
 
 from __future__ import annotations
 
