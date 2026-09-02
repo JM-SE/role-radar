@@ -206,6 +206,8 @@ def _run_gated_placeholder(args: Any) -> int:
     command = cast(str, getattr(args, "f10_1f_command", "unknown"))
     if command not in GATED_COMMANDS:
         return _run_blocked_verify("command_invalid")
+    if command == "acquire" and getattr(args, "file", None) is not None:
+        return _print_block(command, "gate_d_authorization_required")
     if command == "run-report-only":
         # The normal CLI has no artifact decoder or provider factory by design.
         # Tests and a future separately authorized adapter may inject already

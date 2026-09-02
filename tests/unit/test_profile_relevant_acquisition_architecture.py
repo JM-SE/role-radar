@@ -28,6 +28,8 @@ EXPECTED_MODULES = {
     "journaled_transport.py",
     "acquisition_runtime.py",
     "gate_d_runtime.py",
+    "gate_d_authorization.py",
+    "gate_d_service.py",
     "parent_pool.py",
     "gate_e_preview.py",
     "gate_e_runtime.py",
