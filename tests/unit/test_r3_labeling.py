@@ -1,11 +1,13 @@
 import hashlib
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 from role_radar.evaluation.blind_labeling.contracts import Decision, Label
 from role_radar.evaluation.blind_labeling.materialization import rubric_hash
+from role_radar.evaluation.blind_labeling.runtime import RuntimeErrorCode
 from role_radar.evaluation.r3_labeling_authorization import (
     R2GateFBinding,
     R3Authorization,
@@ -14,7 +16,7 @@ from role_radar.evaluation.r3_labeling_authorization import (
     R3Operation,
 )
 from role_radar.evaluation.r3_labeling_input_adapter import SyntheticGateFPublication
-from role_radar.evaluation.r3_labeling_service import R3LabelingService
+from role_radar.evaluation.r3_labeling_service import R3LabelingError, R3LabelingService
 
 
 def _canonical(value: object) -> bytes:
@@ -165,3 +167,79 @@ def test_synthetic_service_reuses_one_full_workflow_and_is_idempotent(tmp_path: 
     first = service.finalize()
     assert service.finalize() == first
     assert set(first) == {"status", "labelset_id", "count"}
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda publication: replace(
+            publication,
+            capability={"dataset_id": publication.binding.dataset_id, "seal_sha256": "0" * 64},
+        ),
+        lambda publication: replace(
+            publication,
+            capability_seal_bytes=(
+                json.dumps(
+                    {
+                        "dataset_id": publication.binding.dataset_id,
+                        "namespace": "synthetic://substituted",
+                        "kind": "private",
+                        "payloads_sha256": "a" * 64,
+                        "artifact_count": 1,
+                        "seal_sha256": publication.binding.capability_seal_hashes[0],
+                    },
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode(),
+                *publication.capability_seal_bytes[1:],
+            ),
+        ),
+    ],
+)
+def test_capability_tampering_is_rejected_before_runtime(tmp_path: Path, mutate: object) -> None:
+    binding, publication = _fixture()
+    tampered = mutate(publication)  # type: ignore[operator]
+    with pytest.raises(R3AuthorizationError) as error:
+        R3LabelingService(
+            R3Authorization(R3Operation.SYNTHETIC_OFFLINE, binding, synthetic_fixture=True),
+            tampered,
+            root=tmp_path,
+        )
+    assert error.value.code == R3BlockCode.BINDING_INVALID.value
+    assert not list(tmp_path.iterdir())
+
+
+def test_public_runtime_failures_are_sanitized(tmp_path: Path) -> None:
+    binding, publication = _fixture()
+
+    def failing_runtime(**_kwargs: object) -> object:
+        raise RuntimeError("/secret/path/provider payload")
+
+    with pytest.raises(R3LabelingError) as error:
+        R3LabelingService(
+            R3Authorization(R3Operation.SYNTHETIC_OFFLINE, binding, synthetic_fixture=True),
+            publication,
+            root=tmp_path,
+            runtime_factory=failing_runtime,  # type: ignore[arg-type]
+        )
+    assert error.value.code == "runtime_failed"
+    assert str(error.value) == "runtime_failed"
+
+
+def test_public_runtime_codes_are_allowlisted_and_sanitized(tmp_path: Path) -> None:
+    binding, publication = _fixture()
+
+    class FailingRuntime:
+        def status(self) -> object:
+            raise RuntimeErrorCode("/private/internal/code")
+
+    service = R3LabelingService(
+        R3Authorization(R3Operation.SYNTHETIC_OFFLINE, binding, synthetic_fixture=True),
+        publication,
+        root=tmp_path,
+        runtime_factory=lambda **_kwargs: FailingRuntime(),  # type: ignore[arg-type]
+    )
+    with pytest.raises(R3LabelingError) as error:
+        service.start()
+    assert error.value.code == "runtime_failed"
+    assert str(error.value) == "runtime_failed"

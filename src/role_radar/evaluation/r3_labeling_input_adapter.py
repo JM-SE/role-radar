@@ -9,6 +9,10 @@ from dataclasses import dataclass
 from typing import Any, Final, NoReturn
 
 from role_radar.evaluation.blind_labeling.contracts import PilotItem, PilotSnapshot
+from role_radar.evaluation.profile_relevant_acquisition.capability_seal import (
+    DOMAIN_CAPABILITY_SEAL,
+    VALID_KINDS,
+)
 from role_radar.evaluation.r3_labeling_authorization import (
     R2GateFBinding,
     R3AuthorizationError,
@@ -71,6 +75,15 @@ def adapt_pilot_view(
         ):
             _block()
         if publication.binding != binding:
+            _block()
+        # The capability summary is part of the Gate F publication contract;
+        # the seal bytes are not trusted merely because they are present.
+        if set(publication.capability) != {"dataset_id", "seal_sha256"}:
+            _block()
+        if publication.capability != {
+            "dataset_id": binding.dataset_id,
+            "seal_sha256": binding.capability_seal_sha256,
+        }:
             _block()
         if set(publication.receipt) != {"receipt_sha256", "manifest_sha256", "dataset_id"}:
             _block()
@@ -161,19 +174,28 @@ def adapt_pilot_view(
             or checksums["pilot_view"] != binding.pilot_view_sha256
         ):
             _block()
-        if not publication.capability_seal_bytes or not binding.capability_seal_hashes:
+        if (
+            not publication.capability_seal_bytes
+            or binding.capability_seal_hashes is None
+            or binding.capability_artifact_counts is None
+            or len(binding.capability_seal_hashes) != len(VALID_KINDS)
+            or len(binding.capability_artifact_counts) != len(VALID_KINDS)
+        ):
             _block()
         capability_hashes = binding.capability_seal_hashes
         if len(publication.capability_seal_bytes) != len(capability_hashes):
             _block()
-        expected_kinds = ("private", "pilot", "sealed_holdout")
-        if len(publication.capability_seal_bytes) != len(expected_kinds):
+        if len(publication.capability_seal_bytes) != len(VALID_KINDS):
             _block()
-        for raw, expected_hash in zip(
+        for raw, expected_hash, expected_count, expected_kind in zip(
             publication.capability_seal_bytes,
             capability_hashes,
+            binding.capability_artifact_counts,
+            VALID_KINDS,
             strict=True,
         ):
+            if not isinstance(raw, bytes) or not raw:
+                _block()
             seal = json.loads(raw.decode("utf-8"))
             if (
                 not isinstance(seal, dict)
@@ -188,21 +210,19 @@ def adapt_pilot_view(
                 }
                 or _canonical(seal) != raw
                 or seal["dataset_id"] != binding.dataset_id
-                or seal["kind"] != expected_kinds[publication.capability_seal_bytes.index(raw)]
-            ):
-                _block()
-            if (
-                binding.capability_artifact_counts is not None
-                and seal["artifact_count"]
-                != binding.capability_artifact_counts[publication.capability_seal_bytes.index(raw)]
+                or seal["kind"] != expected_kind
+                or seal["namespace"] != binding.destination
+                or not isinstance(seal["payloads_sha256"], str)
+                or len(seal["payloads_sha256"]) != 64
+                or any(c not in "0123456789abcdef" for c in seal["payloads_sha256"])
+                or seal["seal_sha256"] != expected_hash
+                or not isinstance(seal["artifact_count"], int)
+                or isinstance(seal["artifact_count"], bool)
+                or seal["artifact_count"] != expected_count
             ):
                 _block()
             seal_preimage = {key: value for key, value in seal.items() if key != "seal_sha256"}
-            if (
-                seal["seal_sha256"] != expected_hash
-                or _domain_hash("role-radar:f10.1f:capability-seal:v1", _canonical(seal_preimage))
-                != expected_hash
-            ):
+            if _domain_hash(DOMAIN_CAPABILITY_SEAL, _canonical(seal_preimage)) != expected_hash:
                 _block()
         if (
             publication.pilot_view_jsonl
@@ -243,7 +263,7 @@ def adapt_pilot_view(
         )
     except R3AuthorizationError:
         raise
-    except (KeyError, TypeError, ValueError):
+    except (KeyError, TypeError, ValueError, UnicodeError):
         raise R3AuthorizationError(R3BlockCode.BINDING_INVALID) from None
 
 
