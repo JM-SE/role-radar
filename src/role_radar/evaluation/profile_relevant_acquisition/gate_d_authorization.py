@@ -99,7 +99,9 @@ def _provenance_hash(request: PostCPreregistrationRequest) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
-def authorize_gate_d(request: GateDAuthorizationRequest) -> AuthorizedGateD:
+def authorize_gate_d(
+    request: GateDAuthorizationRequest, *, now: datetime | None = None
+) -> AuthorizedGateD:
     """Validate every Gate D binding before an effect-capable object exists."""
     if not isinstance(request, GateDAuthorizationRequest):
         raise GateDAuthorizationError("gate_d_request_invalid")
@@ -113,6 +115,9 @@ def authorize_gate_d(request: GateDAuthorizationRequest) -> AuthorizedGateD:
     post = request.post_c_request
     if not isinstance(post, PostCPreregistrationRequest):
         raise GateDAuthorizationError("gate_d_post_c_required")
+    check = datetime.now(UTC) if now is None else now.astimezone(UTC)
+    if check >= _utc(post.authorization.expires_at_utc, "gate_d_authorization_invalid"):
+        raise GateDAuthorizationError("authorization_expired")
     if not isinstance(request.post_c_seal, PostCPreregistrationSeal):
         raise GateDAuthorizationError("gate_d_post_c_seal_invalid")
     try:

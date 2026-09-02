@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
+from datetime import datetime
 
 from role_radar.collectors.policy import CollectionRunBudget
 from role_radar.evaluation.profile_relevant_acquisition.acquisition_runtime import (
@@ -13,6 +14,7 @@ from role_radar.evaluation.profile_relevant_acquisition.acquisition_runtime impo
     SourceCheckpoint,
     SyntheticCollectorFactory,
     SyntheticTransport,
+    _seal_parent_pool,
     run_gate_d_broad_acquisition,
     verify_gate_d_reconciliations,
 )
@@ -66,10 +68,11 @@ async def execute_gate_d_bounded_acquisition(
     journal: AcquisitionJournal,
     checkpoints: Mapping[str, SourceCheckpoint] | Iterable[SourceCheckpoint] | None = None,
     before_after: Callable[[], tuple[dict[str, object], dict[str, object]]] | None = None,
+    clock: Callable[[], datetime] | None = None,
 ) -> GateDServiceResult:
     """Validate, run the existing bounded runtime once, verify, and stop."""
     try:
-        authorized: AuthorizedGateD = authorize_gate_d(request)
+        authorized: AuthorizedGateD = authorize_gate_d(request, now=clock() if clock else None)
     except GateDAuthorizationError as exc:
         raise GateDServiceError(exc.code) from exc
     if not isinstance(delegate, SyntheticTransport):
@@ -104,6 +107,16 @@ async def execute_gate_d_bounded_acquisition(
     )
     cached = _REPLAY_CACHE.get(replay_key)
     if cached is not None:
+        # A process-local replay result is not permission to overwrite a sealed
+        # artifact.  Re-run the no-replace seal check before accepting it.
+        try:
+            _seal_parent_pool(
+                root=authorized.request.evidence_root,
+                manifest=cached.runtime.manifest,
+                observations=cached.runtime.observations,
+            )
+        except (AcquisitionError, ValueError) as exc:
+            raise GateDServiceError(getattr(exc, "code", "gate_d_seal_failed")) from exc
         return cached
     try:
         result = await run_gate_d_broad_acquisition(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
@@ -254,6 +255,53 @@ async def test_exact_replay_is_idempotent_and_conflicting_replay_is_terminal(
         checkpoints=first.runtime.checkpoints,
     )
     assert replay.public.as_dict() == first.public.as_dict()
+    assert delegate.calls == calls
+
+
+@pytest.mark.asyncio
+async def test_expiry_is_revalidated_at_execution_before_effects(tmp_path: Path) -> None:
+    request = _request(tmp_path)
+    delegate = SyntheticTransport()
+    with pytest.raises(GateDServiceError) as error:
+        await execute_gate_d_bounded_acquisition(
+            request=request,
+            delegate=delegate,
+            collector_factory=cast(Any, _fake_collector),
+            journal=object(),  # type: ignore[arg-type]
+            clock=lambda: datetime(2100, 1, 1, tzinfo=UTC),
+        )
+    assert error.value.code == "authorization_expired"
+    assert delegate.calls == 0
+    assert not (tmp_path / "journal").exists()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("artifact", ("sealed_pool.jsonl", "manifest.json"))
+async def test_conflicting_existing_seal_blocks_replay_without_delegate_effects(
+    tmp_path: Path, artifact: str
+) -> None:
+    request = _request(tmp_path)
+    delegate = SyntheticTransport()
+    journal = AcquisitionJournal(operation_id=request.operation_id, root=tmp_path)
+    first = await execute_gate_d_bounded_acquisition(
+        request=request,
+        delegate=delegate,
+        collector_factory=cast(Any, _fake_collector),
+        journal=journal,
+    )
+    calls = delegate.calls
+    path = tmp_path / request.operation_id / artifact
+    path.write_bytes(b"conflicting sealed bytes")
+
+    with pytest.raises(GateDServiceError) as error:
+        await execute_gate_d_bounded_acquisition(
+            request=request,
+            delegate=delegate,
+            collector_factory=cast(Any, _fake_collector),
+            journal=journal,
+            checkpoints=first.runtime.checkpoints,
+        )
+    assert error.value.code == "filesystem_no_replace_conflict"
     assert delegate.calls == calls
 
     conflicting = {item.source_id: item for item in first.runtime.checkpoints}

@@ -35,10 +35,10 @@ from role_radar.evaluation.controlled_acquisition.acquisition import CollectorTa
 from role_radar.evaluation.controlled_acquisition.protocols import PLAN_VERSION_V2
 from role_radar.evaluation.filesystem import (
     HISTORICAL_ROOTS,
-    atomic_write,
     bounded_read,
     ensure_private_root,
     resolve_nofollow,
+    write_no_replace,
 )
 from role_radar.evaluation.profile_relevant_acquisition.contracts import (
     AuthorizationError,
@@ -741,10 +741,10 @@ def _seal_parent_pool(
     pool_lines = b"\n".join(lines) + b"\n" if lines else b""
     if len(pool_lines) > MAX_POOL_BYTES:
         raise AcquisitionError("acquisition_pool_too_large")
-    # atomic write pool then manifest; no-replace semantics via caller
+    # Sealed artifacts are idempotent only when the existing bytes are identical.
     try:
-        atomic_write(pool_path, pool_lines)
-        atomic_write(manifest_path, manifest.canonical_bytes)
+        write_no_replace(pool_path, pool_lines, max_bytes=MAX_POOL_BYTES)
+        write_no_replace(manifest_path, manifest.canonical_bytes)
         pool_path.chmod(0o600)
         manifest_path.chmod(0o600)
     except Exception as exc:
