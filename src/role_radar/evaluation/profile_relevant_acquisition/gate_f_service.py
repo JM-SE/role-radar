@@ -8,12 +8,21 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 
+from role_radar.evaluation.filesystem import bounded_read
+from role_radar.evaluation.profile_relevant_acquisition.capability_seal import verify_capability_set
 from role_radar.evaluation.profile_relevant_acquisition.contracts import (
     ArtifactClass,
     F10_1FHandoff,
     build_f_handoff,
 )
 from role_radar.evaluation.profile_relevant_acquisition.freeze_runtime import (
+    DIRNAME_OPERATOR,
+    DIRNAME_PILOT,
+    DIRNAME_PRIVATE,
+    DIRNAME_SEALED_HOLDOUT,
+    HOLDOUT_BINDING_LOGICAL_NAME,
+    OPERATOR_LOGICAL_NAME,
+    PILOT_BINDING_LOGICAL_NAME,
     FreezeBindings,
     FreezeError,
     FrozenBenchmark,
@@ -30,6 +39,7 @@ from role_radar.evaluation.profile_relevant_acquisition.gate_f_input_adapter imp
 from role_radar.evaluation.profile_relevant_acquisition.gate_f_materialization import (
     run_gate_f_materialization,
 )
+from role_radar.evaluation.profile_relevant_acquisition.manifest import build_checksums_payload
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,7 +57,19 @@ class GateFPublicResult:
     code: str
 
     def as_dict(self) -> dict[str, object]:
-        return {name: getattr(self, name) for name in self.__dataclass_fields__}
+        return {
+            "dataset_id": self.dataset_id,
+            "namespace": self.namespace,
+            "preview_input_sha256": self.preview_input_sha256,
+            "manifest_sha256": self.manifest_sha256,
+            "receipt_sha256": self.receipt_sha256,
+            "private_artifact_count": self.private_artifact_count,
+            "pilot_artifact_count": self.pilot_artifact_count,
+            "holdout_artifact_count": self.holdout_artifact_count,
+            "capability_kinds": self.capability_kinds,
+            "status": self.status,
+            "code": self.code,
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,6 +136,24 @@ def _replay_preflight(request: GateFAuthorizationRequest) -> GateFPublicResult |
     )
     if any(left != right for left, right in comparisons):
         raise FreezeError("freeze_replay_conflict")
+    if set(manifest) != {
+        "corpus_count",
+        "dataset_id",
+        "domain",
+        "holdout_count",
+        "holdout_membership_sha256",
+        "inventory_sha256",
+        "observation_count",
+        "partition_sha256",
+        "pilot_count",
+        "pilot_membership_sha256",
+        "pool_sha256",
+        "provenance_sha256",
+        "schema_version",
+        "selection_sha256",
+        "source_plan_sha256",
+    }:
+        raise FreezeError("freeze_replay_conflict")
     manifest_canonical = json.dumps(
         manifest, sort_keys=True, separators=(",", ":"), allow_nan=False
     ).encode()
@@ -125,6 +165,17 @@ def _replay_preflight(request: GateFAuthorizationRequest) -> GateFPublicResult |
     ).read_bytes() != manifest_canonical or dataset_manifest_raw != dataset_canonical:
         raise FreezeError("freeze_replay_conflict")
     if dataset_manifest.get("dataset_id") != request.dataset_id:
+        raise FreezeError("freeze_replay_conflict")
+    if set(dataset_manifest) != {
+        "dataset_id",
+        "domain",
+        "holdout_payloads_sha256",
+        "operator_payloads_sha256",
+        "pilot_payloads_sha256",
+        "private_payloads_sha256",
+        "schema_version",
+        "sealed_pool_manifest_sha256",
+    }:
         raise FreezeError("freeze_replay_conflict")
     if (
         receipt.get("dataset_id") != request.dataset_id
@@ -142,6 +193,125 @@ def _replay_preflight(request: GateFAuthorizationRequest) -> GateFPublicResult |
         receipt.get("dataset_manifest_sha256") != dataset_manifest_hash
         or receipt.get("sealed_pool_manifest_sha256") != sealed_manifest_hash
     ):
+        raise FreezeError("freeze_replay_conflict")
+    if set(receipt) != {
+        "capability_kinds",
+        "corpus_id",
+        "dataset_id",
+        "dataset_manifest_sha256",
+        "domain",
+        "holdout_artifact_count",
+        "holdout_id",
+        "holdout_payloads_sha256",
+        "namespace",
+        "operator_payloads_sha256",
+        "pilot_artifact_count",
+        "pilot_id",
+        "pilot_payloads_sha256",
+        "private_artifact_count",
+        "private_payloads_sha256",
+        "schema_version",
+        "sealed_pool_manifest_sha256",
+        "transaction_complete",
+    }:
+        raise FreezeError("freeze_replay_conflict")
+    # Exact replay is read-only: validate every published byte and every seal.
+    groups = {
+        DIRNAME_PRIVATE: (
+            "gate_decisions",
+            "population",
+            "preview",
+            "provenance",
+            "sampling_cells",
+            "selection",
+        ),
+        DIRNAME_OPERATOR: (OPERATOR_LOGICAL_NAME,),
+        DIRNAME_PILOT: (PILOT_BINDING_LOGICAL_NAME, "pilot_sealed_view"),
+        DIRNAME_SEALED_HOLDOUT: (HOLDOUT_BINDING_LOGICAL_NAME, "holdout_sealed_view"),
+    }
+    group_hashes: dict[str, str] = {}
+    group_counts: dict[str, int] = {}
+    for directory, names in groups.items():
+        actual = (
+            set((target / directory).glob("*.json")) if (target / directory).is_dir() else set()
+        )
+        if len(actual) != len(names) or any(path.is_symlink() for path in actual):
+            raise FreezeError("freeze_replay_incomplete")
+        ordered = []
+        for name in sorted(names):
+            path = target / directory / f"{name}.json"
+            if path not in actual or not path.is_file():
+                raise FreezeError("freeze_replay_incomplete")
+            raw = bounded_read(path)
+            try:
+                obj = json.loads(raw.decode())
+                if (
+                    not isinstance(obj, dict)
+                    or json.dumps(
+                        obj,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                        allow_nan=False,
+                    ).encode()
+                    != raw
+                ):
+                    raise ValueError
+            except (OSError, UnicodeError, ValueError, TypeError):
+                raise FreezeError("freeze_replay_conflict") from None
+            ordered.append(raw)
+        group_hashes[directory] = hashlib.sha256(b"".join(ordered)).hexdigest()
+        group_counts[directory] = len(ordered)
+    if (
+        dataset_manifest.get("private_payloads_sha256") != group_hashes[DIRNAME_PRIVATE]
+        or dataset_manifest.get("operator_payloads_sha256") != group_hashes[DIRNAME_OPERATOR]
+        or dataset_manifest.get("pilot_payloads_sha256") != group_hashes[DIRNAME_PILOT]
+        or dataset_manifest.get("holdout_payloads_sha256") != group_hashes[DIRNAME_SEALED_HOLDOUT]
+        or receipt.get("namespace") != request.provenance.namespace
+        or receipt.get("domain") != "role-radar:f10.1f:freeze-receipt:v1"
+        or receipt.get("schema_version") != "f10.1f-freeze-receipt-v1"
+        or receipt.get("private_payloads_sha256") != group_hashes[DIRNAME_PRIVATE]
+        or receipt.get("operator_payloads_sha256") != group_hashes[DIRNAME_OPERATOR]
+        or receipt.get("pilot_payloads_sha256") != group_hashes[DIRNAME_PILOT]
+        or receipt.get("holdout_payloads_sha256") != group_hashes[DIRNAME_SEALED_HOLDOUT]
+        or receipt.get("private_artifact_count") != group_counts[DIRNAME_PRIVATE]
+        or receipt.get("pilot_artifact_count") != group_counts[DIRNAME_PILOT]
+        or receipt.get("holdout_artifact_count") != group_counts[DIRNAME_SEALED_HOLDOUT]
+    ):
+        raise FreezeError("freeze_replay_conflict")
+    try:
+        checksums_raw = bounded_read(target / "checksums.sha256")
+        checksums = json.loads(checksums_raw.decode())
+        expected_checksums, _ = build_checksums_payload(
+            dataset_id=request.dataset_id,
+            sealed_pool_manifest_sha256=sealed_manifest_hash,
+            private_payloads_sha256=group_hashes[DIRNAME_PRIVATE],
+            operator_payloads_sha256=group_hashes[DIRNAME_OPERATOR],
+            pilot_payloads_sha256=group_hashes[DIRNAME_PILOT],
+            holdout_payloads_sha256=group_hashes[DIRNAME_SEALED_HOLDOUT],
+        )
+        if checksums_raw != expected_checksums or checksums.get("dataset_id") != request.dataset_id:
+            raise FreezeError("freeze_replay_conflict")
+        verify_capability_set(
+            root=request.destination_root,
+            dataset_id=request.dataset_id,
+            expected_namespace=request.provenance.namespace,
+            group_payload_hashes={
+                "private": group_hashes[DIRNAME_PRIVATE],
+                "pilot": group_hashes[DIRNAME_PILOT],
+                "sealed_holdout": group_hashes[DIRNAME_SEALED_HOLDOUT],
+            },
+            group_artifact_counts={
+                "private": group_counts[DIRNAME_PRIVATE],
+                "pilot": group_counts[DIRNAME_PILOT],
+                "sealed_holdout": group_counts[DIRNAME_SEALED_HOLDOUT],
+            },
+        )
+    except FreezeError:
+        raise
+    except Exception as exc:
+        raise FreezeError("freeze_replay_conflict") from exc
+    if tuple(receipt.get("capability_kinds", ())) != ("private", "pilot", "sealed_holdout"):
         raise FreezeError("freeze_replay_conflict")
     return GateFPublicResult(
         request.dataset_id,
@@ -195,6 +365,8 @@ def run_gate_f_materialization_freeze(
         artifact_class=ArtifactClass.SYNTHETIC,
         payloads=payloads,
     )
+    # Final injected-clock check is immediately adjacent to the sole effect.
+    authorize_gate_f(request, now=clock() if clock else None)
     benchmark = run_freeze_transaction(
         root=request.destination_root,
         bindings=freeze_bindings,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from dataclasses import dataclass
@@ -29,7 +30,9 @@ from role_radar.evaluation.profile_relevant_acquisition.gate_e_preview import (
     GateEPreviewRecord,
     build_gate_e_record,
 )
+from role_radar.evaluation.profile_relevant_acquisition.manifest import build_sealed_pool_manifest
 from role_radar.evaluation.profile_relevant_acquisition.provenance import ProvenanceBundle
+from role_radar.evaluation.profile_relevant_acquisition.source_plan import SourcePlan
 
 HEX64 = re.compile(r"^[0-9a-f]{64}$", re.ASCII)
 
@@ -43,6 +46,160 @@ class GateFAuthorizationError(ValueError):
 def _hash(value: object, code: str) -> None:
     if type(value) is not str or HEX64.fullmatch(value) is None:
         raise GateFAuthorizationError(code)
+
+
+def _canonical(value: object) -> bytes:
+    return json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False
+    ).encode()
+
+
+def _verify_d_graph(request: GateFAuthorizationRequest) -> None:
+    """Re-bind the complete D snapshot; identity checks alone are insufficient."""
+    result, manifest, snapshot = (
+        request.gate_d_result,
+        request.parent_pool_manifest,
+        request.profile_relevance_input.sealed_snapshot,
+    )
+    if not isinstance(result, GateDResult) or not isinstance(manifest, ParentPoolManifest):
+        raise GateFAuthorizationError("gate_f_d_snapshot_invalid")
+    if manifest is not result.manifest or manifest.pool_sha256 != result.pool_sha256:
+        raise GateFAuthorizationError("gate_f_manifest_substituted")
+    plan = request.gate_e_request.post_c_request.source_plan
+    if not isinstance(plan, SourcePlan):
+        raise GateFAuthorizationError("gate_f_source_plan_invalid")
+    if hashlib.sha256(plan.canonical_bytes).hexdigest() != plan.source_plan_sha256:
+        raise GateFAuthorizationError("gate_f_source_plan_hash_mismatch")
+    if plan.canonical_bytes != _canonical(plan._payload()):
+        raise GateFAuthorizationError("gate_f_source_plan_noncanonical")
+    if manifest.source_plan_sha256 != plan.source_plan_sha256:
+        raise GateFAuthorizationError("gate_f_source_plan_mismatch")
+    manifest_payload = {
+        name: getattr(manifest, name)
+        for name in (
+            "operation_id",
+            "source_plan_sha256",
+            "preregistration_sha256",
+            "provenance_sha256",
+            "observed",
+            "new_to_pool",
+            "duplicate",
+            "stale",
+            "invalid",
+            "conflict",
+            "truncated",
+            "indeterminate",
+            "durable_intents",
+            "known_terminal_outcomes",
+            "pending_or_indeterminate",
+            "delegate_entries",
+            "budget_debits",
+            "collector_wire_attempts",
+            "budget_consumed",
+            "checkpoint_wire_attempts",
+            "pool_sha256",
+        )
+    }
+    if manifest.canonical_bytes != _canonical(manifest_payload):
+        raise GateFAuthorizationError("gate_f_manifest_noncanonical")
+    if any(
+        getattr(manifest, name) != 0
+        for name in (
+            "truncated",
+            "indeterminate",
+            "pending_or_indeterminate",
+            "duplicate",
+            "stale",
+            "invalid",
+            "conflict",
+        )
+    ):
+        raise GateFAuthorizationError("gate_f_d_reconciliation_invalid")
+    if manifest.observed != manifest.new_to_pool or manifest.observed != len(result.observations):
+        raise GateFAuthorizationError("gate_f_d_reconciliation_invalid")
+    if len({o.external_id for o in result.observations}) != len(result.observations):
+        raise GateFAuthorizationError("gate_f_observation_duplicate")
+    pool_bytes = _canonical(sorted(o.canonical_sha256 for o in result.observations))
+    if hashlib.sha256(pool_bytes).hexdigest() != manifest.pool_sha256:
+        raise GateFAuthorizationError("gate_f_pool_binding_mismatch")
+    if snapshot.state != "sealed" or len(snapshot.observations) != len(result.observations):
+        raise GateFAuthorizationError("gate_f_snapshot_invalid")
+    for observed, sealed in zip(result.observations, snapshot.observations, strict=True):
+        if not isinstance(observed.canonical_bytes, bytes):
+            raise GateFAuthorizationError("gate_f_observation_unsealed")
+        try:
+            observed_object = json.loads(observed.canonical_bytes.decode())
+            if not isinstance(observed_object, dict) or observed.canonical_bytes != _canonical(
+                observed_object
+            ):
+                raise ValueError
+        except (UnicodeError, ValueError, TypeError):
+            raise GateFAuthorizationError("gate_f_observation_noncanonical") from None
+        if hashlib.sha256(observed.canonical_bytes).hexdigest() != observed.canonical_sha256:
+            raise GateFAuthorizationError("gate_f_observation_hash_mismatch")
+        if (
+            sealed.observation_id,
+            sealed.source.source_id,
+            sealed.source.board_key,
+            sealed.title,
+            sealed.location,
+            sealed.description,
+        ) != (
+            observed.external_id,
+            observed.source_id,
+            observed.source_key,
+            observed.title,
+            observed.location or "",
+            observed.description or "",
+        ):
+            raise GateFAuthorizationError("gate_f_observation_substituted")
+        if (
+            not isinstance(sealed.canonical_observation_bytes, bytes)
+            or not sealed.canonical_observation_bytes
+        ):
+            raise GateFAuthorizationError("gate_f_observation_unsealed")
+        try:
+            sealed_object = json.loads(sealed.canonical_observation_bytes.decode())
+            if not isinstance(
+                sealed_object, dict
+            ) or sealed.canonical_observation_bytes != _canonical(sealed_object):
+                raise ValueError
+        except (UnicodeError, ValueError, TypeError):
+            raise GateFAuthorizationError("gate_f_observation_noncanonical") from None
+        if any(
+            observed_object.get(key) != sealed_object.get(key)
+            for key in (
+                "source_id",
+                "source_key",
+                "external_id",
+                "title",
+                "location",
+                "description",
+            )
+        ):
+            raise GateFAuthorizationError("gate_f_observation_substituted")
+    try:
+        expected = build_sealed_pool_manifest(
+            dataset_id=request.dataset_id,
+            pool_sha256=manifest.pool_sha256,
+            provenance_sha256=manifest.provenance_sha256,
+            source_plan_sha256=manifest.source_plan_sha256,
+            inventory_sha256=request.provenance.inventory_sha256,
+            preview_input_sha256=request.gate_e_record.preview_input_sha256,
+            selection_sha256=request.gate_e_result.selection_sha256,
+            partition_sha256=request.gate_e_result.partition_sha256,
+            pilot_membership_sha256=request.gate_e_result.pilot_membership_sha256,
+            holdout_membership_sha256=request.gate_e_result.holdout_membership_sha256,
+            observation_count=len(snapshot.observations),
+            corpus_count=request.profile_relevance_input.partition_policy.total_count,
+            pilot_count=request.profile_relevance_input.partition_policy.pilot_count,
+            holdout_count=request.profile_relevance_input.partition_policy.holdout_count,
+        )
+    except Exception as exc:
+        raise GateFAuthorizationError("gate_f_sealed_pool_invalid") from exc
+    # This proves all semantic fields and the canonical D pool binding are the same source.
+    if expected.pool_sha256 != manifest.pool_sha256:
+        raise GateFAuthorizationError("gate_f_pool_binding_mismatch")
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,6 +318,7 @@ def authorize_gate_f(
         gate_e.request.profile_relevance_input is not request.profile_relevance_input
     ):
         raise GateFAuthorizationError("gate_f_input_substituted")
+    _verify_d_graph(request)
     if not isinstance(request.gate_e_record, GateEPreviewRecord) or not isinstance(
         request.gate_e_result, PreviewComputationResult
     ):
