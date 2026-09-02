@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from role_radar.evaluation.filesystem import bounded_read
+from role_radar.evaluation.profile_relevance.contracts import MaterializedPayloads
 from role_radar.evaluation.profile_relevant_acquisition.capability_seal import verify_capability_set
 from role_radar.evaluation.profile_relevant_acquisition.contracts import (
     ArtifactClass,
@@ -26,6 +27,7 @@ from role_radar.evaluation.profile_relevant_acquisition.freeze_runtime import (
     FreezeBindings,
     FreezeError,
     FrozenBenchmark,
+    _derive_split_ids,
     run_freeze_transaction,
 )
 from role_radar.evaluation.profile_relevant_acquisition.gate_f_authorization import (
@@ -39,7 +41,13 @@ from role_radar.evaluation.profile_relevant_acquisition.gate_f_input_adapter imp
 from role_radar.evaluation.profile_relevant_acquisition.gate_f_materialization import (
     run_gate_f_materialization,
 )
-from role_radar.evaluation.profile_relevant_acquisition.manifest import build_checksums_payload
+from role_radar.evaluation.profile_relevant_acquisition.manifest import (
+    DOMAIN_DATASET_MANIFEST,
+    DOMAIN_SEALED_POOL_MANIFEST,
+    SCHEMA_DATASET_MANIFEST,
+    SCHEMA_SEALED_POOL_MANIFEST,
+    build_checksums_payload,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,7 +142,11 @@ def _replay_preflight(request: GateFAuthorizationRequest) -> GateFPublicResult |
         (manifest.get("pilot_count"), expected.pilot_count),
         (manifest.get("holdout_count"), expected.holdout_count),
     )
-    if any(left != right for left, right in comparisons):
+    if any(left != right for left, right in comparisons) or (
+        manifest.get("inventory_sha256") != expected.inventory_sha256
+        or manifest.get("domain") != DOMAIN_SEALED_POOL_MANIFEST
+        or manifest.get("schema_version") != SCHEMA_SEALED_POOL_MANIFEST
+    ):
         raise FreezeError("freeze_replay_conflict")
     if set(manifest) != {
         "corpus_count",
@@ -155,11 +167,15 @@ def _replay_preflight(request: GateFAuthorizationRequest) -> GateFPublicResult |
     }:
         raise FreezeError("freeze_replay_conflict")
     manifest_canonical = json.dumps(
-        manifest, sort_keys=True, separators=(",", ":"), allow_nan=False
-    ).encode()
+        manifest, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False
+    ).encode("utf-8")
     dataset_canonical = json.dumps(
-        dataset_manifest, sort_keys=True, separators=(",", ":"), allow_nan=False
-    ).encode()
+        dataset_manifest,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
     if (
         target / "sealed_pool_manifest.json"
     ).read_bytes() != manifest_canonical or dataset_manifest_raw != dataset_canonical:
@@ -178,6 +194,11 @@ def _replay_preflight(request: GateFAuthorizationRequest) -> GateFPublicResult |
     }:
         raise FreezeError("freeze_replay_conflict")
     if (
+        dataset_manifest.get("domain") != DOMAIN_DATASET_MANIFEST
+        or dataset_manifest.get("schema_version") != SCHEMA_DATASET_MANIFEST
+    ):
+        raise FreezeError("freeze_replay_conflict")
+    if (
         receipt.get("dataset_id") != request.dataset_id
         or receipt.get("transaction_complete") is not True
     ):
@@ -192,7 +213,12 @@ def _replay_preflight(request: GateFAuthorizationRequest) -> GateFPublicResult |
     if (
         receipt.get("dataset_manifest_sha256") != dataset_manifest_hash
         or receipt.get("sealed_pool_manifest_sha256") != sealed_manifest_hash
+        or dataset_manifest.get("sealed_pool_manifest_sha256") != sealed_manifest_hash
     ):
+        raise FreezeError("freeze_replay_conflict")
+    if receipt_raw != json.dumps(
+        receipt, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False
+    ).encode("utf-8"):
         raise FreezeError("freeze_replay_conflict")
     if set(receipt) != {
         "capability_kinds",
@@ -279,6 +305,19 @@ def _replay_preflight(request: GateFAuthorizationRequest) -> GateFPublicResult |
         or receipt.get("holdout_artifact_count") != group_counts[DIRNAME_SEALED_HOLDOUT]
     ):
         raise FreezeError("freeze_replay_conflict")
+    corpus_id, pilot_id, holdout_id = _derive_split_ids(
+        dataset_id=request.dataset_id,
+        private_payloads_sha256=group_hashes[DIRNAME_PRIVATE],
+        operator_payloads_sha256=group_hashes[DIRNAME_OPERATOR],
+        pilot_payloads_sha256=group_hashes[DIRNAME_PILOT],
+        holdout_payloads_sha256=group_hashes[DIRNAME_SEALED_HOLDOUT],
+    )
+    if (
+        receipt.get("corpus_id") != corpus_id
+        or receipt.get("pilot_id") != pilot_id
+        or receipt.get("holdout_id") != holdout_id
+    ):
+        raise FreezeError("freeze_replay_conflict")
     try:
         checksums_raw = bounded_read(target / "checksums.sha256")
         checksums = json.loads(checksums_raw.decode())
@@ -329,7 +368,9 @@ def _replay_preflight(request: GateFAuthorizationRequest) -> GateFPublicResult |
 
 
 def _receipt_hash(receipt: dict[str, object]) -> str:
-    canonical = json.dumps(receipt, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+    canonical = json.dumps(
+        receipt, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False
+    ).encode("utf-8")
     return hashlib.sha256(b"role-radar:f10.1f:freeze-receipt:v1\0" + canonical).hexdigest()
 
 
@@ -338,6 +379,8 @@ def run_gate_f_materialization_freeze(
     request: GateFAuthorizationRequest,
     freeze_bindings: FreezeBindings,
     clock: Callable[[], datetime] | None = None,
+    materializer: Callable[..., MaterializedPayloads] | None = None,
+    freezer: Callable[..., FrozenBenchmark] | None = None,
 ) -> GateFServiceResult:
     """Validate and execute the bounded F flow.  No coordinator or successor is called."""
     authorized = authorize_gate_f(request, now=clock() if clock else None)
@@ -352,7 +395,8 @@ def run_gate_f_materialization_freeze(
     # adaptation is not permission after its expiry.
     authorized = authorize_gate_f(request, now=clock() if clock else None)
     # The adapter is pure; this is the sole materializer call.
-    payloads = run_gate_f_materialization(
+    materialize = run_gate_f_materialization if materializer is None else materializer
+    payloads = materialize(
         approved_preview=context.expected_approved_preview,
         materialization_context=context,
         approved_result=authorized.request.gate_e_result,
@@ -367,7 +411,8 @@ def run_gate_f_materialization_freeze(
     )
     # Final injected-clock check is immediately adjacent to the sole effect.
     authorize_gate_f(request, now=clock() if clock else None)
-    benchmark = run_freeze_transaction(
+    freeze = run_freeze_transaction if freezer is None else freezer
+    benchmark = freeze(
         root=request.destination_root,
         bindings=freeze_bindings,
         f_handoff=handoff,
