@@ -867,13 +867,18 @@ async def run_gate_d_broad_acquisition(
         # Replay: skip source only when known-complete attempts and checkpoint reconcile
         if source_id in existing_checks:
             cp = existing_checks[source_id]
+            if effective_journal.is_blocked(source_id):
+                raise AcquisitionError("acquisition_source_blocked_pending")
+            expected_checkpoint = hashlib.sha256(
+                f"{config.operation_id}:{source_id}:{cp.wire_attempts}".encode()
+            ).hexdigest()
+            if cp.checkpoint_sha256 != expected_checkpoint:
+                raise AcquisitionError("acquisition_replay_checkpoint_mismatch")
             if effective_journal.should_skip_source(source_id, cp.wire_attempts):
                 # skip without resending known-complete attempt; reuse checkpoint
                 out_checkpoints.append(cp)
                 collector_wire_attempts_total += cp.wire_attempts
                 continue
-            if effective_journal.is_blocked(source_id):
-                raise AcquisitionError("acquisition_source_blocked_pending")
             # known-complete without checkpoint or mismatch blocks without another delegate call
             # Fall through to collection only if journal empty for this source
             if effective_journal.durable_intents(source_id) > 0:

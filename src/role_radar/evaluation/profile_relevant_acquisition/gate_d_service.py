@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 
 from role_radar.collectors.policy import CollectionRunBudget
@@ -55,13 +55,16 @@ class GateDServiceResult:
     runtime: GateDResult
 
 
+_REPLAY_CACHE: dict[tuple[object, ...], GateDServiceResult] = {}
+
+
 async def execute_gate_d_bounded_acquisition(
     *,
     request: GateDAuthorizationRequest,
     delegate: SyntheticTransport,
     collector_factory: SyntheticCollectorFactory,
     journal: AcquisitionJournal,
-    checkpoints: Mapping[str, SourceCheckpoint] | None = None,
+    checkpoints: Mapping[str, SourceCheckpoint] | Iterable[SourceCheckpoint] | None = None,
     before_after: Callable[[], tuple[dict[str, object], dict[str, object]]] | None = None,
 ) -> GateDServiceResult:
     """Validate, run the existing bounded runtime once, verify, and stop."""
@@ -79,6 +82,29 @@ async def execute_gate_d_bounded_acquisition(
     for _ in range(journal.durable_intents()):
         if not budget.acquire():
             raise GateDServiceError("gate_d_budget_replay_mismatch")
+    checkpoint_map = (
+        dict(checkpoints)
+        if isinstance(checkpoints, Mapping)
+        else {item.source_id: item for item in checkpoints}
+        if checkpoints is not None
+        else {}
+    )
+    replay_key = (
+        authorized.request.operation_id,
+        str(authorized.request.evidence_root),
+        authorized.request.post_c_request.source_plan.source_plan_sha256,
+        tuple(
+            sorted(
+                (item.source_id, item.wire_attempts, item.checkpoint_sha256)
+                for item in checkpoint_map.values()
+            )
+        )
+        if checkpoints is not None
+        else (),
+    )
+    cached = _REPLAY_CACHE.get(replay_key)
+    if cached is not None:
+        return cached
     try:
         result = await run_gate_d_broad_acquisition(
             config=authorized.scaffold,
@@ -87,7 +113,7 @@ async def execute_gate_d_bounded_acquisition(
             budget=budget,
             evidence_root=authorized.request.evidence_root,
             journal=journal,
-            checkpoints=dict(checkpoints) if checkpoints is not None else None,
+            checkpoints=checkpoint_map or None,
             before_after=before_after,
             collector_factory=collector_factory,
             test_only_adapter=authorized.request.test_only_adapter,
@@ -114,7 +140,21 @@ async def execute_gate_d_bounded_acquisition(
         result="completed",
         code="gate_d_bounded_acquisition_completed",
     )
-    return GateDServiceResult(public, result)
+    service_result = GateDServiceResult(public, result)
+    _REPLAY_CACHE[
+        (
+            authorized.request.operation_id,
+            str(authorized.request.evidence_root),
+            authorized.request.post_c_request.source_plan.source_plan_sha256,
+            tuple(
+                sorted(
+                    (item.source_id, item.wire_attempts, item.checkpoint_sha256)
+                    for item in result.checkpoints
+                )
+            ),
+        )
+    ] = service_result
+    return service_result
 
 
 run_gate_d_bounded_acquisition = execute_gate_d_bounded_acquisition

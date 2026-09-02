@@ -103,7 +103,12 @@ def authorize_gate_d(request: GateDAuthorizationRequest) -> AuthorizedGateD:
     """Validate every Gate D binding before an effect-capable object exists."""
     if not isinstance(request, GateDAuthorizationRequest):
         raise GateDAuthorizationError("gate_d_request_invalid")
-    if not request.operation_id.strip() or not request.lineage_id.strip():
+    if (
+        type(request.operation_id) is not str
+        or type(request.lineage_id) is not str
+        or not request.operation_id.strip()
+        or not request.lineage_id.strip()
+    ):
         raise GateDAuthorizationError("gate_d_operation_lineage_invalid")
     post = request.post_c_request
     if not isinstance(post, PostCPreregistrationRequest):
