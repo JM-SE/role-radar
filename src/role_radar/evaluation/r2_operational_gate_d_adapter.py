@@ -22,6 +22,18 @@ def invoke_gate_d(
         raise ValueError("binding_mismatch")
     resolved = resolver.resolve_gate_d(packet, capability)
     request = resolved.request
+    if (
+        resolved.source_plan is not request.post_c_request.source_plan
+        or resolved.post_c_seal is not request.post_c_seal
+        or resolved.seeds != request.seeds
+        or resolved.window_start_utc != request.window_start_utc
+        or resolved.window_end_utc != request.window_end_utc
+        or resolved.cutoff_utc != request.cutoff_utc
+        or resolved.source_cap != request.per_board_cap
+        or resolved.source_cap != request.per_company_cap
+        or resolved.budget != request.budget_units
+    ):
+        raise ValueError("binding_mismatch")
     authorize_gate_d(request)
     if (resolved.operation_id, resolved.lineage_id, request.operation_id, request.lineage_id) != (
         packet.operation_id,
@@ -55,6 +67,8 @@ def invoke_gate_d(
     ):
         raise ValueError("binding_mismatch")
     effects = factory.create(request)
+    if effects.test_only_adapter is not request.test_only_adapter:
+        raise ValueError("binding_mismatch")
     result = asyncio.run(
         execute_gate_d_bounded_acquisition(
             request=request,

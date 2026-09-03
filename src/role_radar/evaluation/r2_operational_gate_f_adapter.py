@@ -28,6 +28,11 @@ def invoke_gate_f(
     if packet.gate != "f" or not capability.verify_for(packet):
         raise ValueError("binding_mismatch")
     resolved = resolver.resolve_gate_f(packet, capability)
+    if (
+        resolved.gate_d_result is not resolved.request.gate_d_result
+        or resolved.gate_e_result is not resolved.request.gate_e_result
+    ):
+        raise ValueError("binding_mismatch")
     authorize_gate_f(resolved.request)
     if (
         resolved.operation_id,

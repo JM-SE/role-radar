@@ -17,6 +17,8 @@ def invoke_gate_e(
     if packet.gate != "e" or not capability.verify_for(packet):
         raise ValueError("binding_mismatch")
     resolved = resolver.resolve_gate_e(packet, capability)
+    if resolved.gate_d_result is not resolved.request.gate_d_result:
+        raise ValueError("binding_mismatch")
     authorize_gate_e(resolved.request)
     if (resolved.operation_id, resolved.lineage_id, resolved.source_plan_sha256) != (
         packet.operation_id,

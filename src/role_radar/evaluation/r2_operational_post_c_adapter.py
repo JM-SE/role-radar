@@ -22,14 +22,19 @@ def invoke_post_c(
     if packet.gate != "post-c" or not capability.verify_for(packet):
         raise ValueError("binding_mismatch")
     resolved = resolver.resolve_post_c(packet, capability)
-    validate_post_c_request(resolved.request)
+    request = resolved.request
+    if (
+        resolved.gate_c_result is not request.gate_c_result
+        or resolved.source_plan_sha256 != request.source_plan.source_plan_sha256
+    ):
+        raise ValueError("binding_mismatch")
+    validate_post_c_request(request)
     if (resolved.operation_id, resolved.lineage_id, resolved.source_plan_sha256) != (
         packet.operation_id,
         packet.lineage_id,
         packet.source_plan_sha256,
     ):
         raise ValueError("binding_mismatch")
-    request = resolved.request
     if (
         request.operation_id != packet.operation_id
         or request.lineage_id != packet.lineage_id
@@ -42,7 +47,7 @@ def invoke_post_c(
         or request.artifact_class != "offline_private_report_only"
     ):
         raise ValueError("binding_mismatch")
-    result = preregister_post_c(request=resolved.request, writer=writer)
+    result = preregister_post_c(request=request, writer=writer)
     return {
         "evidence_sha256": result.preregistration_sha256,
         "operation_id": packet.operation_id,

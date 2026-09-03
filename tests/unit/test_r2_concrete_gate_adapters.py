@@ -11,6 +11,7 @@ import inspect
 from dataclasses import fields, is_dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from typing import get_type_hints
 
 import pytest
@@ -269,6 +270,112 @@ def test_concrete_adapters_reject_capability_mismatch_before_resolver_or_effect(
         invokers.for_gate(gate).invoke(other, capability)
     assert resolver.calls == 0
     assert effect.calls == 0
+
+
+def test_post_c_rejects_resolved_gate_c_result_substitution_before_writer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from role_radar.evaluation import r2_operational_post_c_adapter as adapter
+
+    authoritative = object()
+    request = SimpleNamespace(
+        gate_c_result=authoritative, source_plan=SimpleNamespace(source_plan_sha256="p")
+    )
+    resolved = SimpleNamespace(
+        request=request,
+        gate_c_result=object(),
+        operation_id="op-r2-test",
+        lineage_id="offline-lineage",
+        source_plan_sha256="p",
+    )
+    writer = _NeverEffect()
+    monkeypatch.setattr(adapter, "validate_post_c_request", lambda _request: None)
+    monkeypatch.setattr(adapter, "preregister_post_c", lambda **_kwargs: writer)
+
+    class Resolver:
+        def resolve_post_c(self, _packet: object, _capability: object) -> object:
+            return resolved
+
+    with pytest.raises(ValueError, match="binding_mismatch"):
+        adapter.invoke_post_c(
+            _packet("post-c"), make_test_capability(_packet("post-c")), Resolver(), writer
+        )
+    assert writer.calls == 0
+
+
+def test_gate_d_rejects_resolved_artifact_substitution_before_factory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from role_radar.evaluation import r2_operational_gate_d_adapter as adapter
+
+    request = SimpleNamespace(
+        post_c_request=SimpleNamespace(source_plan=object()), post_c_seal=object(), seeds=object()
+    )
+    resolved = SimpleNamespace(
+        request=request,
+        source_plan=object(),
+        post_c_seal=request.post_c_seal,
+        seeds=request.seeds,
+    )
+    factory = _NeverEffect()
+
+    class Resolver:
+        def resolve_gate_d(self, _packet: object, _capability: object) -> object:
+            return resolved
+
+    packet = _packet("d")
+    with pytest.raises(ValueError, match="binding_mismatch"):
+        adapter.invoke_gate_d(packet, make_test_capability(packet), Resolver(), factory)
+    assert factory.calls == 0
+
+
+def test_gate_e_rejects_resolved_gate_d_result_substitution_before_service(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from role_radar.evaluation import r2_operational_gate_e_adapter as adapter
+
+    authoritative = object()
+    request = SimpleNamespace(gate_d_result=authoritative)
+    resolved = SimpleNamespace(request=request, gate_d_result=object())
+    service = _NeverEffect()
+    monkeypatch.setattr(adapter, "authorize_gate_e", lambda _request: None)
+    monkeypatch.setattr(adapter, "run_gate_e_offline_preview", service)
+
+    class Resolver:
+        def resolve_gate_e(self, _packet: object, _capability: object) -> object:
+            return resolved
+
+    packet = _packet("e")
+    with pytest.raises(ValueError, match="binding_mismatch"):
+        adapter.invoke_gate_e(packet, make_test_capability(packet), Resolver())
+    assert service.calls == 0
+
+
+def test_gate_f_rejects_resolved_d_or_e_result_substitution_before_materializer_or_freezer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from role_radar.evaluation import r2_operational_gate_f_adapter as adapter
+
+    request = SimpleNamespace(gate_d_result=object(), gate_e_result=object())
+    resolved = SimpleNamespace(
+        request=request, gate_d_result=object(), gate_e_result=request.gate_e_result
+    )
+    materializer = _NeverEffect()
+    freezer = _NeverEffect()
+    monkeypatch.setattr(adapter, "authorize_gate_f", lambda _request: None)
+    monkeypatch.setattr(adapter, "run_gate_f_materialization_freeze", materializer)
+
+    class Resolver:
+        def resolve_gate_f(self, _packet: object, _capability: object) -> object:
+            return resolved
+
+    packet = _packet("f")
+    with pytest.raises(ValueError, match="binding_mismatch"):
+        adapter.invoke_gate_f(
+            packet, make_test_capability(packet), Resolver(), materializer, freezer
+        )
+    assert materializer.calls == 0
+    assert freezer.calls == 0
 
 
 def test_composition_has_exactly_the_five_named_independent_adapters() -> None:
