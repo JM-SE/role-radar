@@ -22,7 +22,11 @@ from role_radar.evaluation.blind_labeling.policy import (
     current_pilot_count,
     current_protocol_version,
 )
-from role_radar.evaluation.blind_labeling.review import build_review_plan, first_pass_hash
+from role_radar.evaluation.blind_labeling.review import (
+    ReviewPlanBinding,
+    build_review_plan,
+    first_pass_hash,
+)
 from role_radar.evaluation.blind_labeling.validation import ValidationError, validate_decision
 
 
@@ -221,7 +225,11 @@ def begin_finalization(
 
 
 def validate_state_against_snapshot(
-    state: SessionState, snapshot: PilotSnapshot, *, expected_protocol_version: str | None = None
+    state: SessionState,
+    snapshot: PilotSnapshot,
+    *,
+    expected_protocol_version: str | None = None,
+    active_binding: ReviewPlanBinding | None = None,
 ) -> None:
     validate_state(
         state,
@@ -245,6 +253,7 @@ def validate_state_against_snapshot(
             dict(state.first_pass),
             generation=state.generation,
             rubric_sha256=state.rubric_sha256,
+            active_binding=active_binding,
         )
         if state.first_pass_sha256 != expected.first_pass_sha256 or state.review_plan != expected:
             raise SessionError("draft_review_plan_invalid")
@@ -351,7 +360,13 @@ def _decision_payload(value: Decision | None) -> dict[str, object] | None:
     }
 
 
-def seal_for_review(state: SessionState, snapshot: PilotSnapshot, occurred_at: str) -> SessionState:
+def seal_for_review(
+    state: SessionState,
+    snapshot: PilotSnapshot,
+    occurred_at: str,
+    *,
+    active_binding: ReviewPlanBinding | None = None,
+) -> SessionState:
     if (
         state.phase not in {SessionPhase.FIRST_PASS_COMPLETE, SessionPhase.REVIEWING}
         or len(state.first_pass) != current_pilot_count()
@@ -359,7 +374,11 @@ def seal_for_review(state: SessionState, snapshot: PilotSnapshot, occurred_at: s
         raise SessionError("first_pass_incomplete")
     decisions = _decisions(state)
     plan = state.review_plan or build_review_plan(
-        snapshot, decisions, generation=state.generation, rubric_sha256=state.rubric_sha256
+        snapshot,
+        decisions,
+        generation=state.generation,
+        rubric_sha256=state.rubric_sha256,
+        active_binding=active_binding,
     )
     if state.review_plan is not None:
         return state

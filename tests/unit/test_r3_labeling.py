@@ -8,6 +8,7 @@ import pytest
 
 from role_radar.evaluation.blind_labeling.contracts import Decision, Label
 from role_radar.evaluation.blind_labeling.materialization import rubric_hash
+from role_radar.evaluation.blind_labeling.policy import DOMAIN_REVIEW_PLAN, semantic_hash
 from role_radar.evaluation.blind_labeling.runtime import RuntimeErrorCode
 from role_radar.evaluation.r3_labeling_authorization import (
     R2GateFBinding,
@@ -168,6 +169,49 @@ def test_synthetic_service_reuses_one_full_workflow_and_is_idempotent(tmp_path: 
     first = service.finalize()
     assert service.finalize() == first
     assert set(first) == {"status", "labelset_id", "count"}
+
+    state = service._call(service._runtime.state)  # type: ignore[attr-defined]
+    plan = state.review_plan
+    assert plan is not None
+    active = service._active_binding  # type: ignore[attr-defined]
+    preimage = {
+        "schema": "f10.2-review-plan-v1",
+        "generation": plan.generation,
+        "first_pass_sha256": plan.first_pass_sha256,
+        "item_ids": plan.item_ids,
+        "protocol": active.protocol_version,
+        "rubric_sha256": active.rubric_sha256,
+        "dataset_id": active.dataset_id,
+        "pilot_sha256": active.pilot_sha256,
+        "pilot_view_sha256": active.pilot_view_sha256,
+        "profile": [
+            active.profile_id,
+            active.profile_version,
+            active.profile_schema,
+            active.profile_sha256,
+        ],
+        "rubric": [active.rubric_version, active.rubric_sha256],
+    }
+    assert plan.plan_sha256 == semantic_hash(DOMAIN_REVIEW_PLAN, preimage)
+    manifest = service._call(  # type: ignore[attr-defined]
+        service._runtime.verify, first["labelset_id"]
+    )
+    assert manifest["profile"] == {
+        "id": binding.profile_id,
+        "version": binding.profile_version,
+        "schema": binding.profile_schema,
+        "sha256": binding.profile_sha256,
+    }
+    assert manifest["protocol"] == binding.protocol_version
+    assert manifest["rubric"] == {
+        "version": binding.rubric_version,
+        "sha256": binding.rubric_sha256,
+    }
+    internal, _hashes = service._call(  # type: ignore[attr-defined]
+        service._runtime.store.final_manifest, first["labelset_id"]
+    )
+    assert internal["review_plan_sha256"] == plan.plan_sha256
+    assert internal["profile"]["id"] == binding.profile_id
 
 
 @pytest.mark.parametrize(

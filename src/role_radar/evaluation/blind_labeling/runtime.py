@@ -6,7 +6,7 @@ from __future__ import annotations
 import hashlib
 import secrets
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from role_radar.evaluation.blind_labeling.contracts import (
     Decision,
@@ -30,6 +30,7 @@ from role_radar.evaluation.blind_labeling.policy import (
     HEX64,
     challenge,
 )
+from role_radar.evaluation.blind_labeling.review import ReviewPlanBinding
 from role_radar.evaluation.blind_labeling.session import (
     SessionError,
     adjudicate,
@@ -80,6 +81,9 @@ class BlindLabelingRuntime:
     def _binding(self) -> ActiveLabelingBinding:
         return self.active_binding or legacy_active_binding()
 
+    def _review_binding(self) -> ReviewPlanBinding | None:
+        return cast(ReviewPlanBinding | None, self.active_binding)
+
     def _snapshot(self) -> PilotSnapshot:
         try:
             return self.source.load()
@@ -108,7 +112,10 @@ class BlindLabelingRuntime:
             state = self._state()
             try:
                 validate_state_against_snapshot(
-                    state, snapshot, expected_protocol_version=self._binding().protocol_version
+                    state,
+                    snapshot,
+                    expected_protocol_version=self._binding().protocol_version,
+                    active_binding=self._review_binding(),
                 )
             except SessionError as exc:
                 raise RuntimeErrorCode(exc.code) from exc
@@ -219,7 +226,10 @@ class BlindLabelingRuntime:
                 allowed_item_ids=frozenset(item.opaque_id for item in snapshot.items),
             )
             validate_state_against_snapshot(
-                next_state, snapshot, expected_protocol_version=self._binding().protocol_version
+                next_state,
+                snapshot,
+                expected_protocol_version=self._binding().protocol_version,
+                active_binding=self._review_binding(),
             )
         except SessionError as exc:
             raise RuntimeErrorCode(exc.code) from exc
@@ -233,9 +243,14 @@ class BlindLabelingRuntime:
         state = self._state()
         snapshot = self._snapshot()
         try:
-            next_state = seal_for_review(state, snapshot, self.clock())
+            next_state = seal_for_review(
+                state, snapshot, self.clock(), active_binding=self._review_binding()
+            )
             validate_state_against_snapshot(
-                next_state, snapshot, expected_protocol_version=self._binding().protocol_version
+                next_state,
+                snapshot,
+                expected_protocol_version=self._binding().protocol_version,
+                active_binding=self._review_binding(),
             )
             if next_state is not state:
                 self.store.save(next_state, expected_revision=state.revision)
@@ -289,7 +304,10 @@ class BlindLabelingRuntime:
         try:
             validate_state(state, expected_protocol_version=self._binding().protocol_version)
             validate_state_against_snapshot(
-                state, snapshot, expected_protocol_version=self._binding().protocol_version
+                state,
+                snapshot,
+                expected_protocol_version=self._binding().protocol_version,
+                active_binding=self._review_binding(),
             )
             payloads, internal, labelset_id = build_bundle(
                 snapshot, state, self._finalized_at(state), self._binding()
