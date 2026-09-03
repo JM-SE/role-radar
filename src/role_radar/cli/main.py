@@ -474,11 +474,21 @@ def _parser() -> argparse.ArgumentParser:
     from role_radar.cli.evaluation_f10_1f import register_parser
 
     register_parser(evaluation_commands)
+    # New namespace is registered lazily and is deliberately independent of
+    # every historical F10.1 route.  Its runner remains BLOCK-0 until a
+    # separately authorized runtime is supplied.
+    from role_radar.cli.evaluation_r2_operation import register_parser as register_r2_parser
+
+    register_r2_parser(evaluation_commands)
     return parser
 
 
 def _run_evaluation(args: argparse.Namespace) -> int:
     """Gate-A CLI surface; live acquisition is deliberately fail-closed here."""
+    if args.evaluation_command == "r2-operation":
+        from role_radar.cli.evaluation_r2_operation import run
+
+        return run(args)
     if args.evaluation_command in {"f10-1", "f10-1c"}:
         # Both names are historical aliases.  Block every subcommand before
         # settings, filesystem, database, provider, or old runtime imports.
