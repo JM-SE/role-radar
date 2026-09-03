@@ -2,12 +2,22 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Mapping
+from typing import cast
 
+from role_radar.evaluation.profile_relevant_acquisition.acquisition_runtime import (
+    SyntheticCollectorFactory,
+)
 from role_radar.evaluation.profile_relevant_acquisition.gate_d_authorization import authorize_gate_d
 from role_radar.evaluation.profile_relevant_acquisition.gate_d_service import (
     execute_gate_d_bounded_acquisition,
 )
-from role_radar.evaluation.r2_operational_artifacts import R2GateDOfflineFactory, R2GateDResolver
+from role_radar.evaluation.r2_operational_artifacts import (
+    GateDOfflineEffects,
+    GateDOperationalEffects,
+    R2GateDOfflineFactory,
+    R2GateDOperationalFactory,
+    R2GateDResolver,
+)
 from role_radar.evaluation.r2_operational_authorization import OperationPacket
 from role_radar.evaluation.r2_operational_capabilities import ProductionR2Capability
 
@@ -16,7 +26,7 @@ def invoke_gate_d(
     packet: OperationPacket,
     capability: ProductionR2Capability,
     resolver: R2GateDResolver,
-    factory: R2GateDOfflineFactory,
+    factory: R2GateDOfflineFactory | R2GateDOperationalFactory,
 ) -> Mapping[str, object]:
     if packet.gate != "d" or not capability.verify_for(packet):
         raise ValueError("binding_mismatch")
@@ -67,15 +77,39 @@ def invoke_gate_d(
     ):
         raise ValueError("binding_mismatch")
     effects = factory.create(request)
-    if effects.test_only_adapter is not request.test_only_adapter:
+    delegate: object
+    collector_factory: object
+    if type(effects) is GateDOfflineEffects:
+        if effects.test_only_adapter is not request.test_only_adapter:
+            raise ValueError("binding_mismatch")
+        delegate = effects.delegate
+        collector_factory = effects.collector_factory
+        journal = effects.journal
+        checkpoints = effects.checkpoints or None
+    elif type(effects) is GateDOperationalEffects and (
+        effects.factory.packet is not packet
+        or effects.factory.plan is not resolved.source_plan
+        or cast(object, effects.delegate) is not cast(object, effects.factory.transport)
+    ):
+        raise ValueError("binding_mismatch")
+    elif type(effects) is GateDOperationalEffects:
+
+        def operational_collectors(snapshot: object, context: object) -> object:
+            return effects.factory.create(snapshot, context)  # type: ignore[arg-type]
+
+        delegate = cast(object, effects.delegate)
+        collector_factory = operational_collectors
+        journal = effects.journal
+        checkpoints = effects.checkpoints or None
+    else:
         raise ValueError("binding_mismatch")
     result = asyncio.run(
         execute_gate_d_bounded_acquisition(
             request=request,
-            delegate=effects.delegate,
-            collector_factory=effects.collector_factory,
-            journal=effects.journal,
-            checkpoints=effects.checkpoints or None,
+            delegate=delegate,
+            collector_factory=cast(SyntheticCollectorFactory, collector_factory),
+            journal=journal,
+            checkpoints=checkpoints,
         )
     )
     return {

@@ -92,6 +92,19 @@ class SyntheticTransport(httpx.AsyncBaseTransport):
         return httpx.Response(200, content=b'{"jobs":[]}')
 
 
+def _require_gate_d_transport(transport: object) -> httpx.AsyncBaseTransport:
+    """Accept only the two sealed Gate D transport seams."""
+    if type(transport) is SyntheticTransport:
+        return transport
+    from role_radar.evaluation.r2_greenhouse_lever_factory import (
+        R2GreenhouseLeverTestTransport,
+    )
+
+    if type(transport) is R2GreenhouseLeverTestTransport:
+        return cast(httpx.AsyncBaseTransport, transport)
+    raise AcquisitionError("acquisition_production_transport_rejected")
+
+
 class SyntheticCollectorFactory(Protocol):
     """Factory contract for explicitly offline synthetic collectors."""
 
@@ -394,7 +407,7 @@ def canonical_observation_from_raw(
 
 def build_collector_context(
     *,
-    transport: SyntheticTransport,
+    transport: httpx.AsyncBaseTransport,
     budget: CollectionRunBudget | None = None,
     test_only_adapter: SyntheticTestAdapter | None = None,
     approval: ExternalApprovalBinding | None = None,
@@ -414,7 +427,7 @@ def build_collector_context(
         raise AcquisitionError(exc.code) from exc
     if test_only_adapter is None:
         raise AcquisitionError("acquisition_live_execution_disabled")
-    _require_synthetic_transport(transport)
+    _require_gate_d_transport(transport)
     return CollectorContext(transport=transport, budget=budget)
 
 
@@ -764,7 +777,7 @@ async def run_gate_d_broad_acquisition(
     *,
     config: AcquisitionScaffoldConfig,
     source_plan: SourcePlan,
-    delegate: SyntheticTransport,
+    delegate: object,
     budget: CollectionRunBudget | None = None,
     evidence_root: Path | None = None,
     journal: AcquisitionJournal | None = None,
@@ -810,7 +823,7 @@ async def run_gate_d_broad_acquisition(
     if evidence_root is not None and str(evidence_root) != source_plan.root:
         raise AcquisitionError("acquisition_source_plan_root_mismatch")
     root = Path(source_plan.root)
-    synthetic_delegate = _require_synthetic_transport(delegate)
+    synthetic_delegate = _require_gate_d_transport(delegate)
     if test_only_adapter is not None and _is_operational_root(root):
         raise AcquisitionError("acquisition_production_root_rejected")
     if collector_factory is None:

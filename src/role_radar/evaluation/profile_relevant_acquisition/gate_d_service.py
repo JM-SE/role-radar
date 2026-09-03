@@ -13,7 +13,7 @@ from role_radar.evaluation.profile_relevant_acquisition.acquisition_runtime impo
     GateDResult,
     SourceCheckpoint,
     SyntheticCollectorFactory,
-    SyntheticTransport,
+    _require_gate_d_transport,
     _seal_parent_pool,
     run_gate_d_broad_acquisition,
     verify_gate_d_reconciliations,
@@ -63,7 +63,7 @@ _REPLAY_CACHE: dict[tuple[object, ...], GateDServiceResult] = {}
 async def execute_gate_d_bounded_acquisition(
     *,
     request: GateDAuthorizationRequest,
-    delegate: SyntheticTransport,
+    delegate: object,
     collector_factory: SyntheticCollectorFactory,
     journal: AcquisitionJournal,
     checkpoints: Mapping[str, SourceCheckpoint] | Iterable[SourceCheckpoint] | None = None,
@@ -75,8 +75,10 @@ async def execute_gate_d_bounded_acquisition(
         authorized: AuthorizedGateD = authorize_gate_d(request, now=clock() if clock else None)
     except GateDAuthorizationError as exc:
         raise GateDServiceError(exc.code) from exc
-    if not isinstance(delegate, SyntheticTransport):
-        raise GateDServiceError("gate_d_synthetic_transport_required")
+    try:
+        _require_gate_d_transport(delegate)
+    except AcquisitionError as exc:
+        raise GateDServiceError(exc.code) from exc
     if not isinstance(journal, AcquisitionJournal):
         raise GateDServiceError("gate_d_journal_required")
     budget = CollectionRunBudget(maximum=authorized.request.budget_units)
