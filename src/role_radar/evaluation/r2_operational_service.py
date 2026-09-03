@@ -9,6 +9,18 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Protocol
 
+from .r2_operational_artifacts import (
+    R2Freezer,
+    R2GateCResolver,
+    R2GateDOfflineFactory,
+    R2GateDResolver,
+    R2GateEResolver,
+    R2GateFResolver,
+    R2Materializer,
+    R2OfficialProvider,
+    R2PostCResolver,
+    R2PrivateSealWriter,
+)
 from .r2_operational_authorization import (
     AuthorizationError,
     CandidateCommitIdentityProvider,
@@ -17,6 +29,11 @@ from .r2_operational_authorization import (
     authorize_packet,
 )
 from .r2_operational_capabilities import ProductionR2Capability, validate_capability
+from .r2_operational_gate_c_adapter import invoke_gate_c
+from .r2_operational_gate_d_adapter import invoke_gate_d
+from .r2_operational_gate_e_adapter import invoke_gate_e
+from .r2_operational_gate_f_adapter import invoke_gate_f
+from .r2_operational_post_c_adapter import invoke_post_c
 
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9_.:-]{0,127}$")
 HEX_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -69,6 +86,84 @@ class GateFInvoker(GateInvoker, Protocol):
     def invoke(
         self, packet: OperationPacket, capability: ProductionR2Capability
     ) -> Mapping[str, object]: ...
+
+
+@dataclass(frozen=True, slots=True)
+class ConcreteGateCInvoker:
+    resolver: R2GateCResolver
+    provider: R2OfficialProvider
+
+    def invoke(
+        self, packet: OperationPacket, capability: ProductionR2Capability
+    ) -> Mapping[str, object]:
+        return invoke_gate_c(packet, capability, self.resolver, self.provider)
+
+
+@dataclass(frozen=True, slots=True)
+class ConcretePostCInvoker:
+    resolver: R2PostCResolver
+    writer: R2PrivateSealWriter
+
+    def invoke(
+        self, packet: OperationPacket, capability: ProductionR2Capability
+    ) -> Mapping[str, object]:
+        return invoke_post_c(packet, capability, self.resolver, self.writer)
+
+
+@dataclass(frozen=True, slots=True)
+class ConcreteGateDInvoker:
+    resolver: R2GateDResolver
+    factory: R2GateDOfflineFactory
+
+    def invoke(
+        self, packet: OperationPacket, capability: ProductionR2Capability
+    ) -> Mapping[str, object]:
+        return invoke_gate_d(packet, capability, self.resolver, self.factory)
+
+
+@dataclass(frozen=True, slots=True)
+class ConcreteGateEInvoker:
+    resolver: R2GateEResolver
+
+    def invoke(
+        self, packet: OperationPacket, capability: ProductionR2Capability
+    ) -> Mapping[str, object]:
+        return invoke_gate_e(packet, capability, self.resolver)
+
+
+@dataclass(frozen=True, slots=True)
+class ConcreteGateFInvoker:
+    resolver: R2GateFResolver
+    materializer: R2Materializer
+    freezer: R2Freezer
+
+    def invoke(
+        self, packet: OperationPacket, capability: ProductionR2Capability
+    ) -> Mapping[str, object]:
+        return invoke_gate_f(packet, capability, self.resolver, self.materializer, self.freezer)
+
+
+def concrete_gate_invokers(
+    *,
+    c_resolver: R2GateCResolver,
+    provider: R2OfficialProvider,
+    post_c_resolver: R2PostCResolver,
+    writer: R2PrivateSealWriter,
+    d_resolver: R2GateDResolver,
+    d_factory: R2GateDOfflineFactory,
+    e_resolver: R2GateEResolver,
+    f_resolver: R2GateFResolver,
+    materializer: R2Materializer,
+    freezer: R2Freezer,
+) -> GateInvokers:
+    """Compose only the five named, independently selectable adapters."""
+    return GateInvokers(
+        ConcreteGateCInvoker(c_resolver, provider),
+        ConcretePostCInvoker(post_c_resolver, writer),
+        ConcreteGateDInvoker(d_resolver, d_factory),
+        ConcreteGateEInvoker(e_resolver),
+        ConcreteGateFInvoker(f_resolver, materializer, freezer),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -163,6 +258,11 @@ def dispatch_one_gate(
 
 
 __all__ = [
+    "ConcreteGateCInvoker",
+    "ConcreteGateDInvoker",
+    "ConcreteGateEInvoker",
+    "ConcreteGateFInvoker",
+    "ConcretePostCInvoker",
     "GateCInvoker",
     "GateDInvoker",
     "GateEInvoker",
@@ -171,5 +271,6 @@ __all__ = [
     "GateName",
     "PostCInvoker",
     "TerminalStatus",
+    "concrete_gate_invokers",
     "dispatch_one_gate",
 ]
