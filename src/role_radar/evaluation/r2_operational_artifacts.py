@@ -49,6 +49,7 @@ from role_radar.evaluation.profile_relevant_acquisition.post_c_preregistration_c
     PrivateSealWriter,
 )
 from role_radar.evaluation.profile_relevant_acquisition.source_plan import SourcePlan
+from role_radar.evaluation.r2_greenhouse_lever_factory import R2GreenhouseLeverFactory
 from role_radar.evaluation.r2_operational_authorization import OperationPacket
 from role_radar.evaluation.r2_operational_capabilities import ProductionR2Capability
 
@@ -161,8 +162,28 @@ class GateDOfflineEffects:
     checkpoints: tuple[SourceCheckpoint, ...] = ()
 
 
+@dataclass(frozen=True, slots=True)
+class GateDOperationalEffects:
+    """Named operational seam; construction requires an independently sealed factory."""
+
+    delegate: R2OperationalTransport
+    factory: R2GreenhouseLeverFactory
+    journal: AcquisitionJournal
+    checkpoints: tuple[SourceCheckpoint, ...] = ()
+
+
 class R2GateDOfflineFactory(Protocol):
     def create(self, request: GateDAuthorizationRequest) -> GateDOfflineEffects: ...
+
+
+class R2GateDOperationalFactory(Protocol):
+    def create(self, request: GateDAuthorizationRequest) -> GateDOperationalEffects: ...
+
+
+class R2OperationalTransport(Protocol):
+    """Narrow transport seam; concrete network policy remains factory-owned."""
+
+    async def handle_async_request(self, request: object) -> object: ...
 
 
 class R2Materializer(Protocol):
