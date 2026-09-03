@@ -1,24 +1,101 @@
-"""One-gate dispatcher. It deliberately has no successor/coordinator logic."""
+"""Typed one-gate dispatcher; no coordinator or successor path exists here."""
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import UTC, datetime
+from enum import StrEnum
 from typing import Protocol
 
 from .r2_operational_authorization import (
     AuthorizationError,
+    CandidateCommitIdentityProvider,
     ExternalApprovalVerifier,
     OperationPacket,
     authorize_packet,
 )
-from .r2_operational_capabilities import validate_capability
+from .r2_operational_capabilities import ProductionR2Capability, validate_capability
 
-PUBLIC_RESULT_FIELDS = frozenset({"gate", "operation_id", "status", "evidence_sha256"})
+ID_RE = re.compile(r"^[a-z0-9][a-z0-9_.:-]{0,127}$")
+HEX_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
-class GateLocalService(Protocol):
-    def invoke(self, packet: OperationPacket, capability: object) -> Mapping[str, object]: ...
+class GateName(StrEnum):
+    C = "c"
+    POST_C = "post-c"
+    D = "d"
+    E = "e"
+    F = "f"
+
+
+class TerminalStatus(StrEnum):
+    STOPPED = "stopped"
+    BLOCKED = "blocked"
+
+
+class GateInvoker(Protocol):
+    def invoke(
+        self, packet: OperationPacket, capability: ProductionR2Capability
+    ) -> Mapping[str, object]: ...
+
+
+class GateCInvoker(GateInvoker, Protocol):
+    pass
+
+
+class PostCInvoker(GateInvoker, Protocol):
+    pass
+
+
+class GateDInvoker(GateInvoker, Protocol):
+    pass
+
+
+class GateEInvoker(GateInvoker, Protocol):
+    pass
+
+
+class GateFInvoker(GateInvoker, Protocol):
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class GateInvokers:
+    c: GateCInvoker
+    post_c: PostCInvoker
+    d: GateDInvoker
+    e: GateEInvoker
+    f: GateFInvoker
+
+    def for_gate(self, gate: str) -> GateInvoker:
+        return {"c": self.c, "post-c": self.post_c, "d": self.d, "e": self.e, "f": self.f}[gate]
+
+
+def _public_result(packet: OperationPacket, value: Mapping[str, object]) -> dict[str, object]:
+    allowed = {"gate", "operation_id", "lineage_id", "status", "evidence_sha256"}
+    if any(key not in allowed for key in value):
+        raise AuthorizationError("blocked")
+    result = dict(value)
+    # Missing optional public evidence fields remain omitted for compatibility;
+    # every value that is emitted is nevertheless typed and bound.
+    result.setdefault("gate", packet.gate)
+    if result["gate"] != packet.gate or not isinstance(result["gate"], str):
+        raise AuthorizationError("blocked")
+    for key in ("operation_id", "lineage_id"):
+        if key in result and (
+            not isinstance(result[key], str) or ID_RE.fullmatch(result[key]) is None
+        ):
+            raise AuthorizationError("blocked")
+    if "status" in result and result["status"] != TerminalStatus.STOPPED.value:
+        raise AuthorizationError("blocked")
+    if "evidence_sha256" in result and (
+        not isinstance(result["evidence_sha256"], str)
+        or HEX_RE.fullmatch(result["evidence_sha256"]) is None
+    ):
+        raise AuthorizationError("blocked")
+    return {key: result[key] for key in allowed if key in result}
 
 
 def dispatch_one_gate(
@@ -26,37 +103,51 @@ def dispatch_one_gate(
     packet: OperationPacket,
     capability: object,
     verifier: ExternalApprovalVerifier,
-    gate_service: GateLocalService | None = None,
+    invokers: GateInvokers | None = None,
+    gate_service: GateInvoker | None = None,
+    candidate_provider: CandidateCommitIdentityProvider | None = None,
     now: datetime | None = None,
     used_nonces: frozenset[str] = frozenset(),
 ) -> dict[str, object]:
-    """Validate all inputs before the single injected gate-local effect."""
+    """Authorize, select exactly one named invoker, invoke once, and STOP."""
     try:
         authorize_packet(
             packet,
             verifier,
             now=now or datetime.now(UTC),
             expected_gate=packet.gate,
-            capability_name=getattr(capability, "name", None),
+            capability_name=capability.name
+            if isinstance(capability, ProductionR2Capability)
+            else None,
+            candidate_provider=candidate_provider,
             used_nonces=used_nonces,
         )
         typed = validate_capability(capability, packet)
-        if gate_service is None:
-            return {"result": "blocked", "code": "blocked"}
-        result = gate_service.invoke(packet, typed)
+        selected = invokers.for_gate(packet.gate) if invokers is not None else gate_service
+        if selected is None:
+            return {"result": TerminalStatus.BLOCKED.value, "code": "blocked"}
+        result = selected.invoke(packet, typed)
         if not isinstance(result, Mapping):
             raise AuthorizationError("blocked")
-        safe = {
-            str(key): value
-            for key, value in result.items()
-            if str(key) in PUBLIC_RESULT_FIELDS
-            and (isinstance(value, (str, int, bool)) or value is None)
+        return {
+            "result": TerminalStatus.STOPPED.value,
+            "code": "gate_completed",
+            **_public_result(packet, result),
         }
-        return {"result": "stopped", "code": "gate_completed", **safe}
     except AuthorizationError as exc:
-        return {"result": "blocked", "code": exc.code}
+        return {"result": TerminalStatus.BLOCKED.value, "code": exc.code}
     except Exception:
-        return {"result": "blocked", "code": "blocked"}
+        return {"result": TerminalStatus.BLOCKED.value, "code": "blocked"}
 
 
-__all__ = ["GateLocalService", "dispatch_one_gate"]
+__all__ = [
+    "GateCInvoker",
+    "GateDInvoker",
+    "GateEInvoker",
+    "GateFInvoker",
+    "GateInvokers",
+    "GateName",
+    "PostCInvoker",
+    "TerminalStatus",
+    "dispatch_one_gate",
+]

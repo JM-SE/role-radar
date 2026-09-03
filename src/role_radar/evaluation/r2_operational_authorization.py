@@ -12,10 +12,14 @@ import json
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Protocol
+from typing import Final, Protocol
 
 HASH_RE = re.compile(r"[0-9a-f]{64}\Z", re.ASCII)
+ID_RE = re.compile(r"[a-z0-9][a-z0-9_.:-]{0,127}\Z", re.ASCII)
 GATES = frozenset({"c", "post-c", "d", "e", "f"})
+OFFLINE_CANDIDATE_COMMIT_SHA256: Final[str] = "a" * 64
+OFFLINE_ALLOWED_BOARD_IDENTITIES: Final[tuple[str, ...]] = ("offline-board",)
+OFFLINE_ALLOWED_SOURCE_IDENTITIES: Final[tuple[str, ...]] = ("offline-source",)
 PUBLIC_CODES = frozenset(
     {
         "malformed_packet",
@@ -44,6 +48,19 @@ class ExternalApprovalVerifier(Protocol):
     """Independent approval boundary. Implementations must live outside DTOs."""
 
     def verify(self, packet: "OperationPacket", approval_reference: str) -> bool: ...
+
+
+class CandidateCommitIdentityProvider(Protocol):
+    """Named identity source; packet contents never provide the expected commit."""
+
+    def candidate_commit_sha256(self) -> str: ...
+
+
+class OfflineCandidateCommitIdentityProvider:
+    """Test-only identity source. Production construction is intentionally absent."""
+
+    def candidate_commit_sha256(self) -> str:
+        return OFFLINE_CANDIDATE_COMMIT_SHA256
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,6 +97,9 @@ class OperationPacket:
     expires_at: datetime
     replay_nonce: str
     predecessor_hashes: tuple[str, ...]
+    board_identities: tuple[str, ...] = OFFLINE_ALLOWED_BOARD_IDENTITIES
+    source_identities: tuple[str, ...] = OFFLINE_ALLOWED_SOURCE_IDENTITIES
+    lineage_id: str = "offline-lineage"
 
     def canonical_dict(self) -> dict[str, object]:
         value = {name: getattr(self, name) for name in self.__dataclass_fields__}
@@ -107,11 +127,17 @@ def _hash(value: object) -> str:
     return value
 
 
+def _identity(value: object) -> str:
+    if not isinstance(value, str) or ID_RE.fullmatch(value) is None:
+        raise AuthorizationError("malformed_packet")
+    return value
+
+
 def _time(value: object) -> datetime:
-    if not isinstance(value, str):
+    if not isinstance(value, str) or not value.endswith("Z"):
         raise AuthorizationError("malformed_packet")
     try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(value[:-1] + "+00:00")
     except ValueError as exc:
         raise AuthorizationError("malformed_packet") from exc
     if parsed.tzinfo is None:
@@ -151,6 +177,9 @@ def parse_operation_packet(value: object) -> OperationPacket:
             expires_at=_time(value["expires_at"]),
             replay_nonce=value["replay_nonce"],
             predecessor_hashes=tuple(value["predecessor_hashes"]),
+            board_identities=tuple(value["board_identities"]),
+            source_identities=tuple(value["source_identities"]),
+            lineage_id=value["lineage_id"],
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise AuthorizationError("malformed_packet") from exc
@@ -167,6 +196,27 @@ def parse_operation_packet(value: object) -> OperationPacket:
             "replay_nonce",
         )
     ):
+        raise AuthorizationError("malformed_packet")
+    for identity in (
+        packet.operation_id,
+        packet.destination_namespace,
+        packet.capability_name,
+        packet.approval_reference,
+        packet.replay_nonce,
+    ):
+        _identity(identity)
+    if len(packet.destination_root) > 512 or any(
+        packet.destination_root == root or packet.destination_root.startswith(root + "/")
+        for root in ("/opt", "/etc", "/var", "/usr", "/run", "/srv")
+    ):
+        raise AuthorizationError("malformed_packet")
+    if not packet.board_identities or not packet.source_identities:
+        raise AuthorizationError("malformed_packet")
+    if any(
+        _identity(item) != item for item in (*packet.board_identities, *packet.source_identities)
+    ):
+        raise AuthorizationError("malformed_packet")
+    if _identity(packet.lineage_id) != packet.lineage_id:
         raise AuthorizationError("malformed_packet")
     if not all(
         isinstance(getattr(packet, name), int)
@@ -195,10 +245,16 @@ def authorize_packet(
     expected_gate: str | None = None,
     predecessor_hashes: tuple[str, ...] | None = None,
     capability_name: str | None = None,
+    candidate_provider: CandidateCommitIdentityProvider | None = None,
     used_nonces: frozenset[str] = frozenset(),
 ) -> GateAuthorization:
-    if expected_gate is not None and packet.gate != expected_gate:
+    if packet.gate not in GATES or (expected_gate is not None and packet.gate != expected_gate):
         raise AuthorizationError("gate_mismatch")
+    if (
+        tuple(packet.board_identities) != OFFLINE_ALLOWED_BOARD_IDENTITIES
+        or tuple(packet.source_identities) != OFFLINE_ALLOWED_SOURCE_IDENTITIES
+    ):
+        raise AuthorizationError("binding_mismatch")
     if packet.replay_nonce in used_nonces:
         raise AuthorizationError("replay")
     current = now.astimezone(UTC)
@@ -208,12 +264,20 @@ def authorize_packet(
         or current > packet.window_cutoff
     ):
         raise AuthorizationError("expired")
-    if predecessor_hashes is not None and tuple(packet.predecessor_hashes) != tuple(
-        predecessor_hashes
+    if not packet.predecessor_hashes or (
+        predecessor_hashes is not None
+        and tuple(packet.predecessor_hashes) != tuple(predecessor_hashes)
     ):
         raise AuthorizationError("predecessor_missing")
     if capability_name is not None and packet.capability_name != capability_name:
         raise AuthorizationError("capability_mismatch")
+    provider = candidate_provider or OfflineCandidateCommitIdentityProvider()
+    try:
+        candidate = provider.candidate_commit_sha256()
+    except Exception as exc:
+        raise AuthorizationError("binding_mismatch") from exc
+    if candidate != packet.commit_sha256:
+        raise AuthorizationError("binding_mismatch")
     try:
         valid = verifier.verify(packet, packet.approval_reference)
     except Exception:
