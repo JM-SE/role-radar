@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 from role_radar.evaluation.r2_operational_authorization import OperationPacket
-from role_radar.evaluation.r2_operational_capabilities import IndependentCapabilityVerifier
+from role_radar.evaluation.r2_operational_capabilities import make_test_capability
 from role_radar.evaluation.r2_operational_service import GateInvokers, GateName, dispatch_one_gate
 
 
@@ -39,6 +39,9 @@ class Verifier:
     def verify(self, _packet: object, _reference: str) -> bool:
         return True
 
+    def verify_predecessors(self, _packet: object, _hashes: tuple[str, ...]) -> bool:
+        return True
+
 
 class Gate:
     def __init__(self) -> None:
@@ -51,7 +54,7 @@ class Gate:
 
 def test_dispatches_one_gate_then_stops() -> None:
     gate = Gate()
-    capability = IndependentCapabilityVerifier().verify("capability", packet().source_plan_sha256)
+    capability = make_test_capability(packet())
     invokers = GateInvokers(gate, gate, gate, gate, gate)
     result = dispatch_one_gate(
         packet=packet(),
@@ -65,7 +68,7 @@ def test_dispatches_one_gate_then_stops() -> None:
 
 
 def test_default_service_is_blocked_without_effect() -> None:
-    capability = IndependentCapabilityVerifier().verify("capability", packet().source_plan_sha256)
+    capability = make_test_capability(packet())
     result = dispatch_one_gate(
         packet=packet(),
         capability=capability,
@@ -82,3 +85,46 @@ def test_typed_invokers_select_each_gate_without_successor() -> None:
         for gate in (GateName.C, GateName.POST_C, GateName.D, GateName.E, GateName.F)
     )
     assert len({id(item) for item in selected}) == 5
+
+
+def test_each_gate_dispatches_exactly_once_without_successor() -> None:
+    for gate_name in GateName:
+        value = packet()
+        object.__setattr__(value, "gate", gate_name.value)
+        calls: list[str] = []
+
+        class Sentinel:
+            def __init__(self, gate: str, sink: list[str]) -> None:
+                self.gate = gate
+                self.sink = sink
+
+            def invoke(self, _packet: object, _capability: object) -> dict[str, object]:
+                self.sink.append(self.gate)
+                return {"gate": self.gate, "operation_id": "op-1"}
+
+        sentinel = Sentinel(gate_name.value, calls)
+        invokers = GateInvokers(sentinel, sentinel, sentinel, sentinel, sentinel)
+        result = dispatch_one_gate(
+            packet=value,
+            capability=make_test_capability(value),
+            verifier=Verifier(),
+            invokers=invokers,
+            now=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+        assert result["code"] == "gate_completed"
+        assert calls == [gate_name.value]
+
+
+def test_invalid_authorization_and_capability_have_no_effects() -> None:
+    gate = Gate()
+    invokers = GateInvokers(gate, gate, gate, gate, gate)
+    value = packet()
+    result = dispatch_one_gate(
+        packet=value,
+        capability=object(),
+        verifier=Verifier(),
+        invokers=invokers,
+        now=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    assert result["result"] == "blocked"
+    assert gate.calls == 0

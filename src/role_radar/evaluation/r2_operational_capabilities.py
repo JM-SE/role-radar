@@ -1,19 +1,20 @@
-"""Closed, named capability boundary for the offline R2 seam."""
+"""Closed capability boundary for the offline R2 seam.
+
+The only production input is an injected verifier result.  The explicit test
+factory below is the deliberately small offline seam; it is not a live
+capability constructor.
+"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Protocol
 
 from .r2_operational_authorization import AuthorizationError, OperationPacket
 
 
-@dataclass(frozen=True, slots=True)
-class CapabilityVerification:
-    """Result produced by an independent verifier/factory, not by a packet."""
-
-    capability_name: str
-    source_plan_sha256: str
-    independently_verified: bool = True
+class ExternalCapabilityVerifier(Protocol):
+    def verify(self, packet: OperationPacket) -> CapabilityVerification: ...
 
 
 class _CapabilityToken:
@@ -24,32 +25,52 @@ _CAPABILITY_TOKEN = _CapabilityToken()
 
 
 @dataclass(frozen=True, slots=True, init=False)
+class CapabilityVerification:
+    """Opaque result that only an external verifier boundary may create."""
+
+    capability_name: str
+    source_plan_sha256: str
+    independently_verified: bool
+
+    def __init__(
+        self,
+        capability_name: str,
+        source_plan_sha256: str,
+        independently_verified: bool = True,
+        *,
+        _token: object = None,
+    ) -> None:
+        if _token is not _CAPABILITY_TOKEN:
+            raise TypeError("capability verification is external-only")
+        object.__setattr__(self, "capability_name", capability_name)
+        object.__setattr__(self, "source_plan_sha256", source_plan_sha256)
+        object.__setattr__(self, "independently_verified", independently_verified)
+
+
+@dataclass(frozen=True, slots=True, init=False)
 class ProductionR2Capability:
     name: str
     source_plan_sha256: str
     independently_verified: bool
     _verification: CapabilityVerification
 
-    def __init__(self, name: str, source_plan_sha256: str, _token: object = None) -> None:
-        if _token is not _CAPABILITY_TOKEN:
-            raise TypeError("capability must be produced by an independent verifier")
-        verification = CapabilityVerification(name, source_plan_sha256)
-        object.__setattr__(self, "name", name)
-        object.__setattr__(self, "source_plan_sha256", source_plan_sha256)
-        object.__setattr__(self, "independently_verified", verification.independently_verified)
-        object.__setattr__(self, "_verification", verification)
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        raise TypeError("capability must be produced by an external verifier")
 
     @classmethod
-    def from_verification(
+    def _from_external_result(
         cls, result: CapabilityVerification, *, _token: object = None
     ) -> ProductionR2Capability:
         if (
-            not isinstance(result, CapabilityVerification)
+            type(result) is not CapabilityVerification
             or result.independently_verified is not True
             or _token is not _CAPABILITY_TOKEN
         ):
             raise AuthorizationError("capability_mismatch")
-        instance = cls(result.capability_name, result.source_plan_sha256, _CAPABILITY_TOKEN)
+        instance = object.__new__(cls)
+        object.__setattr__(instance, "name", result.capability_name)
+        object.__setattr__(instance, "source_plan_sha256", result.source_plan_sha256)
+        object.__setattr__(instance, "independently_verified", True)
         object.__setattr__(instance, "_verification", result)
         return instance
 
@@ -62,12 +83,33 @@ class ProductionR2Capability:
         )
 
 
-class IndependentCapabilityVerifier:
-    """The sole production construction path for the R2 capability."""
+def make_test_capability(packet: OperationPacket) -> ProductionR2Capability:
+    """Explicit offline fake seam; never accepts caller-selected identities."""
+    if type(packet) is not OperationPacket:
+        raise AuthorizationError("capability_mismatch")
+    result = CapabilityVerification(
+        packet.capability_name,
+        packet.source_plan_sha256,
+        _token=_CAPABILITY_TOKEN,
+    )
+    return ProductionR2Capability._from_external_result(result, _token=_CAPABILITY_TOKEN)
 
-    def verify(self, capability_name: str, source_plan_sha256: str) -> ProductionR2Capability:
-        result = CapabilityVerification(capability_name, source_plan_sha256)
-        return ProductionR2Capability.from_verification(result, _token=_CAPABILITY_TOKEN)
+
+def capability_from_external_verifier(
+    packet: OperationPacket, verifier: ExternalCapabilityVerifier
+) -> ProductionR2Capability:
+    """Construct a capability only from a verifier result bound to this packet."""
+    try:
+        result = verifier.verify(packet)
+    except Exception as exc:
+        raise AuthorizationError("capability_mismatch") from exc
+    if (
+        type(result) is not CapabilityVerification
+        or result.capability_name != packet.capability_name
+        or result.source_plan_sha256 != packet.source_plan_sha256
+    ):
+        raise AuthorizationError("capability_mismatch")
+    return ProductionR2Capability._from_external_result(result, _token=_CAPABILITY_TOKEN)
 
 
 def validate_capability(capability: object, packet: OperationPacket) -> ProductionR2Capability:
@@ -84,7 +126,9 @@ def validate_capability(capability: object, packet: OperationPacket) -> Producti
 
 __all__ = [
     "CapabilityVerification",
-    "IndependentCapabilityVerifier",
+    "ExternalCapabilityVerifier",
     "ProductionR2Capability",
+    "capability_from_external_verifier",
+    "make_test_capability",
     "validate_capability",
 ]

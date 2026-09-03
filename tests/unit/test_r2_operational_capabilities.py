@@ -4,8 +4,9 @@ import pytest
 
 from role_radar.evaluation.r2_operational_authorization import AuthorizationError, OperationPacket
 from role_radar.evaluation.r2_operational_capabilities import (
-    IndependentCapabilityVerifier,
+    CapabilityVerification,
     ProductionR2Capability,
+    make_test_capability,
     validate_capability,
 )
 
@@ -41,12 +42,12 @@ def packet() -> OperationPacket:
 
 
 def test_capability_requires_independent_approval_and_exact_plan() -> None:
-    value = IndependentCapabilityVerifier().verify("capability", packet().source_plan_sha256)
+    value = make_test_capability(packet())
     assert validate_capability(value, packet()) is value
+    other = packet()
+    object.__setattr__(other, "source_plan_sha256", "c" * 64)
     with pytest.raises(AuthorizationError):
-        validate_capability(
-            IndependentCapabilityVerifier().verify("capability", "a" * 64), packet()
-        )
+        validate_capability(make_test_capability(packet()), other)
     with pytest.raises(AuthorizationError):
         validate_capability(True, packet())
 
@@ -54,3 +55,8 @@ def test_capability_requires_independent_approval_and_exact_plan() -> None:
 def test_public_constructor_cannot_supply_verification() -> None:
     with pytest.raises(TypeError):
         ProductionR2Capability("capability", packet().source_plan_sha256, True)
+
+
+def test_arbitrary_caller_values_cannot_produce_verified_capability() -> None:
+    with pytest.raises(TypeError):
+        CapabilityVerification("caller", "a" * 64)

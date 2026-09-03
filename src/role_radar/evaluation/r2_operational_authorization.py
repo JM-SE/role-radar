@@ -49,6 +49,8 @@ class ExternalApprovalVerifier(Protocol):
 
     def verify(self, packet: OperationPacket, approval_reference: str) -> bool: ...
 
+    def verify_predecessors(self, packet: OperationPacket, hashes: tuple[str, ...]) -> bool: ...
+
 
 class CandidateCommitIdentityProvider(Protocol):
     """Named identity source; packet contents never provide the expected commit."""
@@ -125,13 +127,13 @@ class OperationPacket:
 
 
 def _hash(value: object) -> str:
-    if not isinstance(value, str) or HASH_RE.fullmatch(value) is None:
+    if type(value) is not str or HASH_RE.fullmatch(value) is None:
         raise AuthorizationError("malformed_packet")
     return value
 
 
 def _identity(value: object) -> str:
-    if not isinstance(value, str) or ID_RE.fullmatch(value) is None:
+    if type(value) is not str or ID_RE.fullmatch(value) is None:
         raise AuthorizationError("malformed_packet")
     return value
 
@@ -191,6 +193,57 @@ def parse_operation_packet(value: object) -> OperationPacket:
 
 
 def _validate_packet(packet: OperationPacket) -> None:
+    fields = OperationPacket.__dataclass_fields__
+    if type(packet) is not OperationPacket or any(not hasattr(packet, name) for name in fields):
+        raise AuthorizationError("malformed_packet")
+    if any(
+        type(getattr(packet, name)) is not str
+        for name in (
+            "operation_id",
+            "gate",
+            "commit_sha256",
+            "source_plan_sha256",
+            "b_ready_sha256",
+            "profile_sha256",
+            "policy_sha256",
+            "query_plan_sha256",
+            "destination_namespace",
+            "destination_root",
+            "capability_name",
+            "approval_reference",
+            "replay_nonce",
+            "lineage_id",
+        )
+    ):
+        raise AuthorizationError("malformed_packet")
+    if any(
+        not isinstance(getattr(packet, name), datetime)
+        for name in ("window_start", "window_cutoff", "expires_at")
+    ) or any(
+        type(getattr(packet, name)) is not datetime
+        for name in ("window_start", "window_cutoff", "expires_at")
+    ):
+        raise AuthorizationError("malformed_packet")
+    if any(
+        getattr(packet, name).tzinfo is None or getattr(packet, name).utcoffset() is None
+        for name in ("window_start", "window_cutoff", "expires_at")
+    ):
+        raise AuthorizationError("malformed_packet")
+    if any(
+        _hash(getattr(packet, name)) != getattr(packet, name)
+        for name in (
+            "commit_sha256",
+            "source_plan_sha256",
+            "b_ready_sha256",
+            "profile_sha256",
+            "policy_sha256",
+            "query_plan_sha256",
+            "selection_seed_sha256",
+            "partition_seed_sha256",
+            "approval_sha256",
+        )
+    ):
+        raise AuthorizationError("malformed_packet")
     if packet.gate not in GATES or packet.selection_seed_sha256 == packet.partition_seed_sha256:
         raise AuthorizationError("malformed_packet")
     if not all(
@@ -218,10 +271,17 @@ def _validate_packet(packet: OperationPacket) -> None:
         for root in ("/opt", "/etc", "/var", "/usr", "/run", "/srv")
     ):
         raise AuthorizationError("malformed_packet")
+    if type(packet.board_identities) is not tuple or type(packet.source_identities) is not tuple:
+        raise AuthorizationError("malformed_packet")
     if not packet.board_identities or not packet.source_identities:
         raise AuthorizationError("malformed_packet")
     if any(
         _identity(item) != item for item in (*packet.board_identities, *packet.source_identities)
+    ):
+        raise AuthorizationError("malformed_packet")
+    if (
+        packet.board_identities != OFFLINE_ALLOWED_BOARD_IDENTITIES
+        or packet.source_identities != OFFLINE_ALLOWED_SOURCE_IDENTITIES
     ):
         raise AuthorizationError("malformed_packet")
     if _identity(packet.lineage_id) != packet.lineage_id:
@@ -234,11 +294,13 @@ def _validate_packet(packet: OperationPacket) -> None:
     ):
         raise AuthorizationError("malformed_packet")
     if (
-        packet.window_start >= packet.window_cutoff
+        type(packet.predecessor_hashes) is not tuple
+        or packet.window_start >= packet.window_cutoff
+        or packet.expires_at <= packet.window_start
+        or packet.expires_at > packet.window_cutoff
         or not packet.predecessor_hashes
         or any(
-            not isinstance(x, str) or HASH_RE.fullmatch(x) is None
-            for x in packet.predecessor_hashes
+            type(x) is not str or HASH_RE.fullmatch(x) is None for x in packet.predecessor_hashes
         )
     ):
         raise AuthorizationError("malformed_packet")
@@ -290,6 +352,15 @@ def authorize_packet(
         raise AuthorizationError("binding_mismatch") from exc
     if candidate != packet.commit_sha256:
         raise AuthorizationError("binding_mismatch")
+    predecessor_check = getattr(verifier, "verify_predecessors", None)
+    if not callable(predecessor_check):
+        raise AuthorizationError("predecessor_missing")
+    try:
+        predecessors_valid = predecessor_check(packet, packet.predecessor_hashes)
+    except Exception:
+        predecessors_valid = False
+    if predecessors_valid is not True:
+        raise AuthorizationError("predecessor_missing")
     try:
         valid = verifier.verify(packet, packet.approval_reference)
     except Exception:

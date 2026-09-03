@@ -50,6 +50,14 @@ class Verifier:
     def verify(self, _packet: OperationPacket, _reference: str) -> bool:
         return self.value
 
+    def verify_predecessors(self, _packet: OperationPacket, _hashes: tuple[str, ...]) -> bool:
+        return self.value
+
+
+class ApprovalOnlyVerifier(Verifier):
+    def verify_predecessors(self, _packet: OperationPacket, _hashes: tuple[str, ...]) -> bool:
+        return True
+
 
 def test_packet_is_canonical_and_strict() -> None:
     parsed = parse_operation_packet(packet().canonical_dict())
@@ -75,4 +83,6 @@ def test_authorization_rejects_expiry_replay_and_unverified_approval() -> None:
             used_nonces=frozenset({"nonce"}),
         )
     with pytest.raises(AuthorizationError, match="approval_invalid"):
-        authorize_packet(packet(), Verifier(False), now=datetime(2026, 1, 1, tzinfo=UTC))
+        authorize_packet(
+            packet(), ApprovalOnlyVerifier(False), now=datetime(2026, 1, 1, tzinfo=UTC)
+        )
