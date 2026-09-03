@@ -88,6 +88,9 @@ class R2GreenhouseLeverFactory:
             raise ValueError("r2_operational_transport_rejected")
         try:
             self.plan.__post_init__()
+            # Complete row validation must precede all host derivation and
+            # transport mutation.
+            self._validate_sources()
             self.capability.verify_for(self.packet, self.plan, now=self.packet.window_start)
         except Exception as exc:
             raise ValueError("r2_operational_binding_invalid") from exc
@@ -109,26 +112,29 @@ class R2GreenhouseLeverFactory:
         ):
             raise ValueError("r2_allowed_hosts_mismatch")
         self.transport._seal_hosts(claims.allowed_hosts)
-        self._validate_sources()
 
     def _validate_sources(self) -> None:
         seen: set[str] = set()
         for item in self.plan.source_configs:
-            family = item["family"]
-            if family not in _FAMILIES or family != str(family):
-                raise ValueError("r2_provider_family_rejected")
-            if item["configuration_version"] != 1:
-                raise ValueError("r2_configuration_version_mismatch")
-            key = item["source_key"]
-            if not isinstance(key, str) or key in seen:
-                raise ValueError("r2_source_duplicate")
-            seen.add(key)
             try:
+                if set(item) != {"family", "source_key", "configuration_version", "configuration"}:
+                    raise ValueError("source shape mismatch")
+                family = item["family"]
+                if family not in _FAMILIES or type(family) is not str:
+                    raise ValueError("family mismatch")
+                if item["configuration_version"] != 1:
+                    raise ValueError("version mismatch")
+                key = item["source_key"]
+                if type(key) is not str or key in seen:
+                    raise ValueError("duplicate or invalid key")
+                if not isinstance(item["configuration"], Mapping):
+                    raise ValueError("configuration shape mismatch")
                 source_type = SourceType(family)
                 raw_configuration = cast(Mapping[str, object], item["configuration"])
                 config = validate_configuration(source_type, 1, dict(raw_configuration))
                 if canonical_source_key(source_type, config.model_dump()) != key:
                     raise ValueError("source key mismatch")
+                seen.add(key)
             except (TypeError, ValueError, KeyError) as exc:
                 raise ValueError("r2_source_configuration_invalid") from exc
 

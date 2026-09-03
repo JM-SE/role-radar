@@ -1,6 +1,8 @@
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import pytest
+
 from role_radar.collectors.registry import CollectorContext
 from role_radar.evaluation.profile_relevant_acquisition.acquisition_runtime import (
     SyntheticTransport,
@@ -100,3 +102,34 @@ def test_operational_factory_constructs_exact_greenhouse_collector_offline() -> 
     collector = factory.create(factory.snapshots()[0], CollectorContext(wrapped, None))
     assert type(collector) is GreenhouseCollector
     assert transport._allowed_hosts == ("boards-api.greenhouse.io",)
+
+
+def test_invalid_plan_is_rejected_before_transport_binding() -> None:
+    packet = _packet()
+    valid_plan = _plan()
+    plan = build_source_plan(
+        namespace="bridge-namespace",
+        root="/tmp/bridge-evidence",
+        per_board_cap=1,
+        per_company_cap=1,
+        budget=SourcePlanBudget("bridge-budget", 1),
+        seed=SeedInputs("a" * 64, "b" * 64),
+        operation_id="op-bridge",
+        lineage_id="lineage",
+        source_configs=(
+            {
+                "family": "jobicy",
+                "source_key": "jobicy:acme",
+                "configuration_version": 1,
+                "configuration": {"site": "acme"},
+            },
+        ),
+    )
+    capability = R2GreenhouseLeverCapability(
+        make_test_verification(packet, valid_plan), make_test_capability(packet)
+    )
+    transport = make_test_transport({"/v1/boards/acme/jobs": b'{"jobs":[]}'})
+    with pytest.raises(ValueError):
+        R2GreenhouseLeverFactory(capability, packet, plan, transport)
+    assert transport.calls == 0
+    assert transport._allowed_hosts == ()

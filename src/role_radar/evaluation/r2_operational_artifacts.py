@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, cast
 
 from role_radar.discovery.board_candidates import BoardCandidateV2
 from role_radar.discovery.planner_v2 import DiscoveryQueryPlanV2
@@ -49,6 +49,7 @@ from role_radar.evaluation.profile_relevant_acquisition.post_c_preregistration_c
     PrivateSealWriter,
 )
 from role_radar.evaluation.profile_relevant_acquisition.source_plan import SourcePlan
+from role_radar.evaluation.r2_greenhouse_lever_capability import R2GreenhouseLeverCapability
 from role_radar.evaluation.r2_greenhouse_lever_factory import R2GreenhouseLeverFactory
 from role_radar.evaluation.r2_operational_authorization import OperationPacket
 from role_radar.evaluation.r2_operational_capabilities import ProductionR2Capability
@@ -170,6 +171,21 @@ class GateDOperationalEffects:
     factory: R2GreenhouseLeverFactory
     journal: AcquisitionJournal
     checkpoints: tuple[SourceCheckpoint, ...] = ()
+
+    def __post_init__(self) -> None:
+        """Enforce the operational seam at runtime, not through annotations."""
+        if type(self.factory) is not R2GreenhouseLeverFactory:
+            raise TypeError("r2_operational_factory_required")
+        if type(self.factory.capability) is not R2GreenhouseLeverCapability:
+            raise TypeError("r2_operational_capability_required")
+        if cast(object, self.delegate) is not cast(object, self.factory.transport):
+            raise ValueError("r2_operational_transport_mismatch")
+        if type(self.journal) is not AcquisitionJournal:
+            raise TypeError("r2_operational_journal_required")
+        if type(self.checkpoints) is not tuple or any(
+            type(item) is not SourceCheckpoint for item in self.checkpoints
+        ):
+            raise TypeError("r2_operational_checkpoints_invalid")
 
 
 class R2GateDOfflineFactory(Protocol):

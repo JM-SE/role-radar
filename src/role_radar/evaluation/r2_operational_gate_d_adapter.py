@@ -86,13 +86,21 @@ def invoke_gate_d(
         collector_factory = effects.collector_factory
         journal = effects.journal
         checkpoints = effects.checkpoints or None
-    elif type(effects) is GateDOperationalEffects and (
-        effects.factory.packet is not packet
-        or effects.factory.plan is not resolved.source_plan
-        or cast(object, effects.delegate) is not cast(object, effects.factory.transport)
-    ):
-        raise ValueError("binding_mismatch")
     elif type(effects) is GateDOperationalEffects:
+        # Reject provider-shaped injection before invoking the sealed collector
+        # factory or using its transport.
+        from role_radar.evaluation.r2_greenhouse_lever_factory import (
+            R2GreenhouseLeverFactory,
+        )
+
+        if type(effects.factory) is not R2GreenhouseLeverFactory:
+            raise ValueError("binding_mismatch")
+        if (
+            effects.factory.packet is not packet
+            or effects.factory.plan is not resolved.source_plan
+            or cast(object, effects.delegate) is not cast(object, effects.factory.transport)
+        ):
+            raise ValueError("binding_mismatch")
 
         def operational_collectors(snapshot: object, context: object) -> object:
             return effects.factory.create(snapshot, context)  # type: ignore[arg-type]
