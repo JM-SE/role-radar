@@ -42,23 +42,33 @@ class GateInvoker(Protocol):
 
 
 class GateCInvoker(GateInvoker, Protocol):
-    pass
+    def invoke(
+        self, packet: OperationPacket, capability: ProductionR2Capability
+    ) -> Mapping[str, object]: ...
 
 
 class PostCInvoker(GateInvoker, Protocol):
-    pass
+    def invoke(
+        self, packet: OperationPacket, capability: ProductionR2Capability
+    ) -> Mapping[str, object]: ...
 
 
 class GateDInvoker(GateInvoker, Protocol):
-    pass
+    def invoke(
+        self, packet: OperationPacket, capability: ProductionR2Capability
+    ) -> Mapping[str, object]: ...
 
 
 class GateEInvoker(GateInvoker, Protocol):
-    pass
+    def invoke(
+        self, packet: OperationPacket, capability: ProductionR2Capability
+    ) -> Mapping[str, object]: ...
 
 
 class GateFInvoker(GateInvoker, Protocol):
-    pass
+    def invoke(
+        self, packet: OperationPacket, capability: ProductionR2Capability
+    ) -> Mapping[str, object]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,8 +79,18 @@ class GateInvokers:
     e: GateEInvoker
     f: GateFInvoker
 
-    def for_gate(self, gate: str) -> GateInvoker:
-        return {"c": self.c, "post-c": self.post_c, "d": self.d, "e": self.e, "f": self.f}[gate]
+    def for_gate(self, gate: GateName) -> GateInvoker:
+        if gate is GateName.C:
+            return self.c
+        if gate is GateName.POST_C:
+            return self.post_c
+        if gate is GateName.D:
+            return self.d
+        if gate is GateName.E:
+            return self.e
+        if gate is GateName.F:
+            return self.f
+        raise AuthorizationError("gate_mismatch")
 
 
 def _public_result(packet: OperationPacket, value: Mapping[str, object]) -> dict[str, object]:
@@ -84,9 +104,12 @@ def _public_result(packet: OperationPacket, value: Mapping[str, object]) -> dict
     if result["gate"] != packet.gate or not isinstance(result["gate"], str):
         raise AuthorizationError("blocked")
     for key in ("operation_id", "lineage_id"):
+        field_value = result.get(key)
         if key in result and (
-            not isinstance(result[key], str) or ID_RE.fullmatch(result[key]) is None
+            not isinstance(field_value, str) or ID_RE.fullmatch(field_value) is None
         ):
+            raise AuthorizationError("blocked")
+        if key in result and field_value != getattr(packet, key):
             raise AuthorizationError("blocked")
     if "status" in result and result["status"] != TerminalStatus.STOPPED.value:
         raise AuthorizationError("blocked")
@@ -104,7 +127,6 @@ def dispatch_one_gate(
     capability: object,
     verifier: ExternalApprovalVerifier,
     invokers: GateInvokers | None = None,
-    gate_service: GateInvoker | None = None,
     candidate_provider: CandidateCommitIdentityProvider | None = None,
     now: datetime | None = None,
     used_nonces: frozenset[str] = frozenset(),
@@ -123,7 +145,7 @@ def dispatch_one_gate(
             used_nonces=used_nonces,
         )
         typed = validate_capability(capability, packet)
-        selected = invokers.for_gate(packet.gate) if invokers is not None else gate_service
+        selected = invokers.for_gate(GateName(packet.gate)) if invokers is not None else None
         if selected is None:
             return {"result": TerminalStatus.BLOCKED.value, "code": "blocked"}
         result = selected.invoke(packet, typed)

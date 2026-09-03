@@ -1,8 +1,8 @@
 from datetime import UTC, datetime, timedelta
 
 from role_radar.evaluation.r2_operational_authorization import OperationPacket
-from role_radar.evaluation.r2_operational_capabilities import ProductionR2Capability
-from role_radar.evaluation.r2_operational_service import dispatch_one_gate
+from role_radar.evaluation.r2_operational_capabilities import IndependentCapabilityVerifier
+from role_radar.evaluation.r2_operational_service import GateInvokers, GateName, dispatch_one_gate
 
 
 def packet() -> OperationPacket:
@@ -51,11 +51,13 @@ class Gate:
 
 def test_dispatches_one_gate_then_stops() -> None:
     gate = Gate()
+    capability = IndependentCapabilityVerifier().verify("capability", packet().source_plan_sha256)
+    invokers = GateInvokers(gate, gate, gate, gate, gate)
     result = dispatch_one_gate(
         packet=packet(),
-        capability=ProductionR2Capability("capability", packet().source_plan_sha256, True),
+        capability=capability,
         verifier=Verifier(),
-        gate_service=gate,
+        invokers=invokers,
         now=datetime(2026, 1, 1, tzinfo=UTC),
     )
     assert result == {"result": "stopped", "code": "gate_completed", "gate": "c"}
@@ -63,10 +65,20 @@ def test_dispatches_one_gate_then_stops() -> None:
 
 
 def test_default_service_is_blocked_without_effect() -> None:
+    capability = IndependentCapabilityVerifier().verify("capability", packet().source_plan_sha256)
     result = dispatch_one_gate(
         packet=packet(),
-        capability=ProductionR2Capability("capability", packet().source_plan_sha256, True),
+        capability=capability,
         verifier=Verifier(),
         now=datetime(2026, 1, 1, tzinfo=UTC),
     )
     assert result == {"result": "blocked", "code": "blocked"}
+
+
+def test_typed_invokers_select_each_gate_without_successor() -> None:
+    invokers = GateInvokers(*(Gate() for _ in range(5)))
+    selected = tuple(
+        invokers.for_gate(gate)
+        for gate in (GateName.C, GateName.POST_C, GateName.D, GateName.E, GateName.F)
+    )
+    assert len({id(item) for item in selected}) == 5

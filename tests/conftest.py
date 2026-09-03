@@ -25,7 +25,10 @@ from role_radar.main import create_app
 def deny_external_network() -> Iterator[None]:
     """Gate A session guard; explicit MockTransport seams remain available."""
 
-    if os.environ.get("ROLE_RADAR_TEST_NETWORK_DENY") != "1":
+    if not (
+        os.environ.get("ROLE_RADAR_TEST_NETWORK_DENY") == "1"
+        or os.environ.get("ROLE_RADAR_TEST_NETWORK") == "deny"
+    ):
         yield
         return
 

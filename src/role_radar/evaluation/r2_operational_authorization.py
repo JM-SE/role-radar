@@ -47,7 +47,7 @@ class AuthorizationError(ValueError):
 class ExternalApprovalVerifier(Protocol):
     """Independent approval boundary. Implementations must live outside DTOs."""
 
-    def verify(self, packet: "OperationPacket", approval_reference: str) -> bool: ...
+    def verify(self, packet: OperationPacket, approval_reference: str) -> bool: ...
 
 
 class CandidateCommitIdentityProvider(Protocol):
@@ -100,6 +100,9 @@ class OperationPacket:
     board_identities: tuple[str, ...] = OFFLINE_ALLOWED_BOARD_IDENTITIES
     source_identities: tuple[str, ...] = OFFLINE_ALLOWED_SOURCE_IDENTITIES
     lineage_id: str = "offline-lineage"
+
+    def __post_init__(self) -> None:
+        _validate_packet(self)
 
     def canonical_dict(self) -> dict[str, object]:
         value = {name: getattr(self, name) for name in self.__dataclass_fields__}
@@ -183,6 +186,11 @@ def parse_operation_packet(value: object) -> OperationPacket:
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise AuthorizationError("malformed_packet") from exc
+    _validate_packet(packet)
+    return packet
+
+
+def _validate_packet(packet: OperationPacket) -> None:
     if packet.gate not in GATES or packet.selection_seed_sha256 == packet.partition_seed_sha256:
         raise AuthorizationError("malformed_packet")
     if not all(
@@ -234,7 +242,6 @@ def parse_operation_packet(value: object) -> OperationPacket:
         )
     ):
         raise AuthorizationError("malformed_packet")
-    return packet
 
 
 def authorize_packet(
@@ -248,6 +255,11 @@ def authorize_packet(
     candidate_provider: CandidateCommitIdentityProvider | None = None,
     used_nonces: frozenset[str] = frozenset(),
 ) -> GateAuthorization:
+    # Dataclasses can be constructed directly by callers; never treat that as
+    # equivalent to parsing a trusted packet.
+    if type(packet) is not OperationPacket:
+        raise AuthorizationError("malformed_packet")
+    _validate_packet(packet)
     if packet.gate not in GATES or (expected_gate is not None and packet.gate != expected_gate):
         raise AuthorizationError("gate_mismatch")
     if (

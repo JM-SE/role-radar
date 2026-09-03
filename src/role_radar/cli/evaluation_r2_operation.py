@@ -7,7 +7,10 @@ import hashlib
 import hmac
 import json
 import re
+from datetime import UTC
 from typing import Any, cast
+
+from role_radar.evaluation.r2_operational_authorization import OperationPacket
 
 SCHEMA_VERSION = "r2-operation-cli-v1"
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
@@ -42,6 +45,20 @@ def validate_confirmation(*, supplied: str | None, expected: str) -> None:
         raise ValueError("confirmation_invalid")
 
 
+def validate_packet_confirmation(
+    *, packet: OperationPacket, supplied: str | None, operation_id: str | None = None
+) -> None:
+    """Validate the canonical challenge at the injected offline boundary."""
+    expected = canonical_confirmation_challenge(
+        packet_digest=packet.packet_sha256,
+        gate=packet.gate,
+        expires_at=packet.expires_at.astimezone(UTC).isoformat().replace("+00:00", "Z"),
+        nonce=packet.replay_nonce,
+        operation_id=operation_id or packet.operation_id,
+    )
+    validate_confirmation(supplied=supplied, expected=expected)
+
+
 def register_parser(subparsers: Any) -> argparse.ArgumentParser:
     parent = subparsers.add_parser("r2-operation")
     commands = parent.add_subparsers(dest="r2_operation_command", required=True)
@@ -67,17 +84,9 @@ def run(args: argparse.Namespace) -> int:
     # There is no packet decoder or production root in this namespace yet.  A
     # prepared/injected caller may validate a challenge, but this CLI remains
     # BLOCK-0 and never reaches a service or provider.
-    if getattr(args, "confirmation", None) is not None:
-        try:
-            validate_confirmation(supplied=args.confirmation, expected="0" * 64)
-        except ValueError:
-            code = "confirmation_invalid"
-        else:
-            code = "BLOCK-0"
-    else:
-        # Preserve the established pre-capability BLOCK-0 response while the
-        # external packet decoder remains intentionally unavailable.
-        code = "BLOCK-0"
+    # No packet decoder exists in this intentionally inert CLI boundary. A
+    # supplied confirmation therefore cannot be accepted or ignored.
+    code = "confirmation_invalid" if getattr(args, "confirmation", None) is not None else "BLOCK-0"
     print(
         json.dumps(
             {

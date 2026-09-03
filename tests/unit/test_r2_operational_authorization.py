@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -56,6 +57,11 @@ def test_packet_is_canonical_and_strict() -> None:
     with pytest.raises(AuthorizationError) as error:
         parse_operation_packet({**packet().canonical_dict(), "unexpected": 1})
     assert error.value.code == "malformed_packet"
+
+
+def test_direct_packet_construction_is_validated() -> None:
+    with pytest.raises(AuthorizationError, match="malformed_packet"):
+        replace(packet(), destination_root="/etc")
 
 
 def test_authorization_rejects_expiry_replay_and_unverified_approval() -> None:
