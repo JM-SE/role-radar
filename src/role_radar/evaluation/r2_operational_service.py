@@ -22,6 +22,7 @@ from .r2_operational_artifacts import (
     R2PrivateSealWriter,
 )
 from .r2_operational_authorization import (
+    PUBLIC_CODES,
     AuthorizationError,
     CandidateCommitIdentityProvider,
     ExternalApprovalVerifier,
@@ -193,18 +194,19 @@ def _public_result(packet: OperationPacket, value: Mapping[str, object]) -> dict
     if any(key not in allowed for key in value):
         raise AuthorizationError("blocked")
     result = dict(value)
-    # Missing optional public evidence fields remain omitted for compatibility;
-    # every value that is emitted is nevertheless typed and bound.
+    # Identity is mandatory in the public result, even when an injected gate
+    # seam omitted it.  No internal DTO fields cross this boundary.
     result.setdefault("gate", packet.gate)
+    result.setdefault("operation_id", packet.operation_id)
+    result.setdefault("lineage_id", packet.lineage_id)
+    result.setdefault("status", TerminalStatus.STOPPED.value)
     if result["gate"] != packet.gate or not isinstance(result["gate"], str):
         raise AuthorizationError("blocked")
     for key in ("operation_id", "lineage_id"):
         field_value = result.get(key)
-        if key in result and (
-            not isinstance(field_value, str) or ID_RE.fullmatch(field_value) is None
-        ):
+        if not isinstance(field_value, str) or ID_RE.fullmatch(field_value) is None:
             raise AuthorizationError("blocked")
-        if key in result and field_value != getattr(packet, key):
+        if field_value != getattr(packet, key):
             raise AuthorizationError("blocked")
     if "status" in result and result["status"] != TerminalStatus.STOPPED.value:
         raise AuthorizationError("blocked")
@@ -214,6 +216,20 @@ def _public_result(packet: OperationPacket, value: Mapping[str, object]) -> dict
     ):
         raise AuthorizationError("blocked")
     return {key: result[key] for key in allowed if key in result}
+
+
+def _blocked(packet: object, code: str) -> dict[str, object]:
+    code = code if code in PUBLIC_CODES else "blocked"
+    if isinstance(packet, OperationPacket):
+        return {
+            "result": TerminalStatus.BLOCKED.value,
+            "code": code,
+            "gate": packet.gate,
+            "operation_id": packet.operation_id,
+            "lineage_id": packet.lineage_id,
+            "status": TerminalStatus.STOPPED.value,
+        }
+    return {"result": TerminalStatus.BLOCKED.value, "code": code}
 
 
 def dispatch_one_gate(
@@ -242,7 +258,7 @@ def dispatch_one_gate(
         typed = validate_capability(capability, packet)
         selected = invokers.for_gate(GateName(packet.gate)) if invokers is not None else None
         if selected is None:
-            return {"result": TerminalStatus.BLOCKED.value, "code": "blocked"}
+            return _blocked(packet, "blocked")
         result = selected.invoke(packet, typed)
         if not isinstance(result, Mapping):
             raise AuthorizationError("blocked")
@@ -252,9 +268,10 @@ def dispatch_one_gate(
             **_public_result(packet, result),
         }
     except AuthorizationError as exc:
-        return {"result": TerminalStatus.BLOCKED.value, "code": exc.code}
-    except Exception:
-        return {"result": TerminalStatus.BLOCKED.value, "code": "blocked"}
+        return _blocked(packet, exc.code)
+    except Exception as exc:
+        code = getattr(exc, "code", "blocked")
+        return _blocked(packet, code if isinstance(code, str) else "blocked")
 
 
 __all__ = [

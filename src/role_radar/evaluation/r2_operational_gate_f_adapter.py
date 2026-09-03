@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from role_radar.evaluation.profile_relevant_acquisition.gate_f_authorization import (
+    authorize_gate_f,
     freeze_bindings_for_request,
 )
 from role_radar.evaluation.profile_relevant_acquisition.gate_f_service import (
@@ -27,16 +28,26 @@ def invoke_gate_f(
     if packet.gate != "f" or not capability.verify_for(packet):
         raise ValueError("binding_mismatch")
     resolved = resolver.resolve_gate_f(packet, capability)
+    authorize_gate_f(resolved.request)
     if (
         resolved.operation_id,
         resolved.lineage_id,
         resolved.source_plan_sha256,
-        resolved.destination_root,
+        str(resolved.request.destination_root),
     ) != (
         packet.operation_id,
         packet.lineage_id,
         packet.source_plan_sha256,
-        resolved.request.destination_root,
+        packet.destination_root,
+    ):
+        raise ValueError("binding_mismatch")
+    if (
+        resolved.request.authorization.operation_id != packet.operation_id
+        or resolved.request.authorization.lineage_id != packet.lineage_id
+        or resolved.request.authorization.artifact_class != "synthetic"
+        or resolved.request.gate_e_request.current_commit_sha256 != packet.commit_sha256
+        or resolved.request.provenance.namespace != packet.destination_namespace
+        or resolved.request.provenance.root != packet.destination_root
     ):
         raise ValueError("binding_mismatch")
     result = run_gate_f_materialization_freeze(

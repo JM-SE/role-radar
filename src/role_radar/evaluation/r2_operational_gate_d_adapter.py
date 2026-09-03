@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Mapping
 
+from role_radar.evaluation.profile_relevant_acquisition.gate_d_authorization import authorize_gate_d
 from role_radar.evaluation.profile_relevant_acquisition.gate_d_service import (
     execute_gate_d_bounded_acquisition,
 )
@@ -21,6 +22,7 @@ def invoke_gate_d(
         raise ValueError("binding_mismatch")
     resolved = resolver.resolve_gate_d(packet, capability)
     request = resolved.request
+    authorize_gate_d(request)
     if (resolved.operation_id, resolved.lineage_id, request.operation_id, request.lineage_id) != (
         packet.operation_id,
         packet.lineage_id,
@@ -32,6 +34,8 @@ def invoke_gate_d(
         resolved.source_plan.source_plan_sha256 != packet.source_plan_sha256
         or resolved.source_cap != packet.source_cap
         or resolved.budget != packet.budget
+        or resolved.quota != packet.quota
+        or resolved.cardinality != packet.cardinality
     ):
         raise ValueError("binding_mismatch")
     if (
@@ -41,11 +45,11 @@ def invoke_gate_d(
         or str(request.evidence_root) != packet.destination_root
         or request.per_board_cap != packet.source_cap
         or request.budget_units != packet.budget
+        or request.per_company_cap != packet.source_cap
+        or request.current_commit_sha256 != packet.commit_sha256
         or request.artifact_class != "offline_private_report_only"
-        or resolved.window_start_utc
-        != packet.window_start.isoformat().replace("+00:00", "Z")
-        or resolved.window_end_utc
-        != packet.window_cutoff.isoformat().replace("+00:00", "Z")
+        or resolved.window_start_utc != packet.window_start.isoformat().replace("+00:00", "Z")
+        or resolved.window_end_utc != packet.window_cutoff.isoformat().replace("+00:00", "Z")
         or any(value < 0 for value in request.quotas.values())
         or any(value < 0 for value in request.cardinality.values())
     ):

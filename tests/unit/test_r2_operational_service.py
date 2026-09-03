@@ -63,7 +63,14 @@ def test_dispatches_one_gate_then_stops() -> None:
         invokers=invokers,
         now=datetime(2026, 1, 1, tzinfo=UTC),
     )
-    assert result == {"result": "stopped", "code": "gate_completed", "gate": "c"}
+    assert result == {
+        "result": "stopped",
+        "code": "gate_completed",
+        "gate": "c",
+        "operation_id": "op-1",
+        "lineage_id": "offline-lineage",
+        "status": "stopped",
+    }
     assert gate.calls == 1
 
 
@@ -75,7 +82,14 @@ def test_default_service_is_blocked_without_effect() -> None:
         verifier=Verifier(),
         now=datetime(2026, 1, 1, tzinfo=UTC),
     )
-    assert result == {"result": "blocked", "code": "blocked"}
+    assert result == {
+        "result": "blocked",
+        "code": "blocked",
+        "gate": "c",
+        "operation_id": "op-1",
+        "lineage_id": "offline-lineage",
+        "status": "stopped",
+    }
 
 
 def test_typed_invokers_select_each_gate_without_successor() -> None:

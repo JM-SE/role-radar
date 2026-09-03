@@ -335,6 +335,13 @@ def parse_post_c_preregistration_request(value: object) -> PostCPreregistrationR
         raise PostCPreregistrationError("post_c_request_invalid") from exc
 
 
+def validate_post_c_request(request: PostCPreregistrationRequest) -> None:
+    """Re-run the frozen request's complete pure binding validation."""
+    if not isinstance(request, PostCPreregistrationRequest):
+        raise PostCPreregistrationError("post_c_request_invalid")
+    request.__post_init__()
+
+
 __all__ = [
     "PostCPreregistrationError",
     "PostCPreregistrationRequest",
