@@ -37,6 +37,16 @@ def _freeze(value: object) -> object:
     raise AuthorizationError("binding_mismatch")
 
 
+def _is_deeply_immutable(value: object) -> bool:
+    if isinstance(value, MappingProxyType):
+        return all(
+            _is_deeply_immutable(key) and _is_deeply_immutable(item) for key, item in value.items()
+        )
+    if type(value) is tuple:
+        return all(_is_deeply_immutable(item) for item in value)
+    return type(value) in {str, int, bool, type(None), bytes}
+
+
 class GreenhouseLeverClaimsVerifier(Protocol):
     def verify_greenhouse_lever_claims(
         self, packet: OperationPacket, plan: SourcePlan
@@ -65,7 +75,42 @@ class GreenhouseLeverVerification:
     def __init__(self, *args: object, _token: object = None, **kwargs: object) -> None:
         if _token is not _TOKEN:
             raise TypeError("Greenhouse/Lever claims are external-only")
-        values = dict(zip(self.__dataclass_fields__, args, strict=True)) | kwargs
+        names = tuple(self.__dataclass_fields__)
+        if len(args) > len(names) or set(kwargs) - set(names):
+            raise TypeError("Greenhouse/Lever claims are malformed")
+        values = dict(zip(names, args, strict=False)) | kwargs
+        if set(values) != set(names):
+            raise TypeError("Greenhouse/Lever claims are incomplete")
+        if (
+            type(values["provider_families"]) is not tuple
+            or any(type(item) is not str for item in values["provider_families"])
+            or type(values["allowed_hosts"]) is not tuple
+            or any(type(item) is not str for item in values["allowed_hosts"])
+            or type(values["source_configs"]) is not tuple
+            or any(type(item) is not MappingProxyType for item in values["source_configs"])
+            or not all(_is_deeply_immutable(item) for item in values["source_configs"])
+            or any(
+                type(values[name]) is not str
+                for name in (
+                    "source_plan_sha256",
+                    "operation_id",
+                    "lineage_id",
+                    "namespace",
+                    "root",
+                )
+            )
+            or any(
+                type(values[name]) is not datetime or cast(datetime, values[name]).tzinfo is not UTC
+                for name in ("expires_at", "window_start", "window_cutoff")
+            )
+            or any(
+                type(values[name]) is not int
+                or isinstance(values[name], bool)
+                or cast(int, values[name]) < 0
+                for name in ("budget", "per_board_cap", "per_company_cap")
+            )
+        ):
+            raise TypeError("Greenhouse/Lever claims are malformed")
         for name, value in values.items():
             object.__setattr__(self, name, value)
 

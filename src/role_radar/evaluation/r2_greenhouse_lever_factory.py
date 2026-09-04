@@ -5,7 +5,8 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Final, cast
+from pathlib import Path
+from typing import Any, Final, cast
 
 import httpx
 
@@ -18,6 +19,11 @@ from role_radar.domain.enums import SourceType
 from role_radar.sources.configuration import validate_configuration
 from role_radar.sources.identity import canonical_source_key
 
+from .profile_relevant_acquisition.contracts import (
+    ExternalApprovalBinding,
+    ExternalApprovalVerifier,
+)
+from .profile_relevant_acquisition.journal import AcquisitionJournal
 from .profile_relevant_acquisition.journaled_transport import JournaledAsyncTransport
 from .profile_relevant_acquisition.source_plan import SourcePlan
 from .r2_greenhouse_lever_capability import (
@@ -173,6 +179,35 @@ class R2GreenhouseLeverFactory:
         if snapshot.source_type == SourceType.LEVER.value:
             return LeverCollector(transport=context.transport, budget=context.budget)
         raise ValueError("r2_provider_family_rejected")
+
+    def create_effects(
+        self,
+        request: object,
+        *,
+        approval: ExternalApprovalBinding | None,
+        approval_verifier: ExternalApprovalVerifier | None,
+    ) -> object:
+        """Build the named operational Gate D effects, fail closed by default."""
+        from .profile_relevant_acquisition.gate_d_authorization import GateDAuthorizationRequest
+        from .r2_operational_artifacts import GateDOperationalEffects
+
+        if (
+            type(request) is not GateDAuthorizationRequest
+            or request.post_c_request.source_plan is not self.plan
+        ):
+            raise ValueError("r2_operational_binding_invalid")
+        if not isinstance(approval, ExternalApprovalBinding) or approval_verifier is None:
+            raise ValueError("r2_operational_approval_required")
+        return GateDOperationalEffects(
+            delegate=cast(Any, self.transport),
+            factory=self,
+            journal=AcquisitionJournal(
+                operation_id=request.operation_id,
+                root=Path(self.plan.root),
+            ),
+            approval=approval,
+            approval_verifier=approval_verifier,
+        )
 
     def snapshots(self) -> tuple[SourceSnapshot, ...]:
         """Materialize only the canonical, already-bound plan entries."""

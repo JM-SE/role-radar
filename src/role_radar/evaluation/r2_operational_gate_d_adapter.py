@@ -7,6 +7,10 @@ from typing import cast
 from role_radar.evaluation.profile_relevant_acquisition.acquisition_runtime import (
     SyntheticCollectorFactory,
 )
+from role_radar.evaluation.profile_relevant_acquisition.contracts import (
+    ExternalApprovalBinding,
+    ExternalApprovalVerifier,
+)
 from role_radar.evaluation.profile_relevant_acquisition.gate_d_authorization import authorize_gate_d
 from role_radar.evaluation.profile_relevant_acquisition.gate_d_service import (
     execute_gate_d_bounded_acquisition,
@@ -27,6 +31,8 @@ def invoke_gate_d(
     capability: ProductionR2Capability,
     resolver: R2GateDResolver,
     factory: R2GateDOfflineFactory | R2GateDOperationalFactory,
+    operational_approval: ExternalApprovalBinding | None = None,
+    operational_approval_verifier: ExternalApprovalVerifier | None = None,
 ) -> Mapping[str, object]:
     if packet.gate != "d" or not capability.verify_for(packet):
         raise ValueError("binding_mismatch")
@@ -76,7 +82,19 @@ def invoke_gate_d(
         or any(value < 0 for value in request.cardinality.values())
     ):
         raise ValueError("binding_mismatch")
-    effects = factory.create(request)
+    if request.test_only_adapter is None:
+        from role_radar.evaluation.r2_greenhouse_lever_factory import R2GreenhouseLeverFactory
+
+        concrete_factory = cast(R2GreenhouseLeverFactory, factory)
+        if type(concrete_factory) is not R2GreenhouseLeverFactory:
+            raise ValueError("r2_operational_factory_required")
+        effects = concrete_factory.create_effects(
+            request,
+            approval=operational_approval,
+            approval_verifier=operational_approval_verifier,
+        )
+    else:
+        effects = factory.create(request)
     delegate: object
     collector_factory: object
     if type(effects) is GateDOfflineEffects:
