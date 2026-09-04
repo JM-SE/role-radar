@@ -44,7 +44,7 @@ def invoke_gate_d(
         or resolved.budget != request.budget_units
     ):
         raise ValueError("binding_mismatch")
-    authorize_gate_d(request)
+    authorize_gate_d(request, allow_operational=request.test_only_adapter is None)
     if (resolved.operation_id, resolved.lineage_id, request.operation_id, request.lineage_id) != (
         packet.operation_id,
         packet.lineage_id,
@@ -86,6 +86,8 @@ def invoke_gate_d(
         collector_factory = effects.collector_factory
         journal = effects.journal
         checkpoints = effects.checkpoints or None
+        approval = None
+        approval_verifier = None
     elif type(effects) is GateDOperationalEffects:
         # Reject provider-shaped injection before invoking the sealed collector
         # factory or using its transport.
@@ -109,6 +111,8 @@ def invoke_gate_d(
         collector_factory = operational_collectors
         journal = effects.journal
         checkpoints = effects.checkpoints or None
+        approval = effects.approval
+        approval_verifier = effects.approval_verifier
     else:
         raise ValueError("binding_mismatch")
     result = asyncio.run(
@@ -118,6 +122,9 @@ def invoke_gate_d(
             collector_factory=cast(SyntheticCollectorFactory, collector_factory),
             journal=journal,
             checkpoints=checkpoints,
+            operational=type(effects) is GateDOperationalEffects,
+            operational_approval=approval,
+            operational_approval_verifier=approval_verifier,
         )
     )
     return {

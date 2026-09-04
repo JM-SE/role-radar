@@ -141,6 +141,13 @@ class R2GreenhouseLeverFactory:
     def create(
         self, snapshot: SourceSnapshot, context: CollectorContext
     ) -> GreenhouseCollector | LeverCollector:
+        if type(context) is not CollectorContext:
+            raise ValueError("r2_context_binding_invalid")
+        if context.budget is not None and (
+            type(context.budget) is not CollectionRunBudget
+            or context.budget.maximum != self.plan.budget.maximum
+        ):
+            raise ValueError("r2_budget_binding_invalid")
         matches = [
             item for item in self.plan.source_configs if item["source_key"] == snapshot.source_key
         ]

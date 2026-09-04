@@ -425,7 +425,7 @@ def build_collector_context(
         )
     except AuthorizationError as exc:
         raise AcquisitionError(exc.code) from exc
-    if test_only_adapter is None:
+    if test_only_adapter is None and approval is None:
         raise AcquisitionError("acquisition_live_execution_disabled")
     _require_gate_d_transport(transport)
     return CollectorContext(transport=transport, budget=budget)
@@ -457,7 +457,7 @@ def build_ephemeral_tasks(
         )
     except AuthorizationError as exc:
         raise AcquisitionError(exc.code) from exc
-    if test_only_adapter is None:
+    if test_only_adapter is None and approval is None:
         raise AcquisitionError("acquisition_live_execution_disabled")
     if source_plan.plan_version != PLAN_VERSION_V2:
         raise AcquisitionError("acquisition_plan_version_unsupported")
@@ -788,6 +788,7 @@ async def run_gate_d_broad_acquisition(
     test_only_adapter: SyntheticTestAdapter | None = None,
     approval: ExternalApprovalBinding | None = None,
     approval_verifier: ExternalApprovalVerifier | None = None,
+    operational: bool = False,
 ) -> GateDResult:
     """Broad acquisition within approved bounds; no relevance filtering/backfill.
 
@@ -810,7 +811,7 @@ async def run_gate_d_broad_acquisition(
         )
     except AuthorizationError as exc:
         raise AcquisitionError(exc.code) from exc
-    if test_only_adapter is None:
+    if test_only_adapter is None and not operational:
         # R1 has no production acquisition path.  External approval may
         # authenticate artifacts, but it cannot unlock a collector here.
         raise AcquisitionError("acquisition_live_execution_disabled")
@@ -828,7 +829,11 @@ async def run_gate_d_broad_acquisition(
         raise AcquisitionError("acquisition_production_root_rejected")
     if collector_factory is None:
         raise AcquisitionError("acquisition_synthetic_collector_required")
-    synthetic_factory = _require_synthetic_collector_factory(collector_factory)
+    synthetic_factory = (
+        cast(SyntheticCollectorFactory, collector_factory)
+        if operational
+        else _require_synthetic_collector_factory(collector_factory)
+    )
     if journal is not None and journal.root is not None and journal.root != root:
         raise AcquisitionError("acquisition_source_plan_root_mismatch")
     if before_after is not None:

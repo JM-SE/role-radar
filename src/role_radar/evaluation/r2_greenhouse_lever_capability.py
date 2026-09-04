@@ -26,6 +26,17 @@ LEVER_HOSTS: Final[tuple[str, ...]] = ("jobs.lever.co", "jobs.eu.lever.co")
 _TOKEN = object()
 
 
+def _freeze(value: object) -> object:
+    """Copy every claim value into an immutable, JSON-shaped value."""
+    if isinstance(value, Mapping):
+        return MappingProxyType({str(k): _freeze(v) for k, v in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze(item) for item in value)
+    if isinstance(value, (str, int, bool, type(None), bytes)):
+        return value
+    raise AuthorizationError("binding_mismatch")
+
+
 class GreenhouseLeverClaimsVerifier(Protocol):
     def verify_greenhouse_lever_claims(
         self, packet: OperationPacket, plan: SourcePlan
@@ -72,6 +83,30 @@ class R2GreenhouseLeverCapability:
 
     def verify_for(self, packet: OperationPacket, plan: SourcePlan, *, now: datetime) -> None:
         c = self.claims
+        if (
+            type(c.provider_families) is not tuple
+            or any(type(family) is not str for family in c.provider_families)
+            or type(c.source_plan_sha256) is not str
+            or type(c.operation_id) is not str
+            or type(c.lineage_id) is not str
+            or type(c.namespace) is not str
+            or type(c.root) is not str
+            or type(c.allowed_hosts) is not tuple
+            or any(type(host) is not str for host in c.allowed_hosts)
+            or type(c.source_configs) is not tuple
+            or any(type(item) is not MappingProxyType for item in c.source_configs)
+            or type(c.expires_at) is not datetime
+            or type(c.window_start) is not datetime
+            or type(c.window_cutoff) is not datetime
+            or c.expires_at.tzinfo is not UTC
+            or c.window_start.tzinfo is not UTC
+            or c.window_cutoff.tzinfo is not UTC
+            or any(
+                type(value) is not int or isinstance(value, bool) or value < 0
+                for value in (c.budget, c.per_board_cap, c.per_company_cap)
+            )
+        ):
+            raise AuthorizationError("binding_mismatch")
         if not self.production.verify_for(packet) or packet.gate != "d":
             raise AuthorizationError("capability_mismatch")
         if c.source_plan_sha256 != plan.source_plan_sha256 != packet.source_plan_sha256:
@@ -125,13 +160,13 @@ def capability_from_external_verifier(
 
 
 def _claims_from_plan(plan: SourcePlan) -> GreenhouseLeverVerification:
-    configs = tuple(MappingProxyType(dict(item)) for item in plan.source_configs)
+    configs = tuple(cast(Mapping[str, object], _freeze(item)) for item in plan.source_configs)
     families = tuple(str(item["family"]) for item in plan.source_configs)
     if not configs or any(family not in ALLOWED_FAMILIES for family in families):
         raise AuthorizationError("binding_mismatch")
     keys: set[str] = set()
     for family, item in zip(families, configs, strict=True):
-        if item["configuration_version"] != 1:
+        if type(item["configuration_version"]) is not int or item["configuration_version"] != 1:
             raise AuthorizationError("binding_mismatch")
         try:
             source_type = SourceType(family)

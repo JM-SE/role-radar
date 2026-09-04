@@ -18,6 +18,10 @@ from role_radar.evaluation.profile_relevant_acquisition.acquisition_runtime impo
     run_gate_d_broad_acquisition,
     verify_gate_d_reconciliations,
 )
+from role_radar.evaluation.profile_relevant_acquisition.contracts import (
+    ExternalApprovalBinding,
+    ExternalApprovalVerifier,
+)
 from role_radar.evaluation.profile_relevant_acquisition.gate_d_authorization import (
     AuthorizedGateD,
     GateDAuthorizationError,
@@ -69,10 +73,23 @@ async def execute_gate_d_bounded_acquisition(
     checkpoints: Mapping[str, SourceCheckpoint] | Iterable[SourceCheckpoint] | None = None,
     before_after: Callable[[], tuple[dict[str, object], dict[str, object]]] | None = None,
     clock: Callable[[], datetime] | None = None,
+    operational_approval: ExternalApprovalBinding | None = None,
+    operational_approval_verifier: ExternalApprovalVerifier | None = None,
+    operational: bool | None = None,
 ) -> GateDServiceResult:
     """Validate, run the existing bounded runtime once, verify, and stop."""
     try:
-        authorized: AuthorizedGateD = authorize_gate_d(request, now=clock() if clock else None)
+        is_operational = request.test_only_adapter is None
+        if operational is not None and operational is not is_operational:
+            raise GateDServiceError("gate_d_execution_mode_mismatch")
+        if is_operational and (
+            not isinstance(operational_approval, ExternalApprovalBinding)
+            or operational_approval_verifier is None
+        ):
+            raise GateDServiceError("gate_d_operational_approval_required")
+        authorized: AuthorizedGateD = authorize_gate_d(
+            request, now=clock() if clock else None, allow_operational=is_operational
+        )
     except GateDAuthorizationError as exc:
         raise GateDServiceError(exc.code) from exc
     try:
@@ -132,6 +149,9 @@ async def execute_gate_d_bounded_acquisition(
             before_after=before_after,
             collector_factory=collector_factory,
             test_only_adapter=authorized.request.test_only_adapter,
+            approval=operational_approval,
+            approval_verifier=operational_approval_verifier,
+            operational=is_operational,
         )
         verify_gate_d_reconciliations(
             manifest=result.manifest,

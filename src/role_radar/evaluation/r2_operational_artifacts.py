@@ -24,6 +24,8 @@ from role_radar.evaluation.profile_relevant_acquisition.acquisition_runtime impo
     SyntheticTransport,
 )
 from role_radar.evaluation.profile_relevant_acquisition.contracts import (
+    ExternalApprovalBinding,
+    ExternalApprovalVerifier,
     SeedInputs,
     SyntheticTestAdapter,
 )
@@ -171,6 +173,8 @@ class GateDOperationalEffects:
     factory: R2GreenhouseLeverFactory
     journal: AcquisitionJournal
     checkpoints: tuple[SourceCheckpoint, ...] = ()
+    approval: ExternalApprovalBinding | None = None
+    approval_verifier: ExternalApprovalVerifier | None = None
 
     def __post_init__(self) -> None:
         """Enforce the operational seam at runtime, not through annotations."""
@@ -186,6 +190,8 @@ class GateDOperationalEffects:
             type(item) is not SourceCheckpoint for item in self.checkpoints
         ):
             raise TypeError("r2_operational_checkpoints_invalid")
+        if not isinstance(self.approval, ExternalApprovalBinding) or self.approval_verifier is None:
+            raise TypeError("r2_operational_approval_required")
 
 
 class R2GateDOfflineFactory(Protocol):

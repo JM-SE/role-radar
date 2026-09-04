@@ -82,7 +82,7 @@ class GateDAuthorizationRequest:
     budget_id: str
     budget_units: int
     artifact_class: str
-    test_only_adapter: SyntheticTestAdapter
+    test_only_adapter: SyntheticTestAdapter | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,7 +100,10 @@ def _provenance_hash(request: PostCPreregistrationRequest) -> str:
 
 
 def authorize_gate_d(
-    request: GateDAuthorizationRequest, *, now: datetime | None = None
+    request: GateDAuthorizationRequest,
+    *,
+    now: datetime | None = None,
+    allow_operational: bool = False,
 ) -> AuthorizedGateD:
     """Validate every Gate D binding before an effect-capable object exists."""
     if not isinstance(request, GateDAuthorizationRequest):
@@ -171,7 +174,11 @@ def authorize_gate_d(
         raise GateDAuthorizationError("gate_d_finite_budget_required")
     if request.artifact_class != "offline_private_report_only":
         raise GateDAuthorizationError("gate_d_artifact_class_invalid")
-    if not isinstance(request.test_only_adapter, SyntheticTestAdapter):
+    if request.test_only_adapter is not None and not isinstance(
+        request.test_only_adapter, SyntheticTestAdapter
+    ):
+        raise GateDAuthorizationError("gate_d_synthetic_adapter_required")
+    if request.test_only_adapter is None and not allow_operational:
         raise GateDAuthorizationError("gate_d_synthetic_adapter_required")
     expected_cardinality = {
         "corpus": post.target_corpus_count,
