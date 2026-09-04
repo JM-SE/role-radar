@@ -22,7 +22,9 @@ from .r2_operational_capabilities import ProductionR2Capability
 
 ALLOWED_FAMILIES: Final[tuple[str, ...]] = ("greenhouse", "lever")
 GREENHOUSE_HOSTS: Final[tuple[str, ...]] = ("boards-api.greenhouse.io",)
-LEVER_HOSTS: Final[tuple[str, ...]] = ("jobs.lever.co", "jobs.eu.lever.co")
+# These are the API origins used by the existing bounded LeverCollector. The
+# public posting hosts remain a separate mailbox/link policy concern.
+LEVER_HOSTS: Final[tuple[str, ...]] = ("api.lever.co", "api.eu.lever.co")
 _TOKEN = object()
 
 

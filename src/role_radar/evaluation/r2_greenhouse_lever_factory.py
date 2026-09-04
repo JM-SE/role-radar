@@ -44,7 +44,7 @@ class R2GreenhouseLeverTestTransport(httpx.AsyncBaseTransport):
     resolver, or network fallback in this type.
     """
 
-    __slots__ = ("_allowed_hosts", "_responses", "calls")
+    __slots__ = ("_allowed_hosts", "_responses", "calls", "requests")
 
     def __init__(
         self,
@@ -57,6 +57,7 @@ class R2GreenhouseLeverTestTransport(httpx.AsyncBaseTransport):
         self._responses = dict(responses)
         self._allowed_hosts: tuple[str, ...] = ()
         self.calls = 0
+        self.requests: list[tuple[str, str]] = []
 
     def _seal_hosts(self, hosts: tuple[str, ...]) -> None:
         if self._allowed_hosts or not hosts:
@@ -65,12 +66,18 @@ class R2GreenhouseLeverTestTransport(httpx.AsyncBaseTransport):
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         self.calls += 1
+        self.requests.append((request.url.host, request.url.path))
         if request.url.host not in self._allowed_hosts:
             return httpx.Response(403, request=request, content=b"{}")
         content = self._responses.get(request.url.path)
         if content is None:
             return httpx.Response(404, request=request, content=b"{}")
-        return httpx.Response(200, request=request, content=content)
+        return httpx.Response(
+            200,
+            request=request,
+            headers={"content-type": "application/json"},
+            content=content,
+        )
 
 
 def make_test_transport(responses: Mapping[str, bytes]) -> R2GreenhouseLeverTestTransport:

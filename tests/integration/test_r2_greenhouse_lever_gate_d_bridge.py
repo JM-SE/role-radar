@@ -1,4 +1,5 @@
 import json
+import shutil
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -152,6 +153,10 @@ def _operational_fixture(
     root: Path,
 ) -> tuple[OperationPacket, object, R2GreenhouseLeverFactory, ExternalApprovalBinding]:
     request = replace(_request(root), test_only_adapter=None)
+    # Gate C setup uses the same temporary evidence root; remove only its
+    # generated operation directory so Gate D gets an isolated journal, pool,
+    # and manifest.
+    shutil.rmtree(root / request.operation_id, ignore_errors=True)
     post = request.post_c_request
     plan = post.source_plan
     start = datetime.fromisoformat(request.window_start_utc.replace("Z", "+00:00"))
@@ -249,13 +254,6 @@ def _operational_fixture(
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "LeverCollector requests api.lever.co while the sealed R2 host allowlist "
-        "exposes jobs.lever.co"
-    ),
-)
 def test_invoke_gate_d_operational_bridge_is_offline_bounded_and_sealed(tmp_path: Path) -> None:
     packet, resolved, factory, approval = _operational_fixture(tmp_path)
 
@@ -283,9 +281,13 @@ def test_invoke_gate_d_operational_bridge_is_offline_bounded_and_sealed(tmp_path
     assert pool.count(b"\n") == 2
     assert factory.transport._allowed_hosts == (
         "boards-api.greenhouse.io",
-        "jobs.lever.co",
-        "jobs.eu.lever.co",
+        "api.lever.co",
+        "api.eu.lever.co",
     )
+    assert factory.transport.requests == [
+        ("boards-api.greenhouse.io", "/v1/boards/acme/jobs"),
+        ("api.lever.co", "/v0/postings/acme"),
+    ]
     assert factory.transport.calls == 2
     assert not any(secret in pool for secret in (b"candidate", b"email", b"token"))
 
