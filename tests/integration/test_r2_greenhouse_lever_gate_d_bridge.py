@@ -1,3 +1,5 @@
+import json
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -7,7 +9,10 @@ from role_radar.collectors.registry import CollectorContext
 from role_radar.evaluation.profile_relevant_acquisition.acquisition_runtime import (
     SyntheticTransport,
 )
-from role_radar.evaluation.profile_relevant_acquisition.contracts import SeedInputs
+from role_radar.evaluation.profile_relevant_acquisition.contracts import (
+    ExternalApprovalBinding,
+    SeedInputs,
+)
 from role_radar.evaluation.profile_relevant_acquisition.journal import AcquisitionJournal
 from role_radar.evaluation.profile_relevant_acquisition.journaled_transport import (
     JournaledAsyncTransport,
@@ -24,8 +29,11 @@ from role_radar.evaluation.r2_greenhouse_lever_factory import (
     R2GreenhouseLeverFactory,
     make_test_transport,
 )
+from role_radar.evaluation.r2_operational_artifacts import ResolvedGateDInput
 from role_radar.evaluation.r2_operational_authorization import OperationPacket
 from role_radar.evaluation.r2_operational_capabilities import make_test_capability
+from role_radar.evaluation.r2_operational_gate_d_adapter import invoke_gate_d
+from tests.unit.test_profile_relevant_gate_d_bounded_acquisition import _request
 
 
 def _packet() -> OperationPacket:
@@ -133,3 +141,204 @@ def test_invalid_plan_is_rejected_before_transport_binding() -> None:
         R2GreenhouseLeverFactory(capability, packet, plan, transport)
     assert transport.calls == 0
     assert transport._allowed_hosts == ()
+
+
+class _ApprovalVerifier:
+    def verify(self, approval: object, digest: str) -> bool:
+        return isinstance(approval, ExternalApprovalBinding) and approval.artifact_sha256 == digest
+
+
+def _operational_fixture(
+    root: Path,
+) -> tuple[OperationPacket, object, R2GreenhouseLeverFactory, ExternalApprovalBinding]:
+    request = replace(_request(root), test_only_adapter=None)
+    post = request.post_c_request
+    plan = post.source_plan
+    start = datetime.fromisoformat(request.window_start_utc.replace("Z", "+00:00"))
+    end = datetime.fromisoformat(request.window_end_utc.replace("Z", "+00:00"))
+    packet = OperationPacket(
+        request.operation_id,
+        "d",
+        request.current_commit_sha256,
+        plan.source_plan_sha256,
+        "d" * 64,
+        post.accepted_gate_b.packet.profile_sha256,
+        post.accepted_gate_b.packet.policy_sha256,
+        post.query_plan.plan_sha256,
+        request.namespace,
+        str(root),
+        start,
+        end,
+        request.seeds.selection_seed,
+        request.seeds.partition_seed,
+        request.per_board_cap,
+        1,
+        10,
+        request.budget_units,
+        "r2-capability",
+        "approval",
+        "3" * 64,
+        end,
+        "nonce",
+        ("4" * 64,),
+        lineage_id=request.lineage_id,
+    )
+    production = make_test_capability(packet)
+    claims = R2GreenhouseLeverCapability(make_test_verification(packet, plan), production)
+    responses = {
+        "/v1/boards/acme/jobs": json.dumps(
+            {
+                "jobs": [
+                    {
+                        "id": 101,
+                        "title": "Backend Engineer",
+                        "location": {"name": "Remote"},
+                        "absolute_url": "https://boards.greenhouse.io/acme/jobs/101",
+                        "updated_at": "2026-08-01T12:00:00Z",
+                        "content": "Build APIs",
+                    }
+                ]
+            }
+        ).encode(),
+        "/v0/postings/acme": json.dumps(
+            [
+                {
+                    "id": "201",
+                    "text": "Platform Engineer",
+                    "categories": {"location": "Remote"},
+                    "descriptionPlain": "Build APIs",
+                    "hostedUrl": "https://jobs.lever.co/acme/201",
+                    "applyUrl": "https://jobs.lever.co/acme/201/apply",
+                }
+            ]
+        ).encode(),
+    }
+    transport = make_test_transport(responses)
+    factory = R2GreenhouseLeverFactory(claims, packet, plan, transport)
+    from role_radar.evaluation.profile_relevant_acquisition.gate_d_authorization import (
+        authorize_gate_d,
+    )
+
+    authorized = authorize_gate_d(request, allow_operational=True)
+    approval = ExternalApprovalBinding(
+        authorized.scaffold.provenance_sha256,
+        "5" * 64,
+        "external-approver",
+        b"offline-approval-token",
+    )
+    return (
+        packet,
+        ResolvedGateDInput(
+            request,
+            request.operation_id,
+            request.lineage_id,
+            plan,
+            request.post_c_seal,
+            request.seeds,
+            request.window_start_utc,
+            request.window_end_utc,
+            request.cutoff_utc,
+            request.per_board_cap,
+            1,
+            10,
+            request.budget_units,
+            claims,
+        ),
+        factory,
+        approval,
+    )
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "LeverCollector requests api.lever.co while the sealed R2 host allowlist "
+        "exposes jobs.lever.co"
+    ),
+)
+def test_invoke_gate_d_operational_bridge_is_offline_bounded_and_sealed(tmp_path: Path) -> None:
+    packet, resolved, factory, approval = _operational_fixture(tmp_path)
+
+    class Resolver:
+        def resolve_gate_d(self, _packet: OperationPacket, _capability: object) -> object:
+            return resolved
+
+    # The real adapter branch constructs the named collector factory and runs both
+    # existing bounded collectors; no product DB or legacy transport is involved.
+    result = invoke_gate_d(
+        packet,
+        factory.capability.production,
+        Resolver(),
+        factory,
+        approval,
+        _ApprovalVerifier(),
+    )
+    op_dir = tmp_path / packet.operation_id
+    manifest = json.loads((op_dir / "manifest.json").read_text())
+    pool = (op_dir / "sealed_pool.jsonl").read_bytes()
+    assert result["operation_id"] == packet.operation_id
+    assert manifest["observed"] == manifest["new_to_pool"] == 2
+    assert manifest["durable_intents"] == manifest["known_terminal_outcomes"] == 2
+    assert manifest["budget_consumed"] == manifest["collector_wire_attempts"] == 2
+    assert pool.count(b"\n") == 2
+    assert factory.transport._allowed_hosts == (
+        "boards-api.greenhouse.io",
+        "jobs.lever.co",
+        "jobs.eu.lever.co",
+    )
+    assert factory.transport.calls == 2
+    assert not any(secret in pool for secret in (b"candidate", b"email", b"token"))
+
+
+def test_invoke_gate_d_rejects_capability_before_resolver_or_transport(tmp_path: Path) -> None:
+    packet, resolved, factory, approval = _operational_fixture(tmp_path)
+    calls = 0
+
+    class Resolver:
+        def resolve_gate_d(self, _packet: OperationPacket, _capability: object) -> object:
+            nonlocal calls
+            calls += 1
+            return resolved
+
+    with pytest.raises((AttributeError, ValueError)):
+        invoke_gate_d(
+            packet,
+            make_test_capability(replace(packet, source_plan_sha256="e" * 64)),
+            Resolver(),
+            factory,
+            approval,
+            _ApprovalVerifier(),
+        )
+    assert calls == 0
+    assert factory.transport.calls == 0
+
+
+def test_invoke_gate_d_rejects_missing_approval_before_effects(tmp_path: Path) -> None:
+    packet, resolved, factory, _approval = _operational_fixture(tmp_path)
+
+    class Resolver:
+        def resolve_gate_d(self, _packet: OperationPacket, _capability: object) -> object:
+            return resolved
+
+    with pytest.raises(ValueError, match="binding_mismatch"):
+        invoke_gate_d(packet, factory.capability.production, Resolver(), factory)
+    assert factory.transport.calls == 0
+
+
+def test_invoke_gate_d_rejects_forged_factory_before_transport(tmp_path: Path) -> None:
+    packet, resolved, factory, approval = _operational_fixture(tmp_path)
+
+    class Resolver:
+        def resolve_gate_d(self, _packet: OperationPacket, _capability: object) -> object:
+            return resolved
+
+    with pytest.raises(ValueError, match="r2_operational_factory_required"):
+        invoke_gate_d(
+            packet,
+            factory.capability.production,
+            Resolver(),
+            object(),
+            approval,
+            _ApprovalVerifier(),
+        )
+    assert factory.transport.calls == 0
