@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 
 from role_radar.collectors.policy import CollectionRunBudget
 from role_radar.evaluation.profile_relevant_acquisition.acquisition_runtime import (
@@ -87,15 +87,7 @@ async def execute_gate_d_bounded_acquisition(
             or operational_approval_verifier is None
         ):
             raise GateDServiceError("gate_d_operational_approval_required")
-        if clock is not None:
-            current_time = clock()
-        else:
-            try:
-                current_time = datetime.fromisoformat(
-                    request.window_start_utc.replace("Z", "+00:00")
-                )
-            except (AttributeError, ValueError):
-                current_time = datetime.now()
+        current_time = clock() if clock is not None else datetime.now(UTC)
         authorized: AuthorizedGateD = authorize_gate_d(
             request, now=current_time, allow_operational=is_operational
         )

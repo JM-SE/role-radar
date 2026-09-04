@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import cast
 
@@ -388,9 +388,9 @@ def test_real_gate_f_exact_replay_verifies_generated_publication_without_effects
     replay = run_gate_f_materialization_freeze(
         request=request,
         freeze_bindings=bindings,
-            clock=lambda: datetime.fromisoformat(
-                request.gate_e_request.gate_d_request.window_start_utc.replace("Z", "+00:00")
-            ),
+        clock=lambda: datetime.fromisoformat(
+            request.gate_e_request.gate_d_request.window_start_utc.replace("Z", "+00:00")
+        ),
         materializer=materializer,
         freezer=freezer,
     )
