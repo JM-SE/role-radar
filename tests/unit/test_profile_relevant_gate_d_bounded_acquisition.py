@@ -97,6 +97,11 @@ def _request(root: Path) -> GateDAuthorizationRequest:
     )
 
 
+def _in_window_clock() -> datetime:
+    """Keep historical Gate D fixtures inside their explicit September window."""
+    return datetime(2026, 9, 1, 12, tzinfo=UTC)
+
+
 @pytest.mark.asyncio
 async def test_valid_offline_operation_is_bounded_sealed_sanitized_and_terminal(
     tmp_path: Path,
@@ -112,6 +117,7 @@ async def test_valid_offline_operation_is_bounded_sealed_sanitized_and_terminal(
         collector_factory=cast(Any, _fake_collector),
         journal=journal,
         before_after=lambda: (state.copy(), state.copy()),
+        clock=_in_window_clock,
     )
 
     assert delegate.calls == 2
@@ -225,6 +231,7 @@ async def test_pending_and_reconciliation_mismatch_stop_without_delegate(tmp_pat
             collector_factory=cast(Any, _fake_collector),
             journal=journal,
             checkpoints={source_id: SourceCheckpoint(source_id, 1, "d" * 64)},
+            clock=_in_window_clock,
         )
     assert error.value.code in {
         "acquisition_source_blocked_pending",
@@ -245,6 +252,7 @@ async def test_exact_replay_is_idempotent_and_conflicting_replay_is_terminal(
         delegate=delegate,
         collector_factory=cast(Any, _fake_collector),
         journal=journal,
+        clock=_in_window_clock,
     )
     calls = delegate.calls
     replay = await execute_gate_d_bounded_acquisition(
@@ -253,6 +261,7 @@ async def test_exact_replay_is_idempotent_and_conflicting_replay_is_terminal(
         collector_factory=cast(Any, _fake_collector),
         journal=journal,
         checkpoints=first.runtime.checkpoints,
+        clock=_in_window_clock,
     )
     assert replay.public.as_dict() == first.public.as_dict()
     assert delegate.calls == calls
@@ -288,6 +297,7 @@ async def test_conflicting_existing_seal_blocks_replay_without_delegate_effects(
         delegate=delegate,
         collector_factory=cast(Any, _fake_collector),
         journal=journal,
+        clock=_in_window_clock,
     )
     calls = delegate.calls
     path = tmp_path / request.operation_id / artifact
@@ -300,6 +310,7 @@ async def test_conflicting_existing_seal_blocks_replay_without_delegate_effects(
             collector_factory=cast(Any, _fake_collector),
             journal=journal,
             checkpoints=first.runtime.checkpoints,
+            clock=_in_window_clock,
         )
     assert error.value.code == "filesystem_no_replace_conflict"
     assert delegate.calls == calls
@@ -314,6 +325,7 @@ async def test_conflicting_existing_seal_blocks_replay_without_delegate_effects(
             collector_factory=cast(Any, _fake_collector),
             journal=journal,
             checkpoints=conflicting,
+            clock=_in_window_clock,
         )
     assert error.value.code == "acquisition_replay_checkpoint_mismatch"
     assert delegate.calls == calls
