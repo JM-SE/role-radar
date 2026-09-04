@@ -329,7 +329,9 @@ def test_real_gate_f_service_materializes_freezes_and_hands_off_exactly(tmp_path
     result = run_gate_f_materialization_freeze(
         request=request,
         freeze_bindings=freeze_bindings_for_request(request),
-        clock=lambda: datetime(2026, 8, 25, 2, 30, tzinfo=UTC),
+        clock=lambda: datetime.fromisoformat(
+            request.gate_e_request.gate_d_request.window_start_utc.replace("Z", "+00:00")
+        ),
         materializer=materializer,
         freezer=freezer,
     )
@@ -375,7 +377,9 @@ def test_real_gate_f_exact_replay_verifies_generated_publication_without_effects
     first = run_gate_f_materialization_freeze(
         request=request,
         freeze_bindings=bindings,
-        clock=lambda: datetime(2026, 8, 25, 2, 30, tzinfo=UTC),
+        clock=lambda: datetime.fromisoformat(
+            request.gate_e_request.gate_d_request.window_start_utc.replace("Z", "+00:00")
+        ),
         materializer=materializer_first,
         freezer=freezer_first,
     )
@@ -384,7 +388,9 @@ def test_real_gate_f_exact_replay_verifies_generated_publication_without_effects
     replay = run_gate_f_materialization_freeze(
         request=request,
         freeze_bindings=bindings,
-        clock=lambda: datetime(2026, 8, 25, 2, 30, tzinfo=UTC),
+            clock=lambda: datetime.fromisoformat(
+                request.gate_e_request.gate_d_request.window_start_utc.replace("Z", "+00:00")
+            ),
         materializer=materializer,
         freezer=freezer,
     )

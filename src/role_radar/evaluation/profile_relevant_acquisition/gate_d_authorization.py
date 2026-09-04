@@ -119,6 +119,12 @@ def authorize_gate_d(
     if not isinstance(post, PostCPreregistrationRequest):
         raise GateDAuthorizationError("gate_d_post_c_required")
     check = datetime.now(UTC) if now is None else now.astimezone(UTC)
+    start, end, cutoff = (
+        _utc(v, "gate_d_window_invalid")
+        for v in (request.window_start_utc, request.window_end_utc, request.cutoff_utc)
+    )
+    if check < start or check > end:
+        raise GateDAuthorizationError("gate_d_window_inactive")
     if check >= _utc(post.authorization.expires_at_utc, "gate_d_authorization_invalid"):
         raise GateDAuthorizationError("authorization_expired")
     if not isinstance(request.post_c_seal, PostCPreregistrationSeal):
@@ -145,10 +151,6 @@ def authorize_gate_d(
         raise GateDAuthorizationError("gate_d_root_mismatch")
     if request.namespace != plan.namespace:
         raise GateDAuthorizationError("gate_d_namespace_mismatch")
-    start, end, cutoff = (
-        _utc(v, "gate_d_window_invalid")
-        for v in (request.window_start_utc, request.window_end_utc, request.cutoff_utc)
-    )
     request_window = (
         request.window_start_utc,
         request.window_end_utc,

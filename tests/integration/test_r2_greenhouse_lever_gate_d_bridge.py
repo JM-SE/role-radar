@@ -101,7 +101,7 @@ def test_operational_factory_constructs_exact_greenhouse_collector_offline() -> 
         make_test_verification(packet, plan), make_test_capability(packet)
     )
     transport = make_test_transport({"/v1/boards/acme/jobs": b'{"jobs":[]}'})
-    factory = R2GreenhouseLeverFactory(capability, packet, plan, transport)
+    factory = R2GreenhouseLeverFactory(capability, packet, plan, transport, packet.window_start)
     journal = AcquisitionJournal(operation_id=packet.operation_id, root=Path(plan.root))
     wrapped = JournaledAsyncTransport(
         delegate=transport, journal=journal, source_id="source", operation_id=packet.operation_id
@@ -139,7 +139,7 @@ def test_invalid_plan_is_rejected_before_transport_binding() -> None:
     )
     transport = make_test_transport({"/v1/boards/acme/jobs": b'{"jobs":[]}'})
     with pytest.raises(ValueError):
-        R2GreenhouseLeverFactory(capability, packet, plan, transport)
+        R2GreenhouseLeverFactory(capability, packet, plan, transport, packet.window_start)
     assert transport.calls == 0
     assert transport._allowed_hosts == ()
 
@@ -219,12 +219,12 @@ def _operational_fixture(
         ).encode(),
     }
     transport = make_test_transport(responses)
-    factory = R2GreenhouseLeverFactory(claims, packet, plan, transport)
+    factory = R2GreenhouseLeverFactory(claims, packet, plan, transport, start)
     from role_radar.evaluation.profile_relevant_acquisition.gate_d_authorization import (
         authorize_gate_d,
     )
 
-    authorized = authorize_gate_d(request, allow_operational=True)
+    authorized = authorize_gate_d(request, now=start, allow_operational=True)
     approval = ExternalApprovalBinding(
         authorized.scaffold.provenance_sha256,
         "5" * 64,
@@ -270,6 +270,7 @@ def test_invoke_gate_d_operational_bridge_is_offline_bounded_and_sealed(tmp_path
         factory,
         approval,
         _ApprovalVerifier(),
+        clock=lambda: packet.window_start,
     )
     op_dir = tmp_path / packet.operation_id
     manifest = json.loads((op_dir / "manifest.json").read_text())
@@ -292,6 +293,41 @@ def test_invoke_gate_d_operational_bridge_is_offline_bounded_and_sealed(tmp_path
     assert not any(secret in pool for secret in (b"candidate", b"email", b"token"))
 
 
+@pytest.mark.parametrize("position", ["before", "after"])
+def test_invoke_gate_d_rejects_outside_window_before_any_effects(
+    tmp_path: Path, position: str
+) -> None:
+    packet, resolved, factory, approval = _operational_fixture(tmp_path)
+    calls = 0
+
+    class Resolver:
+        def resolve_gate_d(self, _packet: OperationPacket, _capability: object) -> object:
+            nonlocal calls
+            calls += 1
+            return resolved
+
+    check = (
+        packet.window_start - timedelta(seconds=1)
+        if position == "before"
+        else packet.window_cutoff + timedelta(seconds=1)
+    )
+    allowed_hosts = factory.transport._allowed_hosts
+    with pytest.raises(ValueError, match=r"^gate_d_window_inactive$"):
+        invoke_gate_d(
+            packet,
+            factory.capability.production,
+            Resolver(),
+            factory,
+            approval,
+            _ApprovalVerifier(),
+            clock=lambda: check,
+        )
+    assert calls == 1
+    assert factory.transport.calls == 0
+    assert factory.transport._allowed_hosts == allowed_hosts
+    assert not (tmp_path / packet.operation_id).exists()
+
+
 def test_invoke_gate_d_rejects_capability_before_resolver_or_transport(tmp_path: Path) -> None:
     packet, resolved, factory, approval = _operational_fixture(tmp_path)
     calls = 0
@@ -310,6 +346,7 @@ def test_invoke_gate_d_rejects_capability_before_resolver_or_transport(tmp_path:
             factory,
             approval,
             _ApprovalVerifier(),
+            clock=lambda: packet.window_start,
         )
     assert calls == 0
     assert factory.transport.calls == 0
@@ -323,7 +360,13 @@ def test_invoke_gate_d_rejects_missing_approval_before_effects(tmp_path: Path) -
             return resolved
 
     with pytest.raises(ValueError, match="binding_mismatch"):
-        invoke_gate_d(packet, factory.capability.production, Resolver(), factory)
+        invoke_gate_d(
+            packet,
+            factory.capability.production,
+            Resolver(),
+            factory,
+            clock=lambda: packet.window_start,
+        )
     assert factory.transport.calls == 0
 
 
@@ -342,5 +385,6 @@ def test_invoke_gate_d_rejects_forged_factory_before_transport(tmp_path: Path) -
             object(),
             approval,
             _ApprovalVerifier(),
+            clock=lambda: packet.window_start,
         )
     assert factory.transport.calls == 0

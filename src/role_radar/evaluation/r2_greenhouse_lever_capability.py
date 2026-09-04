@@ -166,7 +166,9 @@ class R2GreenhouseLeverCapability:
         ):
             raise AuthorizationError("binding_mismatch")
         current = now.astimezone(UTC)
-        if current < c.window_start or current > c.window_cutoff or current >= c.expires_at:
+        if current < c.window_start or current > c.window_cutoff:
+            raise AuthorizationError("gate_d_window_inactive")
+        if current >= c.expires_at:
             raise AuthorizationError("expired")
         if (c.window_start, c.window_cutoff, c.expires_at) != (
             packet.window_start.astimezone(UTC),

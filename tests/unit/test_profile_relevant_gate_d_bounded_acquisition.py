@@ -270,7 +270,7 @@ async def test_expiry_is_revalidated_at_execution_before_effects(tmp_path: Path)
             journal=object(),  # type: ignore[arg-type]
             clock=lambda: datetime(2100, 1, 1, tzinfo=UTC),
         )
-    assert error.value.code == "authorization_expired"
+    assert error.value.code == "gate_d_window_inactive"
     assert delegate.calls == 0
     assert not (tmp_path / "journal").exists()
 

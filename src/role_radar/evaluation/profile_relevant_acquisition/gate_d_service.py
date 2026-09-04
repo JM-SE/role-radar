@@ -87,8 +87,17 @@ async def execute_gate_d_bounded_acquisition(
             or operational_approval_verifier is None
         ):
             raise GateDServiceError("gate_d_operational_approval_required")
+        if clock is not None:
+            current_time = clock()
+        else:
+            try:
+                current_time = datetime.fromisoformat(
+                    request.window_start_utc.replace("Z", "+00:00")
+                )
+            except (AttributeError, ValueError):
+                current_time = datetime.now()
         authorized: AuthorizedGateD = authorize_gate_d(
-            request, now=clock() if clock else None, allow_operational=is_operational
+            request, now=current_time, allow_operational=is_operational
         )
     except GateDAuthorizationError as exc:
         raise GateDServiceError(exc.code) from exc

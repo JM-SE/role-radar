@@ -184,4 +184,4 @@ def test_gate_d_expiry_is_rechecked_before_gate_e_adapter(
             authorization=authorization,
             clock=lambda: datetime(2099, 1, 1, tzinfo=UTC),
         )
-    assert blocked.value.code == "authorization_expired"
+    assert blocked.value.code == "gate_d_window_inactive"

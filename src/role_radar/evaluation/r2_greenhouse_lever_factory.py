@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Final, cast
 
@@ -91,6 +92,7 @@ class R2GreenhouseLeverFactory:
     packet: OperationPacket
     plan: SourcePlan
     transport: R2GreenhouseLeverTestTransport
+    current_time: datetime | None = None
 
     def __post_init__(self) -> None:
         if type(self.capability) is not R2GreenhouseLeverCapability:
@@ -104,7 +106,11 @@ class R2GreenhouseLeverFactory:
             # Complete row validation must precede all host derivation and
             # transport mutation.
             self._validate_sources()
-            self.capability.verify_for(self.packet, self.plan, now=self.packet.window_start)
+            self.capability.verify_for(
+                self.packet,
+                self.plan,
+                now=datetime.now(UTC) if self.current_time is None else self.current_time,
+            )
         except Exception as exc:
             raise ValueError("r2_operational_binding_invalid") from exc
         claims = self.capability.claims
@@ -193,6 +199,7 @@ class R2GreenhouseLeverFactory:
         *,
         approval: ExternalApprovalBinding | None,
         approval_verifier: ExternalApprovalVerifier | None,
+        now: datetime | None = None,
     ) -> object:
         """Build the named operational Gate D effects, fail closed by default."""
         from .profile_relevant_acquisition.gate_d_authorization import GateDAuthorizationRequest
@@ -205,6 +212,11 @@ class R2GreenhouseLeverFactory:
             raise ValueError("r2_operational_binding_invalid")
         if not isinstance(approval, ExternalApprovalBinding) or approval_verifier is None:
             raise ValueError("r2_operational_approval_required")
+        self.capability.verify_for(
+            self.packet,
+            self.plan,
+            now=datetime.now(UTC) if now is None else now,
+        )
         return GateDOperationalEffects(
             delegate=cast(Any, self.transport),
             factory=self,

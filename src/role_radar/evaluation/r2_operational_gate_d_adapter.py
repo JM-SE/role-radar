@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Mapping
-from typing import cast
+from datetime import UTC, datetime
+from typing import Protocol, cast
 
 from role_radar.evaluation.profile_relevant_acquisition.acquisition_runtime import (
     SyntheticCollectorFactory,
@@ -27,6 +28,10 @@ from role_radar.evaluation.r2_operational_authorization import OperationPacket
 from role_radar.evaluation.r2_operational_capabilities import ProductionR2Capability
 
 
+class _Clock(Protocol):
+    def __call__(self) -> datetime: ...
+
+
 def invoke_gate_d(
     packet: OperationPacket,
     capability: ProductionR2Capability,
@@ -34,7 +39,9 @@ def invoke_gate_d(
     factory: R2GateDOfflineFactory | R2GateDOperationalFactory,
     operational_approval: ExternalApprovalBinding | None = None,
     operational_approval_verifier: ExternalApprovalVerifier | None = None,
+    clock: _Clock | None = None,
 ) -> Mapping[str, object]:
+    current_time = (datetime.now(UTC) if clock is None else clock()).astimezone(UTC)
     if packet.gate != "d" or not capability.verify_for(packet):
         raise ValueError("binding_mismatch")
     resolved = resolver.resolve_gate_d(packet, capability)
@@ -51,7 +58,11 @@ def invoke_gate_d(
         or resolved.budget != request.budget_units
     ):
         raise ValueError("binding_mismatch")
-    authorize_gate_d(request, allow_operational=request.test_only_adapter is None)
+    window_start = packet.window_start.astimezone(UTC)
+    window_cutoff = packet.window_cutoff.astimezone(UTC)
+    if current_time < window_start or current_time > window_cutoff:
+        raise ValueError("gate_d_window_inactive")
+    authorize_gate_d(request, now=current_time, allow_operational=request.test_only_adapter is None)
     if (resolved.operation_id, resolved.lineage_id, request.operation_id, request.lineage_id) != (
         packet.operation_id,
         packet.lineage_id,
@@ -121,10 +132,12 @@ def invoke_gate_d(
             or not claims.allowed_hosts
         ):
             raise ValueError("binding_mismatch")
+        sealed_capability.verify_for(packet, resolved.source_plan, now=current_time)
         effects = concrete_factory.create_effects(
             request,
             approval=operational_approval,
             approval_verifier=operational_approval_verifier,
+            now=current_time,
         )
     else:
         effects = factory.create(request)
@@ -174,6 +187,7 @@ def invoke_gate_d(
             operational=type(effects) is GateDOperationalEffects,
             operational_approval=approval,
             operational_approval_verifier=approval_verifier,
+            clock=lambda: current_time,
         )
     )
     return {
