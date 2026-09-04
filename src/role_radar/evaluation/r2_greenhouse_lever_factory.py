@@ -201,6 +201,7 @@ class R2GreenhouseLeverFactory:
         return GateDOperationalEffects(
             delegate=cast(Any, self.transport),
             factory=self,
+            capability=self.capability,
             journal=AcquisitionJournal(
                 operation_id=request.operation_id,
                 root=Path(self.plan.root),
@@ -227,4 +228,25 @@ class R2GreenhouseLeverFactory:
         return CollectorRuntime(transport=self.transport, budget=budget)
 
 
-__all__ = ["R2GreenhouseLeverFactory", "R2GreenhouseLeverTestTransport", "make_test_transport"]
+@dataclass(frozen=True, slots=True)
+class R2GreenhouseLeverCollectorFactory:
+    """Named runtime factory; operational code never injects a free callable."""
+
+    factory: R2GreenhouseLeverFactory
+
+    def __post_init__(self) -> None:
+        if type(self.factory) is not R2GreenhouseLeverFactory:
+            raise TypeError("r2_operational_factory_required")
+
+    def __call__(
+        self, snapshot: SourceSnapshot, context: CollectorContext
+    ) -> GreenhouseCollector | LeverCollector:
+        return self.factory.create(snapshot, context)
+
+
+__all__ = [
+    "R2GreenhouseLeverCollectorFactory",
+    "R2GreenhouseLeverFactory",
+    "R2GreenhouseLeverTestTransport",
+    "make_test_transport",
+]

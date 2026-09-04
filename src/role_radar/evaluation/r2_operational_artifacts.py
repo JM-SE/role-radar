@@ -92,6 +92,9 @@ class ResolvedGateDInput:
     quota: int
     cardinality: int
     budget: int
+    # Operational resolution must carry the verifier-sealed capability all the
+    # way to selection.  ``None`` is retained for the synthetic branch.
+    operational_capability: R2GreenhouseLeverCapability | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,6 +174,7 @@ class GateDOperationalEffects:
 
     delegate: R2OperationalTransport
     factory: R2GreenhouseLeverFactory
+    capability: R2GreenhouseLeverCapability
     journal: AcquisitionJournal
     checkpoints: tuple[SourceCheckpoint, ...] = ()
     approval: ExternalApprovalBinding | None = None
@@ -180,8 +184,10 @@ class GateDOperationalEffects:
         """Enforce the operational seam at runtime, not through annotations."""
         if type(self.factory) is not R2GreenhouseLeverFactory:
             raise TypeError("r2_operational_factory_required")
-        if type(self.factory.capability) is not R2GreenhouseLeverCapability:
+        if type(self.capability) is not R2GreenhouseLeverCapability:
             raise TypeError("r2_operational_capability_required")
+        if self.factory.capability is not self.capability:
+            raise ValueError("r2_operational_capability_mismatch")
         if cast(object, self.delegate) is not cast(object, self.factory.transport):
             raise ValueError("r2_operational_transport_mismatch")
         if type(self.journal) is not AcquisitionJournal:

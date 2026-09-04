@@ -15,6 +15,7 @@ from role_radar.evaluation.profile_relevant_acquisition.gate_d_authorization imp
 from role_radar.evaluation.profile_relevant_acquisition.gate_d_service import (
     execute_gate_d_bounded_acquisition,
 )
+from role_radar.evaluation.r2_greenhouse_lever_capability import R2GreenhouseLeverCapability
 from role_radar.evaluation.r2_operational_artifacts import (
     GateDOfflineEffects,
     GateDOperationalEffects,
@@ -83,11 +84,43 @@ def invoke_gate_d(
     ):
         raise ValueError("binding_mismatch")
     if request.test_only_adapter is None:
-        from role_radar.evaluation.r2_greenhouse_lever_factory import R2GreenhouseLeverFactory
+        from role_radar.evaluation.r2_greenhouse_lever_factory import (
+            R2GreenhouseLeverCollectorFactory,
+            R2GreenhouseLeverFactory,
+        )
 
         concrete_factory = cast(R2GreenhouseLeverFactory, factory)
         if type(concrete_factory) is not R2GreenhouseLeverFactory:
             raise ValueError("r2_operational_factory_required")
+        sealed_capability = resolved.operational_capability
+        if (
+            type(sealed_capability) is not R2GreenhouseLeverCapability
+            or sealed_capability.production is not capability
+            or concrete_factory.capability is not sealed_capability
+            or sealed_capability.claims is not concrete_factory.capability.claims
+            or not isinstance(operational_approval, ExternalApprovalBinding)
+            or operational_approval_verifier is None
+        ):
+            raise ValueError("binding_mismatch")
+        claims = sealed_capability.claims
+        if (
+            claims.provider_families != ("greenhouse", "lever")
+            or claims.source_plan_sha256 != packet.source_plan_sha256
+            or claims.operation_id != packet.operation_id
+            or claims.lineage_id != request.lineage_id
+            or claims.namespace != packet.destination_namespace
+            or claims.root != packet.destination_root
+            or claims.window_start != packet.window_start
+            or claims.window_cutoff != packet.window_cutoff
+            or claims.expires_at != packet.expires_at
+            or claims.budget != request.budget_units
+            or claims.per_board_cap != request.per_board_cap
+            or claims.per_company_cap != request.per_company_cap
+            or tuple(dict(item) for item in claims.source_configs)
+            != tuple(dict(item) for item in request.post_c_request.source_plan.source_configs)
+            or not claims.allowed_hosts
+        ):
+            raise ValueError("binding_mismatch")
         effects = concrete_factory.create_effects(
             request,
             approval=operational_approval,
@@ -119,14 +152,12 @@ def invoke_gate_d(
             effects.factory.packet is not packet
             or effects.factory.plan is not resolved.source_plan
             or cast(object, effects.delegate) is not cast(object, effects.factory.transport)
+            or effects.capability is not resolved.operational_capability
         ):
             raise ValueError("binding_mismatch")
 
-        def operational_collectors(snapshot: object, context: object) -> object:
-            return effects.factory.create(snapshot, context)  # type: ignore[arg-type]
-
         delegate = cast(object, effects.delegate)
-        collector_factory = operational_collectors
+        collector_factory = R2GreenhouseLeverCollectorFactory(effects.factory)
         journal = effects.journal
         checkpoints = effects.checkpoints or None
         approval = effects.approval
