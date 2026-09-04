@@ -34,6 +34,11 @@ from role_radar.evaluation.r2_operational_artifacts import ResolvedGateDInput
 from role_radar.evaluation.r2_operational_authorization import OperationPacket
 from role_radar.evaluation.r2_operational_capabilities import make_test_capability
 from role_radar.evaluation.r2_operational_gate_d_adapter import invoke_gate_d
+from role_radar.evaluation.r2_real_ats_capability import (
+    capability_from_independent_verifier,
+    make_test_real_ats_verification,
+)
+from role_radar.evaluation.r2_real_ats_transport import make_test_real_ats_transport
 from tests.unit.test_profile_relevant_gate_d_bounded_acquisition import _request
 
 
@@ -144,6 +149,47 @@ def test_invalid_plan_is_rejected_before_transport_binding() -> None:
     assert transport._allowed_hosts == ()
 
 
+@pytest.mark.parametrize(
+    ("family", "configuration_version", "configuration"),
+    (
+        ("jobicy", 1, {"site": "acme"}),
+        ("greenhouse", True, {"board_token": "acme"}),
+        ("greenhouse", 1, {"board_token": "acme", "authorization": "secret"}),
+    ),
+)
+def test_rejected_family_bool_or_credential_config_has_zero_transport_effect(
+    family: str, configuration_version: int | bool, configuration: dict[str, str]
+) -> None:
+    packet = _packet()
+    valid_plan = _plan()
+    invalid_plan = build_source_plan(
+        namespace="bridge-namespace",
+        root="/tmp/bridge-evidence",
+        per_board_cap=1,
+        per_company_cap=1,
+        budget=SourcePlanBudget("bridge-budget", 1),
+        seed=SeedInputs("a" * 64, "b" * 64),
+        operation_id="op-bridge",
+        lineage_id="lineage",
+        source_configs=(
+            {
+                "family": family,
+                "source_key": "greenhouse:acme",
+                "configuration_version": configuration_version,
+                "configuration": configuration,
+            },
+        ),
+    )
+    capability = R2GreenhouseLeverCapability(
+        make_test_verification(packet, valid_plan), make_test_capability(packet)
+    )
+    transport = make_test_transport({"/v1/boards/acme/jobs": b'{"jobs": []}'})
+    with pytest.raises(ValueError):
+        R2GreenhouseLeverFactory(capability, packet, invalid_plan, transport, packet.window_start)
+    assert transport.calls == 0
+    assert transport._allowed_hosts == ()
+
+
 class _ApprovalVerifier:
     def verify(self, approval: object, digest: str) -> bool:
         return isinstance(approval, ExternalApprovalBinding) and approval.artifact_sha256 == digest
@@ -166,7 +212,7 @@ def _operational_fixture(
         "d",
         request.current_commit_sha256,
         plan.source_plan_sha256,
-        "d" * 64,
+        post.accepted_gate_b.packet_sha256,
         post.accepted_gate_b.packet.profile_sha256,
         post.accepted_gate_b.packet.policy_sha256,
         post.query_plan.plan_sha256,
@@ -189,7 +235,17 @@ def _operational_fixture(
         lineage_id=request.lineage_id,
     )
     production = make_test_capability(packet)
-    claims = R2GreenhouseLeverCapability(make_test_verification(packet, plan), production)
+
+    class OfflineRealATSVerifier:
+        def verify_real_ats(self, _packet: object, _plan: object) -> object:
+            return make_test_real_ats_verification(packet, plan)
+
+    claims = capability_from_independent_verifier(
+        packet,
+        plan,
+        production,
+        OfflineRealATSVerifier(),
+    )
     responses = {
         "/v1/boards/acme/jobs": json.dumps(
             {
@@ -218,7 +274,7 @@ def _operational_fixture(
             ]
         ).encode(),
     }
-    transport = make_test_transport(responses)
+    transport = make_test_real_ats_transport(responses)
     factory = R2GreenhouseLeverFactory(claims, packet, plan, transport, start)
     from role_radar.evaluation.profile_relevant_acquisition.gate_d_authorization import (
         authorize_gate_d,
@@ -388,3 +444,82 @@ def test_invoke_gate_d_rejects_forged_factory_before_transport(tmp_path: Path) -
             clock=lambda: packet.window_start,
         )
     assert factory.transport.calls == 0
+
+
+def test_invoke_gate_d_revalidates_post_c_before_factory_or_journal(tmp_path: Path) -> None:
+    packet, resolved, factory, approval = _operational_fixture(tmp_path)
+    object.__setattr__(resolved.request.post_c_request, "artifact_class", "synthetic")
+
+    class Resolver:
+        def resolve_gate_d(self, _packet: OperationPacket, _capability: object) -> object:
+            return resolved
+
+    with pytest.raises(ValueError, match=r"^binding_mismatch$"):
+        invoke_gate_d(
+            packet,
+            factory.capability.production,
+            Resolver(),
+            factory,
+            approval,
+            _ApprovalVerifier(),
+            clock=lambda: packet.window_start,
+        )
+    assert factory.transport.calls == 0
+    assert not (tmp_path / packet.operation_id).exists()
+
+
+def test_legacy_capability_is_rejected_from_real_operational_gate_d(tmp_path: Path) -> None:
+    packet, resolved, _factory, approval = _operational_fixture(tmp_path)
+    legacy = R2GreenhouseLeverCapability(
+        make_test_verification(packet, resolved.source_plan),
+        resolved.operational_capability.production,  # type: ignore[union-attr]
+    )
+    legacy_factory = R2GreenhouseLeverFactory(
+        legacy,
+        packet,
+        resolved.source_plan,
+        make_test_transport({"/v1/boards/acme/jobs": b'{"jobs": []}'}),
+        packet.window_start,
+    )
+    legacy_resolved = replace(resolved, operational_capability=legacy)
+
+    class Resolver:
+        def resolve_gate_d(self, _packet: OperationPacket, _capability: object) -> object:
+            return legacy_resolved
+
+    with pytest.raises(ValueError, match=r"^binding_mismatch$"):
+        invoke_gate_d(
+            packet,
+            legacy.production,
+            Resolver(),
+            legacy_factory,
+            approval,
+            _ApprovalVerifier(),
+            clock=lambda: packet.window_start,
+        )
+    assert legacy_factory.transport.calls == 0
+    assert not (tmp_path / packet.operation_id).exists()
+
+
+def test_mismatched_top_level_b_digest_stops_before_all_operational_effects(
+    tmp_path: Path,
+) -> None:
+    packet, resolved, factory, approval = _operational_fixture(tmp_path)
+    object.__setattr__(packet, "b_ready_sha256", "e" * 64)
+
+    class Resolver:
+        def resolve_gate_d(self, _packet: OperationPacket, _capability: object) -> object:
+            return resolved
+
+    with pytest.raises(ValueError, match=r"^binding_mismatch$"):
+        invoke_gate_d(
+            packet,
+            factory.capability.production,
+            Resolver(),
+            factory,
+            approval,
+            _ApprovalVerifier(),
+            clock=lambda: packet.window_start,
+        )
+    assert factory.transport.calls == 0
+    assert not (tmp_path / packet.operation_id).exists()

@@ -19,14 +19,22 @@ from role_radar.evaluation.blind_labeling.display import (
     render_evidence,
     render_pilot_item,
 )
-from role_radar.evaluation.blind_labeling.display_policy import DISPLAY_ERROR_CODES
+from role_radar.evaluation.blind_labeling.display_policy import (
+    DISPLAY_ERROR_CODES,
+    DISPLAY_VISIBLE_EMAIL_PATTERN,
+    DISPLAY_VISIBLE_URL_PATTERN,
+)
 
 _SAFE_CHARACTERS = st.characters(
     blacklist_categories=("Cc", "Cs"),
     blacklist_characters="&<>\u061c\u200e\u200f\u2028\u2029",
 )
 _SAFE_TEXT = st.text(_SAFE_CHARACTERS, min_size=1, max_size=4096).filter(
-    lambda value: any(not char.isspace() for char in value)
+    lambda value: (
+        any(not char.isspace() for char in value)
+        and DISPLAY_VISIBLE_URL_PATTERN.search(value) is None
+        and DISPLAY_VISIBLE_EMAIL_PATTERN.search(value) is None
+    )
 )
 _FORBIDDEN_CONTROLS = st.sampled_from(
     (("\x00", "&#0;"), ("\x1b", "&#27;"), ("\u2028", "&#8232;"), ("\u2029", "&#8233;"))

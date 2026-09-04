@@ -173,6 +173,7 @@ class PostCPreregistrationRequest:
         if not self.source_plan.source_configs or any(
             set(item) != {"family", "source_key", "configuration_version", "configuration"}
             or item["family"] not in {"greenhouse", "lever"}
+            or type(item["configuration_version"]) is not int
             or item["configuration_version"] != 1
             for item in self.source_plan.source_configs
         ):

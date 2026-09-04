@@ -16,7 +16,9 @@ from role_radar.evaluation.profile_relevant_acquisition.gate_d_authorization imp
 from role_radar.evaluation.profile_relevant_acquisition.gate_d_service import (
     execute_gate_d_bounded_acquisition,
 )
-from role_radar.evaluation.r2_greenhouse_lever_capability import R2GreenhouseLeverCapability
+from role_radar.evaluation.profile_relevant_acquisition.post_c_preregistration_contracts import (
+    validate_post_c_request,
+)
 from role_radar.evaluation.r2_operational_artifacts import (
     GateDOfflineEffects,
     GateDOperationalEffects,
@@ -26,6 +28,11 @@ from role_radar.evaluation.r2_operational_artifacts import (
 )
 from role_radar.evaluation.r2_operational_authorization import OperationPacket
 from role_radar.evaluation.r2_operational_capabilities import ProductionR2Capability
+from role_radar.evaluation.r2_real_ats_capability import (
+    REAL_ATS_FAMILIES,
+    REAL_ATS_HOSTS,
+    ApprovedRealATSCapability,
+)
 
 
 class _Clock(Protocol):
@@ -46,6 +53,61 @@ def invoke_gate_d(
         raise ValueError("binding_mismatch")
     resolved = resolver.resolve_gate_d(packet, capability)
     request = resolved.request
+    # Re-run the complete pure Post-C contract immediately after resolution,
+    # before capability, transport, factory, journal, or effect construction.
+    # Also bind the resolved predecessor identities to this top-level packet.
+    try:
+        packet.__post_init__()
+        validate_post_c_request(request.post_c_request)
+        post = request.post_c_request
+        if (
+            post.source_plan is not resolved.source_plan
+            or post.gate_c_result.source_plan is not post.source_plan
+            or post.gate_c_result.report is not post.gate_c_report
+            or request.operation_id != packet.operation_id
+            or request.lineage_id != packet.lineage_id
+            or post.operation_id != packet.operation_id
+            or post.lineage_id != packet.lineage_id
+            or post.source_plan.source_plan_sha256 != packet.source_plan_sha256
+            or post.query_plan.plan_sha256 != packet.query_plan_sha256
+            or post.provenance.candidate_commit_sha256 != packet.commit_sha256
+            or post.provenance.namespace != packet.destination_namespace
+            or post.provenance.approved_root != packet.destination_root
+            or post.seeds.selection_seed != packet.selection_seed_sha256
+            or post.seeds.partition_seed != packet.partition_seed_sha256
+            or post.accepted_gate_b.packet_sha256 != packet.b_ready_sha256
+            or post.accepted_gate_b.packet.code_commit_sha256 != packet.commit_sha256
+            or post.accepted_gate_b.packet.namespace != packet.destination_namespace
+            or post.accepted_gate_b.packet.root != packet.destination_root
+            or post.accepted_gate_b.packet.selection_seed != packet.selection_seed_sha256
+            or post.accepted_gate_b.packet.partition_seed != packet.partition_seed_sha256
+            or post.accepted_gate_b.packet.window_start_utc
+            != packet.window_start.astimezone(UTC).isoformat().replace("+00:00", "Z")
+            or post.accepted_gate_b.packet.window_end_utc
+            != packet.window_cutoff.astimezone(UTC).isoformat().replace("+00:00", "Z")
+            or post.accepted_gate_b.packet.per_board_cap != packet.source_cap
+            or post.accepted_gate_b.packet.per_company_cap != packet.source_cap
+            or post.accepted_gate_b.packet.budget_units != packet.budget
+            or post.accepted_gate_b.packet.corpus_count != packet.cardinality
+            or request.namespace != packet.destination_namespace
+            or str(request.evidence_root) != packet.destination_root
+            or request.window_start_utc
+            != packet.window_start.astimezone(UTC).isoformat().replace("+00:00", "Z")
+            or request.window_end_utc
+            != packet.window_cutoff.astimezone(UTC).isoformat().replace("+00:00", "Z")
+            or request.current_commit_sha256 != packet.commit_sha256
+            or request.per_board_cap != packet.source_cap
+            or request.per_company_cap != packet.source_cap
+            or request.budget_units != packet.budget
+            or request.cardinality["corpus"] != packet.cardinality
+            or post.accepted_gate_b.packet.profile_sha256 != packet.profile_sha256
+            or post.accepted_gate_b.packet.policy_sha256 != packet.policy_sha256
+            or post.query_plan.profile_binding.canonical_profile_sha256 != packet.profile_sha256
+            or post.query_plan.policy_sha256 != packet.policy_sha256
+        ):
+            raise ValueError("binding_mismatch")
+    except Exception as exc:
+        raise ValueError("binding_mismatch") from exc
     if (
         resolved.source_plan is not request.post_c_request.source_plan
         or resolved.post_c_seal is not request.post_c_seal
@@ -56,6 +118,10 @@ def invoke_gate_d(
         or resolved.source_cap != request.per_board_cap
         or resolved.source_cap != request.per_company_cap
         or resolved.budget != request.budget_units
+    ):
+        raise ValueError("binding_mismatch")
+    if request.test_only_adapter is None and (
+        type(resolved.operational_capability) is not ApprovedRealATSCapability
     ):
         raise ValueError("binding_mismatch")
     window_start = packet.window_start.astimezone(UTC)
@@ -105,17 +171,21 @@ def invoke_gate_d(
             raise ValueError("r2_operational_factory_required")
         sealed_capability = resolved.operational_capability
         if (
-            type(sealed_capability) is not R2GreenhouseLeverCapability
-            or sealed_capability.production is not capability
-            or concrete_factory.capability is not sealed_capability
-            or sealed_capability.claims is not concrete_factory.capability.claims
+            sealed_capability is None
+            or type(sealed_capability) is not ApprovedRealATSCapability
             or not isinstance(operational_approval, ExternalApprovalBinding)
             or operational_approval_verifier is None
         ):
             raise ValueError("binding_mismatch")
+        if (
+            sealed_capability.production is not capability
+            or concrete_factory.capability is not sealed_capability
+            or sealed_capability.claims is not concrete_factory.capability.claims
+        ):
+            raise ValueError("binding_mismatch")
         claims = sealed_capability.claims
         if (
-            claims.provider_families != ("greenhouse", "lever")
+            claims.provider_families != REAL_ATS_FAMILIES
             or claims.source_plan_sha256 != packet.source_plan_sha256
             or claims.operation_id != packet.operation_id
             or claims.lineage_id != request.lineage_id
@@ -129,7 +199,7 @@ def invoke_gate_d(
             or claims.per_company_cap != request.per_company_cap
             or tuple(dict(item) for item in claims.source_configs)
             != tuple(dict(item) for item in request.post_c_request.source_plan.source_configs)
-            or not claims.allowed_hosts
+            or claims.allowed_hosts != REAL_ATS_HOSTS
         ):
             raise ValueError("binding_mismatch")
         sealed_capability.verify_for(packet, resolved.source_plan, now=current_time)

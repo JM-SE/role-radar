@@ -93,7 +93,7 @@ class SyntheticTransport(httpx.AsyncBaseTransport):
 
 
 def _require_gate_d_transport(transport: object) -> httpx.AsyncBaseTransport:
-    """Accept only the two sealed Gate D transport seams."""
+    """Accept only the sealed synthetic and named ATS transport seams."""
     if type(transport) is SyntheticTransport:
         return transport
     from role_radar.evaluation.r2_greenhouse_lever_factory import (
@@ -101,6 +101,13 @@ def _require_gate_d_transport(transport: object) -> httpx.AsyncBaseTransport:
     )
 
     if type(transport) is R2GreenhouseLeverTestTransport:
+        return cast(httpx.AsyncBaseTransport, transport)
+    from role_radar.evaluation.r2_real_ats_transport import (
+        RealATSTestTransport,
+        RealATSTransport,
+    )
+
+    if type(transport) in (RealATSTransport, RealATSTestTransport):
         return cast(httpx.AsyncBaseTransport, transport)
     raise AcquisitionError("acquisition_production_transport_rejected")
 

@@ -51,10 +51,10 @@ from role_radar.evaluation.profile_relevant_acquisition.post_c_preregistration_c
     PrivateSealWriter,
 )
 from role_radar.evaluation.profile_relevant_acquisition.source_plan import SourcePlan
-from role_radar.evaluation.r2_greenhouse_lever_capability import R2GreenhouseLeverCapability
 from role_radar.evaluation.r2_greenhouse_lever_factory import R2GreenhouseLeverFactory
 from role_radar.evaluation.r2_operational_authorization import OperationPacket
 from role_radar.evaluation.r2_operational_capabilities import ProductionR2Capability
+from role_radar.evaluation.r2_real_ats_capability import ApprovedRealATSCapability
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,7 +94,7 @@ class ResolvedGateDInput:
     budget: int
     # Operational resolution must carry the verifier-sealed capability all the
     # way to selection.  ``None`` is retained for the synthetic branch.
-    operational_capability: R2GreenhouseLeverCapability | None = None
+    operational_capability: ApprovedRealATSCapability | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -174,7 +174,7 @@ class GateDOperationalEffects:
 
     delegate: R2OperationalTransport
     factory: R2GreenhouseLeverFactory
-    capability: R2GreenhouseLeverCapability
+    capability: ApprovedRealATSCapability
     journal: AcquisitionJournal
     checkpoints: tuple[SourceCheckpoint, ...] = ()
     approval: ExternalApprovalBinding | None = None
@@ -182,10 +182,17 @@ class GateDOperationalEffects:
 
     def __post_init__(self) -> None:
         """Enforce the operational seam at runtime, not through annotations."""
+        from role_radar.evaluation.r2_real_ats_transport import (
+            RealATSTestTransport,
+            RealATSTransport,
+        )
+
         if type(self.factory) is not R2GreenhouseLeverFactory:
             raise TypeError("r2_operational_factory_required")
-        if type(self.capability) is not R2GreenhouseLeverCapability:
+        if type(self.capability) is not ApprovedRealATSCapability:
             raise TypeError("r2_operational_capability_required")
+        if type(self.factory.transport) not in (RealATSTransport, RealATSTestTransport):
+            raise TypeError("r2_operational_transport_required")
         if self.factory.capability is not self.capability:
             raise ValueError("r2_operational_capability_mismatch")
         if cast(object, self.delegate) is not cast(object, self.factory.transport):
