@@ -16,6 +16,9 @@ from role_radar.evaluation.profile_relevant_acquisition import (
     real_discovery_capability as capability_module,
 )
 from role_radar.evaluation.profile_relevant_acquisition import (
+    real_discovery_verifier as verifier_module,
+)
+from role_radar.evaluation.profile_relevant_acquisition import (
     real_gate_c_discovery as discovery_module,
 )
 
@@ -40,7 +43,7 @@ FORBIDDEN_FRAGMENTS = (
     "r4",
 )
 
-REAL_MODULES = (capability_module, discovery_module)
+REAL_MODULES = (capability_module, discovery_module, verifier_module)
 
 
 def _source(module: object) -> str:

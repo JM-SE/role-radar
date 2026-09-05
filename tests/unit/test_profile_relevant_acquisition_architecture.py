@@ -50,6 +50,7 @@ EXPECTED_MODULES = {
     "gate_c_service.py",
     "real_discovery_capability.py",
     "real_gate_c_discovery.py",
+    "real_discovery_verifier.py",
     "post_c_preregistration_contracts.py",
     "post_c_preregistration_service.py",
     "output.py",
