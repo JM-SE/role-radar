@@ -54,6 +54,10 @@ def facts(**changes: object) -> JobFacts:
     )
     if "core_skills" in changes:
         value = replace(value, core_skills=tuple(changes["core_skills"]))  # type: ignore[arg-type,call-arg]
+    if "title" in changes:
+        value = replace(value, title=changes["title"])  # type: ignore[arg-type]
+    if "remote_policy" in changes:
+        value = replace(value, remote_policy=changes["remote_policy"])  # type: ignore[arg-type]
     if "regions" in changes:
         value = replace(value, regions=tuple(changes["regions"]))  # type: ignore[arg-type]
     if "required_skills" in changes:
@@ -117,6 +121,74 @@ def test_legacy_adapter_never_enables_remote_only() -> None:
         "legacy_remote_preference",
         "legacy_exclusions_unclassified",
     }
+
+
+def test_explicit_work_modes_block_onsite_but_score_hybrid_below_remote() -> None:
+    candidate = profile(
+        target_roles=["product"],
+        target_titles=["product engineer"],
+        hard_constraints={"allowed_remote_policies": ["remote", "hybrid"]},
+        soft_preferences={"preferred_remote_policies": ["remote"]},
+        remote_only=False,
+    )
+    remote = score_job(
+        candidate,
+        facts(title="Product Engineer", remote_policy="remote"),
+        job_id="remote",
+        profile_id="profile-1",
+    )
+    hybrid = score_job(
+        candidate,
+        facts(title="Product Engineer", remote_policy="hybrid"),
+        job_id="hybrid",
+        profile_id="profile-1",
+    )
+    onsite = score_job(
+        candidate,
+        facts(title="Product Engineer", remote_policy="onsite"),
+        job_id="onsite",
+        profile_id="profile-1",
+    )
+    assert remote.eligible is True
+    assert hybrid.eligible is True
+    assert remote.preliminary_score > hybrid.preliminary_score
+    assert onsite.eligible is False
+    assert [blocker.code for blocker in onsite.blockers] == ["remote_policy_not_allowed"]
+
+    unknown = score_job(
+        candidate,
+        facts(title="Product Engineer", remote_policy="unknown"),
+        job_id="unknown",
+        profile_id="profile-1",
+    )
+    assert unknown.eligible is True
+
+
+def test_exploratory_ai_role_receives_reduced_role_weight() -> None:
+    candidate = profile(
+        target_roles=["software", "ai product"],
+        target_titles=["software engineer", "ai product engineer"],
+        soft_preferences={
+            "exploratory_target_roles": ["ai product"],
+            "exploratory_target_titles": ["ai product engineer"],
+        },
+    )
+    regular = score_job(
+        candidate,
+        facts(title="Software Engineer"),
+        job_id="regular",
+        profile_id="profile-1",
+    )
+    exploratory = score_job(
+        candidate,
+        facts(title="AI Product Engineer"),
+        job_id="exploratory",
+        profile_id="profile-1",
+    )
+    assert regular.eligible is True
+    assert exploratory.eligible is True
+    assert next(signal for signal in regular.signals if signal.name == "role_match").points == 20
+    assert next(signal for signal in exploratory.signals if signal.name == "role_match").points == 5
 
 
 @given(st.lists(st.sampled_from(["python", "sql", "docker"]), max_size=6))

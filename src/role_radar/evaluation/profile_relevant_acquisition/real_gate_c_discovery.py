@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
-from contextlib import suppress
+from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -72,6 +72,35 @@ class QuotaAdapterProtocol(Protocol):
     def finalize_v2(self, *, reservation_id: str, **kwargs: Any) -> Any: ...
     def revalidate_context_v2(self, **kwargs: Any) -> Any: ...
     def commit_v2(self) -> None: ...
+
+
+async def _open_search_provider(
+    stack: AsyncExitStack,
+    provider: Any,
+) -> Any:
+    """Enter one provider before exposing it to the search runtime."""
+
+    try:
+        if not callable(getattr(provider, "__aenter__", None)) or not callable(
+            getattr(provider, "__aexit__", None)
+        ):
+            raise RuntimeError("provider lifecycle is not async-context-managed")
+        return await stack.enter_async_context(provider)
+    except Exception as exc:
+        raise RealDiscoveryError("real_discovery_provider_open_failed") from exc
+
+
+def _create_search_provider(
+    factory: SearchProviderFactory,
+    provider_name: str,
+    api_key: str,
+) -> Any:
+    """Normalize factory failures before the search runtime can reserve quota."""
+
+    try:
+        return factory(provider_name, api_key)
+    except Exception as exc:
+        raise RealDiscoveryError("real_discovery_provider_open_failed") from exc
 
 
 @dataclass(frozen=True, slots=True)
@@ -226,47 +255,63 @@ async def run_real_gate_c_discovery(
     try:
         if not brave_key or not tavily_key:
             raise RealDiscoveryError("real_discovery_credential_unavailable")
-        brave_provider = factory("brave", brave_key)
-        tavily_provider = factory("tavily", tavily_key)
-        search_capability = _sealed_search_capability(
-            operation_id=operation.operation_id,
-            operation_sha256=operation.operation_sha256,
-            plan_sha256=operation.plan_sha256,
-            expires_at_utc=report_authorization.expires_at_utc,
-            authorization_sha256=report_authorization.authorization_sha256,
-        )
-        budget = DiscoveryBudgetV2()
-        runtime = build_search_runtime(
-            config,
-            plan,
-            authorization_capability=search_capability,
-            execution_budget=budget,
-            quota_adapter=quota_adapter,
-        )
-        runtime.brave = brave_provider
-        runtime.tavily = tavily_provider
-        collector_provider = BoundedCollectorProvider(transport=collector_transport)
-        if collector_factory is not None:
-            collector_provider.collector_factory = collector_factory
-        verifier = ReportOnlyATSVerifier(
-            collector_provider=collector_provider,
-            operation_sha256=operation.operation_sha256,
-        )
+        async with AsyncExitStack() as provider_stack:
+            brave_provider = await _open_search_provider(
+                provider_stack,
+                _create_search_provider(factory, "brave", brave_key),
+            )
+            tavily_provider = await _open_search_provider(
+                provider_stack,
+                _create_search_provider(factory, "tavily", tavily_key),
+            )
+            search_capability = _sealed_search_capability(
+                operation_id=operation.operation_id,
+                operation_sha256=operation.operation_sha256,
+                plan_sha256=operation.plan_sha256,
+                # The inner report-only artifact currently has the library-wide
+                # 24-hour maximum.  Live Gate C must remain bounded by the
+                # independently verified operator authorization, which may be
+                # shorter (the normal packet is 90 minutes).
+                expires_at_utc=datetime.fromisoformat(
+                    authorization.expires_at_utc.replace("Z", "+00:00")
+                ),
+                authorization_sha256=report_authorization.authorization_sha256,
+            )
+            budget = DiscoveryBudgetV2()
+            runtime = build_search_runtime(
+                config,
+                plan,
+                authorization_capability=search_capability,
+                execution_budget=budget,
+                quota_adapter=quota_adapter,
+            )
+            runtime.brave = brave_provider
+            runtime.tavily = tavily_provider
+            collector_provider = BoundedCollectorProvider(transport=collector_transport)
+            if collector_factory is not None:
+                collector_provider.collector_factory = collector_factory
+            verifier = ReportOnlyATSVerifier(
+                collector_provider=collector_provider,
+                operation_sha256=operation.operation_sha256,
+            )
 
-        async def _verify(candidate: object) -> ReportOnlyVerifiedSourceV1 | None:
-            if not isinstance(candidate, BoardCandidateV2):
-                return None
-            return await verifier(candidate)
+            async def _verify(candidate: object) -> ReportOnlyVerifiedSourceV1 | None:
+                if not isinstance(candidate, BoardCandidateV2):
+                    return None
+                return await verifier(candidate)
 
-        terminal = await execute_report_only_runtime(
-            operation,
-            report_authorization,
-            config,
-            search_runtime=runtime,
-            artifact_root=artifact_root,
-            official_verifier=_verify,
-            clock=clock if clock is not None else check_at,
-        )
+            terminal = await execute_report_only_runtime(
+                operation,
+                report_authorization,
+                config,
+                search_runtime=runtime,
+                artifact_root=artifact_root,
+                official_verifier=_verify,
+                # Keep the production wall clock in the live composition.  An
+                # explicit datetime is a deterministic test seam and disables
+                # the runtime freshness guard by design.
+                clock=clock,
+            )
     except (ReportOnlyError, RuntimeCompositionError) as exc:
         raise RealDiscoveryError(getattr(exc, "code", "real_discovery_failed")) from exc
     except RealDiscoveryError:
@@ -274,14 +319,10 @@ async def run_real_gate_c_discovery(
     except Exception as exc:
         raise RealDiscoveryError("real_discovery_failed") from exc
     finally:
-        for provider in (brave_provider, tavily_provider):
-            closer = getattr(provider, "aclose", None)
-            if callable(closer):
-                with suppress(Exception):
-                    await closer()
         # Secret material never leaves this function except into provider
-        # memory, which is closed above. Local references are dropped on every
-        # path, including exceptions. The result carries hashes and counts.
+        # memory, which is closed by the AsyncExitStack above. Local references
+        # are dropped on every path, including exceptions. The result carries
+        # hashes and counts.
         del brave_key, tavily_key
 
     if type(terminal) is not ReportOnlyTerminalReportV1:

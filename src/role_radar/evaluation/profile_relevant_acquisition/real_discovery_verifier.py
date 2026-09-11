@@ -18,8 +18,11 @@ import hashlib
 import json
 import os
 import re
+import stat
 import subprocess
+import tempfile
 from collections.abc import Callable, Mapping
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -415,7 +418,18 @@ class IndependentPacketVerifier:
         if self.verdict_path is None:
             return
         parent = self.verdict_path.parent
-        if not parent.is_dir():
+        try:
+            parent_metadata = parent.lstat()
+        except OSError as exc:
+            raise RealDiscoveryVerifierError("verdict_output_invalid") from exc
+        if (
+            not stat.S_ISDIR(parent_metadata.st_mode)
+            or stat.S_IMODE(parent_metadata.st_mode) != 0o700
+            or parent_metadata.st_uid != os.geteuid()
+            or parent.is_symlink()
+            or self.verdict_path.is_symlink()
+            or self.verdict_path.exists()
+        ):
             raise RealDiscoveryVerifierError("verdict_output_invalid")
         body = {
             "approval_reference": self.expected_approval_reference,
@@ -428,12 +442,27 @@ class IndependentPacketVerifier:
             "verified_at_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "verifier_id": self.verifier_id,
         }
+        payload = json.dumps(body, sort_keys=True, indent=2).encode("utf-8") + b"\n"
+        temporary_name: str | None = None
         try:
-            self.verdict_path.write_bytes(
-                json.dumps(body, sort_keys=True, indent=2).encode("utf-8") + b"\n"
-            )
-        except OSError as exc:
+            descriptor, temporary_name = tempfile.mkstemp(prefix=".verdict-", dir=parent)
+            os.fchmod(descriptor, 0o600)
+            with os.fdopen(descriptor, "wb", closefd=True) as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.link(temporary_name, self.verdict_path, follow_symlinks=False)
+            directory_descriptor = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+            try:
+                os.fsync(directory_descriptor)
+            finally:
+                os.close(directory_descriptor)
+        except (FileExistsError, OSError) as exc:
             raise RealDiscoveryVerifierError("verdict_output_invalid") from exc
+        finally:
+            if temporary_name is not None:
+                with suppress(FileNotFoundError):
+                    Path(temporary_name).unlink()
 
 
 __all__ = [

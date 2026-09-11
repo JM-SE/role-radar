@@ -480,6 +480,11 @@ def _parser() -> argparse.ArgumentParser:
     from role_radar.cli.evaluation_r2_operation import register_parser as register_r2_parser
 
     register_r2_parser(evaluation_commands)
+    from role_radar.cli.evaluation_r2_real_gate_c import (
+        register_parser as register_real_gate_c_parser,
+    )
+
+    register_real_gate_c_parser(evaluation_commands)
     return parser
 
 
@@ -487,6 +492,10 @@ def _run_evaluation(args: argparse.Namespace) -> int:
     """Gate-A CLI surface; live acquisition is deliberately fail-closed here."""
     if args.evaluation_command == "r2-operation":
         from role_radar.cli.evaluation_r2_operation import run
+
+        return run(args)
+    if args.evaluation_command == "r2-real-gate-c":
+        from role_radar.cli.evaluation_r2_real_gate_c import run
 
         return run(args)
     if args.evaluation_command in {"f10-1", "f10-1c"}:

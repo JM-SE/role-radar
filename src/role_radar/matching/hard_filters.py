@@ -18,6 +18,18 @@ def excluded_role(profile: CandidateProfileV1, facts: JobFacts) -> HardBlocker |
 def onsite_incompatible_remote_only(
     profile: CandidateProfileV1, facts: JobFacts
 ) -> HardBlocker | None:
+    allowed = set(profile.hard_constraints.allowed_remote_policies)
+    if (
+        facts.remote_policy in {"remote", "hybrid", "onsite"}
+        and allowed
+        and facts.remote_policy not in allowed
+    ):
+        return HardBlocker(
+            "remote_policy_not_allowed",
+            "remote_policy",
+            (facts.remote_policy,),
+            (facts.remote_provenance,),
+        )
     if profile.remote_only and facts.remote_policy in {"onsite", "hybrid"}:
         return HardBlocker(
             "onsite_incompatible_remote_only",

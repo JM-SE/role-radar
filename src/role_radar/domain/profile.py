@@ -23,6 +23,7 @@ from role_radar.matching.policy import (
     canonical_employment,
     canonical_language,
     canonical_region,
+    canonical_remote,
     canonical_role,
     canonical_technology,
 )
@@ -60,6 +61,7 @@ class ProfileHardConstraints(BaseModel):
     available_work_authorizations: tuple[str, ...] = ()
     unavailable_work_authorizations: tuple[str, ...] = ()
     allowed_employment_types: tuple[EmploymentType, ...] = ()
+    allowed_remote_policies: tuple[str, ...] = ()
 
     @field_validator(
         "available_work_authorizations", "unavailable_work_authorizations", mode="before"
@@ -73,15 +75,40 @@ class ProfileHardConstraints(BaseModel):
     def canonicalize_employment(cls, value: list[str] | tuple[str, ...]) -> tuple[str, ...]:
         return tuple(canonical_employment(item) for item in value)
 
+    @field_validator("allowed_remote_policies", mode="before")
+    @classmethod
+    def canonicalize_remote_policies(cls, value: list[str] | tuple[str, ...]) -> tuple[str, ...]:
+        return tuple(sorted({canonical_remote(item) for item in value}))
+
 
 class ProfileSoftPreferences(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
 
     preferred_industries: tuple[str, ...] = ()
+    preferred_remote_policies: tuple[str, ...] = ()
+    exploratory_target_roles: tuple[str, ...] = ()
+    exploratory_target_titles: tuple[str, ...] = ()
 
     @field_validator("preferred_industries", mode="before")
     @classmethod
     def canonicalize_industries(cls, value: list[str] | tuple[str, ...]) -> tuple[str, ...]:
+        return tuple(_canonical_list(value))
+
+    @field_validator("preferred_remote_policies", mode="before")
+    @classmethod
+    def canonicalize_preferred_remote_policies(
+        cls, value: list[str] | tuple[str, ...]
+    ) -> tuple[str, ...]:
+        return tuple(sorted({canonical_remote(item) for item in value}))
+
+    @field_validator("exploratory_target_roles", mode="before")
+    @classmethod
+    def canonicalize_exploratory_roles(cls, value: list[str] | tuple[str, ...]) -> tuple[str, ...]:
+        return tuple(sorted({canonical_role(item) for item in value}))
+
+    @field_validator("exploratory_target_titles", mode="before")
+    @classmethod
+    def canonicalize_exploratory_titles(cls, value: list[str] | tuple[str, ...]) -> tuple[str, ...]:
         return tuple(_canonical_list(value))
 
 
@@ -171,7 +198,22 @@ class CandidateProfileV1(BaseModel):
 
 def canonical_profile_payload(payload: dict[str, Any]) -> dict[str, Any]:
     """Return a JSON-compatible canonical v1 payload."""
-    return CandidateProfileV1.model_validate(payload).model_dump(mode="json")
+    canonical = CandidateProfileV1.model_validate(payload).model_dump(mode="json")
+    # These optional preference fields were added after the original v1 hash
+    # contract.  Empty defaults carry no semantics, so omit them to preserve
+    # hashes for legacy profiles while retaining non-empty new constraints.
+    hard = canonical["hard_constraints"]
+    soft = canonical["soft_preferences"]
+    if not hard["allowed_remote_policies"]:
+        hard.pop("allowed_remote_policies")
+    for field in (
+        "preferred_remote_policies",
+        "exploratory_target_roles",
+        "exploratory_target_titles",
+    ):
+        if not soft[field]:
+            soft.pop(field)
+    return canonical
 
 
 def canonical_profile_bytes(payload: dict[str, Any]) -> bytes:

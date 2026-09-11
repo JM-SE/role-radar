@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -38,7 +38,7 @@ from role_radar.evaluation.profile_relevant_acquisition.real_discovery_capabilit
     make_test_real_discovery_verification,
 )
 
-NOW = datetime(2026, 9, 10, 1, tzinfo=UTC)
+NOW = datetime.now(UTC).replace(microsecond=0)
 OPERATION_ID = "11111111-1111-4111-8111-111111111111"
 
 
@@ -58,8 +58,8 @@ def _packet(root: Path) -> GateBPacket:
         policy_id="policy-v1",
         policy_version="1",
         policy_sha256=value,
-        window_start_utc="2026-09-10T00:00:00Z",
-        window_end_utc="2026-09-11T00:00:00Z",
+        window_start_utc=NOW.isoformat().replace("+00:00", "Z"),
+        window_end_utc=(NOW + timedelta(hours=24)).isoformat().replace("+00:00", "Z"),
         per_board_cap=10,
         per_company_cap=10,
         corpus_count=10,
@@ -164,16 +164,17 @@ def _bundle(tmp_path: Path) -> tuple[Any, Any, Any, Any]:
         approved_root=packet.root,
         window_start_utc=packet.window_start_utc,
         window_end_utc=packet.window_end_utc,
-        cutoff_utc="2026-09-10T12:00:00Z",
+        cutoff_utc=(NOW + timedelta(hours=12)).isoformat().replace("+00:00", "Z"),
         budget_units=packet.budget_units,
     )
+    expires_at = (datetime.now(UTC) + timedelta(hours=2)).replace(microsecond=0)
     authorization = GateCAuthorization(
         gate="C",
         mode="report-only",
         report_only=True,
         operation_id=OPERATION_ID,
         lineage_id="22222222-2222-4222-8222-222222222222",
-        expires_at_utc="2026-09-10T06:00:00Z",
+        expires_at_utc=expires_at.isoformat().replace("+00:00", "Z"),
         provenance=provenance,
         per_board_cap=10,
         per_company_cap=10,
@@ -298,7 +299,7 @@ def test_expired_capability_rejected(tmp_path: Path) -> None:
             accepted,
             plan,
             config,
-            now=datetime(2026, 9, 10, 7, tzinfo=UTC),
+            now=NOW + timedelta(hours=6),
         )
 
 
@@ -314,7 +315,7 @@ def test_pre_window_use_rejected(tmp_path: Path) -> None:
             accepted,
             plan,
             config,
-            now=datetime(2026, 9, 9, 23, tzinfo=UTC),
+            now=NOW - timedelta(hours=1),
         )
 
 

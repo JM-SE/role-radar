@@ -32,7 +32,17 @@ def role_match(
     title = canonical_role(facts.title)
     targets = {canonical_role(value) for value in profile.target_titles}
     families = {canonical_role(value) for value in profile.target_roles}
+    exploratory_titles = {
+        canonical_role(value) for value in profile.soft_preferences.exploratory_target_titles
+    }
+    exploratory_roles = {
+        canonical_role(value) for value in profile.soft_preferences.exploratory_target_roles
+    }
     if title in targets or title in families:
+        if title in exploratory_titles or title in exploratory_roles:
+            return _signal(
+                "role_match", floor(maximum * 5 / 20), maximum, "role_exploratory", title
+            ), ()
         return _signal("role_match", maximum, maximum, "role_exact", title), ()
     title_tokens = tuple(key(facts.title).split())
     if any(tuple(key(target).split()) == title_tokens for target in profile.target_titles):
@@ -50,6 +60,12 @@ def location_match(
     if facts.remote_policy is None:
         ambiguities.append(
             Ambiguity("remote_policy_unknown", "remote_policy", facts.remote_provenance)
+        )
+    elif facts.remote_policy in profile.soft_preferences.preferred_remote_policies:
+        modality = 10
+    elif profile.hard_constraints.allowed_remote_policies:
+        modality = (
+            5 if facts.remote_policy in profile.hard_constraints.allowed_remote_policies else 0
         )
     elif profile.remote_only and facts.remote_policy == "remote":
         modality = 10

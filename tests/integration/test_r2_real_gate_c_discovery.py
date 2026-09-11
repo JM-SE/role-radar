@@ -8,11 +8,12 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Literal, cast
 
+import httpx
 import pytest
 
 from role_radar.collectors.outcomes import CollectionMetrics, CollectionSuccess
@@ -28,6 +29,8 @@ from role_radar.discovery.profile_terms import (
     CompiledDiscoveryTermsV1,
     DiscoveryTermProvenanceV1,
 )
+from role_radar.discovery.providers.brave import BraveSearchProvider
+from role_radar.discovery.providers.tavily import TavilySearchProvider
 from role_radar.evaluation.profile_relevant_acquisition.gate_b_preflight import (
     GateBPacket,
     PreflightReport,
@@ -132,6 +135,7 @@ def _bundle(tmp_path: Path) -> tuple[Any, Any, Any, Any]:
     plan = _plan()
     packet = replace(_packet(tmp_path, "c" * 64), policy_sha256=plan.policy_sha256)
     packet_hash = gate_b_packet_sha256(packet)
+    expires_at = (datetime.now(UTC) + timedelta(hours=2)).replace(microsecond=0)
     accepted = AcceptedGateBBinding(
         packet,
         packet_hash,
@@ -167,7 +171,7 @@ def _bundle(tmp_path: Path) -> tuple[Any, Any, Any, Any]:
         report_only=True,
         operation_id=OPERATION_ID,
         lineage_id=LINEAGE_ID,
-        expires_at_utc="2026-09-10T06:00:00Z",
+        expires_at_utc=expires_at.isoformat().replace("+00:00", "Z"),
         provenance=provenance,
         per_board_cap=10,
         per_company_cap=10,
@@ -206,8 +210,10 @@ class _Publication:
 class _QuotaAdapter:
     def __init__(self) -> None:
         self.commits = 0
+        self.started: list[str] = []
 
     def reserve_and_start_v2(self, *, operation_key: str, **_kwargs: object) -> _Publication:
+        self.started.append(operation_key)
         return _Publication()
 
     def finalize_v2(self, *, reservation_id: str, **_kwargs: object) -> object:
@@ -220,7 +226,19 @@ class _QuotaAdapter:
         self.commits += 1
 
 
-class _BoardProvider:
+class _ManagedProvider:
+    entered = 0
+    closed = 0
+
+    async def __aenter__(self) -> Any:
+        self.entered += 1
+        return self
+
+    async def __aexit__(self, _exc_type: object, _exc: object, _tb: object) -> None:
+        self.closed += 1
+
+
+class _BoardProvider(_ManagedProvider):
     def __init__(
         self, urls: tuple[str, ...], provider: Literal["brave", "tavily"] = "brave"
     ) -> None:
@@ -243,7 +261,7 @@ class _BoardProvider:
         )
 
 
-class _EmptyProvider:
+class _EmptyProvider(_ManagedProvider):
     def __init__(self, provider: Literal["brave", "tavily"] = "brave") -> None:
         self.provider = provider
         self.calls = 0
@@ -323,6 +341,197 @@ def test_fake_flow_discovers_greenhouse_and_lever(tmp_path: Path) -> None:
     assert b"jobs.lever.co" not in payload
     for forbidden in (b"canonical_url", b"title", b"snippet", b"answer", b"raw"):
         assert forbidden not in payload
+
+
+def test_real_search_providers_are_opened_before_runtime_and_closed_afterward(
+    tmp_path: Path,
+) -> None:
+    authorization, accepted, plan, config = _bundle(tmp_path)
+    capability = capability_from_independent_verifier(
+        authorization, accepted, plan, config, _FakeVerifier(), now=NOW
+    )
+    requests: list[httpx.Request] = []
+
+    async def _handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            200,
+            json={"web": {"results": [{"url": "https://boards.greenhouse.io/acme"}]}},
+            request=request,
+        )
+
+    transport = httpx.MockTransport(_handler)
+    providers: dict[str, Any] = {}
+
+    def _real_provider_factory(name: str, api_key: str) -> Any:
+        provider: Any
+        if name == "brave":
+            provider = BraveSearchProvider(api_key, transport=transport)
+        else:
+            provider = TavilySearchProvider(api_key, transport=transport)
+        providers[name] = provider
+        return provider
+
+    quota = _QuotaAdapter()
+    result = asyncio.run(
+        run_real_gate_c_discovery(
+            capability=capability,
+            authorization=authorization,
+            accepted_b=accepted,
+            plan=plan,
+            config=config,
+            resolver=_FakeResolver(),
+            quota_adapter=quota,
+            artifact_root=tmp_path,
+            provider_factory=_real_provider_factory,
+            collector_factory=_collector_factory,
+            clock=NOW,
+            nonce_source=lambda: b"n" * 32,
+            now=NOW,
+        )
+    )
+
+    assert result.state == "completed"
+    assert requests
+    assert all(request.url.host == "api.search.brave.com" for request in requests)
+    assert all(request.method == "GET" for request in requests)
+    assert providers["brave"]._client is None
+    assert providers["tavily"]._client is None
+    assert len(quota.started) == len(requests)
+
+
+def test_provider_open_failure_closes_previous_provider_before_any_quota_start(
+    tmp_path: Path,
+) -> None:
+    authorization, accepted, plan, config = _bundle(tmp_path)
+    capability = capability_from_independent_verifier(
+        authorization, accepted, plan, config, _FakeVerifier(), now=NOW
+    )
+    brave = _BoardProvider(("https://boards.greenhouse.io/acme",))
+
+    class _FailingOpenProvider:
+        provider = "tavily"
+
+        async def __aenter__(self) -> Any:
+            raise OSError("client initialization failed")
+
+        async def __aexit__(self, _exc_type: object, _exc: object, _tb: object) -> None:
+            raise AssertionError("failed provider must not be closed as opened")
+
+        async def search(self, _request: object) -> SearchResponse:
+            raise AssertionError("search must not run")
+
+    quota = _QuotaAdapter()
+
+    def _factory(name: str, _api_key: str) -> Any:
+        return brave if name == "brave" else _FailingOpenProvider()
+
+    with pytest.raises(RealDiscoveryError, match="real_discovery_provider_open_failed"):
+        asyncio.run(
+            run_real_gate_c_discovery(
+                capability=capability,
+                authorization=authorization,
+                accepted_b=accepted,
+                plan=plan,
+                config=config,
+                resolver=_FakeResolver(),
+                quota_adapter=quota,
+                artifact_root=tmp_path,
+                provider_factory=_factory,
+                collector_factory=_collector_factory,
+                clock=NOW,
+                nonce_source=lambda: b"n" * 32,
+                now=NOW,
+            )
+        )
+
+    assert brave.entered == 1
+    assert brave.closed == 1
+    assert quota.started == []
+
+
+def test_provider_factory_failure_is_sanitized_before_any_quota_start(tmp_path: Path) -> None:
+    authorization, accepted, plan, config = _bundle(tmp_path)
+    capability = capability_from_independent_verifier(
+        authorization, accepted, plan, config, _FakeVerifier(), now=NOW
+    )
+    brave = _BoardProvider(("https://boards.greenhouse.io/acme",))
+    quota = _QuotaAdapter()
+
+    def _factory(name: str, _api_key: str) -> Any:
+        if name == "brave":
+            return brave
+        raise RuntimeError("provider construction failed")
+
+    with pytest.raises(RealDiscoveryError, match="real_discovery_provider_open_failed"):
+        asyncio.run(
+            run_real_gate_c_discovery(
+                capability=capability,
+                authorization=authorization,
+                accepted_b=accepted,
+                plan=plan,
+                config=config,
+                resolver=_FakeResolver(),
+                quota_adapter=quota,
+                artifact_root=tmp_path,
+                provider_factory=_factory,
+                collector_factory=_collector_factory,
+                clock=NOW,
+                nonce_source=lambda: b"n" * 32,
+                now=NOW,
+            )
+        )
+
+    assert brave.entered == 1
+    assert brave.closed == 1
+    assert quota.started == []
+
+
+def test_provider_real_discovery_error_during_open_is_sanitized(tmp_path: Path) -> None:
+    authorization, accepted, plan, config = _bundle(tmp_path)
+    capability = capability_from_independent_verifier(
+        authorization, accepted, plan, config, _FakeVerifier(), now=NOW
+    )
+    brave = _BoardProvider(("https://boards.greenhouse.io/acme",))
+    quota = _QuotaAdapter()
+
+    class _FailingOpenProvider:
+        provider = "tavily"
+
+        async def __aenter__(self) -> Any:
+            raise RealDiscoveryError("inner_provider_error")
+
+        async def __aexit__(self, _exc_type: object, _exc: object, _tb: object) -> None:
+            raise AssertionError("failed provider must not be closed as opened")
+
+        async def search(self, _request: object) -> SearchResponse:
+            raise AssertionError("search must not run")
+
+    def _factory(name: str, _api_key: str) -> Any:
+        return brave if name == "brave" else _FailingOpenProvider()
+
+    with pytest.raises(RealDiscoveryError, match="real_discovery_provider_open_failed"):
+        asyncio.run(
+            run_real_gate_c_discovery(
+                capability=capability,
+                authorization=authorization,
+                accepted_b=accepted,
+                plan=plan,
+                config=config,
+                resolver=_FakeResolver(),
+                quota_adapter=quota,
+                artifact_root=tmp_path,
+                provider_factory=_factory,
+                collector_factory=_collector_factory,
+                clock=NOW,
+                nonce_source=lambda: b"n" * 32,
+                now=NOW,
+            )
+        )
+
+    assert brave.entered == 1
+    assert brave.closed == 1
+    assert quota.started == []
 
 
 def test_zero_verified_boards_stops_without_plan(tmp_path: Path) -> None:
@@ -616,7 +825,7 @@ def test_tavily_fallback_attributes_per_provider_counts(tmp_path: Path) -> None:
         authorization, accepted, plan, config, _FakeVerifier(), now=NOW
     )
 
-    class _FailedBrave:
+    class _FailedBrave(_ManagedProvider):
         provider = "brave"
 
         def __init__(self) -> None:
