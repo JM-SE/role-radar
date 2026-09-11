@@ -41,6 +41,7 @@ from role_radar.evaluation.profile_relevance.contracts import (
     SelectionResult,
     SourceIdentity,
 )
+from role_radar.evaluation.profile_relevant_acquisition.seed_inputs import SeedInputs
 
 # Re-export the accepted pure dependency.  This is the only compatibility
 # surface between the two domains; no operational DTO is a structural alias of
@@ -80,22 +81,6 @@ def _nonempty(value: object, code: str) -> None:
 def _hash(value: object, code: str) -> None:
     if not isinstance(value, str) or HEX64_RE.fullmatch(value) is None:
         raise OperationalContractError(code)
-
-
-@dataclass(frozen=True, slots=True)
-class SeedInputs:
-    """The only acceptable seed input: exactly two distinct 32-byte values."""
-
-    selection_seed: str
-    partition_seed: str
-
-    def __post_init__(self) -> None:
-        for field in ("selection_seed", "partition_seed"):
-            value = getattr(self, field)
-            if not isinstance(value, str) or HEX64_RE.fullmatch(value) is None:
-                raise OperationalContractError(f"{field}_invalid")
-        if self.selection_seed == self.partition_seed:
-            raise OperationalContractError("seeds_must_differ")
 
 
 @dataclass(frozen=True, slots=True)

@@ -343,6 +343,69 @@ def test_fake_flow_discovers_greenhouse_and_lever(tmp_path: Path) -> None:
         assert forbidden not in payload
 
 
+def test_completed_partial_with_verified_sources_persists_bounded_result(
+    tmp_path: Path,
+) -> None:
+    authorization, accepted, plan, config = _bundle(tmp_path)
+    capability = capability_from_independent_verifier(
+        authorization, accepted, plan, config, _FakeVerifier(), now=NOW
+    )
+    quota = _QuotaAdapter()
+
+    async def _discover() -> Any:
+        discovered = await run_real_gate_c_discovery(
+                capability=capability,
+                authorization=authorization,
+                accepted_b=accepted,
+                plan=plan,
+                config=config,
+                resolver=_FakeResolver(),
+                quota_adapter=quota,
+                artifact_root=tmp_path,
+                provider_factory=_provider_factory,
+                collector_factory=_collector_factory,
+                clock=NOW,
+                nonce_source=lambda: b"n" * 32,
+                now=NOW,
+            )
+        counts = dict(discovered.counts or {})
+        counts.update(
+            unique_board_candidates_seen=10,
+            unique_board_candidates_retained=10,
+        )
+        return replace(
+            discovered,
+            candidates_seen=10,
+            state="completed_partial",
+            terminal_code="unique_board_candidates_exhausted",
+            counts=counts,
+            truncation={
+                "unique_board_candidates": True,
+                "board_verifications": False,
+                "verification_wire_attempts": False,
+            },
+        )
+
+    result = asyncio.run(
+        execute_gate_c_real_discovery(
+            authorization=authorization,
+            accepted_b=accepted,
+            plan=plan,
+            config=config,
+            capability=capability,
+            discover=_discover,
+            evidence_root=tmp_path,
+            now=NOW,
+        )
+    )
+
+    assert result.public.result == "completed_partial"
+    assert result.public.budget_status == "bounded_partial"
+    assert result.public.reason == "unique_board_candidates_exhausted"
+    assert result.source_plan is not None
+    assert (tmp_path / "gate-c" / plan.plan_sha256 / "real_discovery_evidence.json").exists()
+
+
 def test_real_search_providers_are_opened_before_runtime_and_closed_afterward(
     tmp_path: Path,
 ) -> None:

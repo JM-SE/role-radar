@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from typing import Final
 
 from role_radar.evaluation.controlled_acquisition.protocols import PLAN_VERSION_V2
-from role_radar.evaluation.profile_relevant_acquisition.contracts import SeedInputs
+from role_radar.evaluation.profile_relevant_acquisition.seed_inputs import SeedInputs
 
 SCHEMA_VERSION: Final[str] = "f10.1f-source-plan-v1"
 HEX64_RE: Final[re.Pattern[str]] = re.compile(r"^[0-9a-f]{64}$", re.ASCII)

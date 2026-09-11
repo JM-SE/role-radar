@@ -5,14 +5,6 @@ public seams are contracts and pure policy; provider adapters and persistence
 are injected by the orchestration layers.
 """
 
-from role_radar.continuous_acquisition.contracts import (
-    ACQUISITION_POLICY_VERSION,
-    FRESHNESS_POLICY_VERSION,
-    IDENTITY_POLICY_VERSION,
-    AcquisitionRunState,
-    JobCounters,
-)
-
 __all__ = [
     "ACQUISITION_POLICY_VERSION",
     "FRESHNESS_POLICY_VERSION",
@@ -20,3 +12,19 @@ __all__ = [
     "AcquisitionRunState",
     "JobCounters",
 ]
+
+
+def __getattr__(name: str) -> object:
+    """Resolve compatibility exports without importing collector adapters."""
+
+    if name in {
+        "ACQUISITION_POLICY_VERSION",
+        "FRESHNESS_POLICY_VERSION",
+        "IDENTITY_POLICY_VERSION",
+        "AcquisitionRunState",
+        "JobCounters",
+    }:
+        from role_radar.continuous_acquisition import contracts
+
+        return getattr(contracts, name)
+    raise AttributeError(name)

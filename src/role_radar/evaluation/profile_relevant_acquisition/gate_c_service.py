@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
 from role_radar.continuous_acquisition.discovery_artifacts_v2 import (
+    ReportOnlyRequestEvidenceV1,
     ReportOnlyVerifiedSourceV1,
 )
+from role_radar.discovery.authorization_v2 import canonical_json_bytes
 from role_radar.discovery.board_candidates import BoardCandidateV2
 from role_radar.discovery.planner_v2 import DiscoveryQueryPlanV2
 from role_radar.evaluation.profile_relevant_acquisition.contracts import SeedInputs
@@ -30,7 +33,10 @@ from role_radar.evaluation.profile_relevant_acquisition.real_discovery_capabilit
     RealDiscoveryCapabilityError,
 )
 from role_radar.evaluation.profile_relevant_acquisition.real_gate_c_discovery import (
+    MAX_REAL_POSTINGS,
+    MAX_REAL_UNIQUE_BOARD_CANDIDATES,
     RealDiscoveryResult,
+    has_usable_real_discovery_result,
 )
 from role_radar.evaluation.profile_relevant_acquisition.source_plan import (
     SourcePlan,
@@ -211,6 +217,11 @@ run_gate_c_report_only = execute_gate_c_report_only
 
 def _verified_source_configs(
     sources: object,
+    *,
+    operation_id: str,
+    operation_sha256: str,
+    plan_sha256: str,
+    requests: object,
 ) -> tuple[Mapping[str, object], ...]:
     """Convert verified report-only sources to canonical plan configurations.
 
@@ -218,8 +229,15 @@ def _verified_source_configs(
     Search payloads, job material, and provider internals never do.
     """
 
-    if not isinstance(sources, tuple) or not sources:
+    if (
+        not isinstance(sources, tuple)
+        or not sources
+        or not isinstance(requests, tuple)
+        or not requests
+    ):
         raise GateCServiceError("official_board_configuration_missing")
+    if not all(isinstance(request, ReportOnlyRequestEvidenceV1) for request in requests):
+        raise GateCServiceError("official_board_configuration_invalid")
     output: list[Mapping[str, object]] = []
     seen: set[str] = set()
     for source in sources:
@@ -238,6 +256,64 @@ def _verified_source_configs(
             or len(config) != len(source.configuration)
         ):
             raise GateCServiceError("official_board_configuration_substituted")
+        expected_configuration_sha = hashlib.sha256(
+            canonical_json_bytes(config)
+        ).hexdigest()
+        if (
+            expected_configuration_sha != source.configuration_sha256
+            or not 1 <= source.board_candidate_ordinal <= MAX_REAL_UNIQUE_BOARD_CANDIDATES
+            or not 0 <= source.postings_count <= MAX_REAL_POSTINGS
+            or source.request_identity_sha256 == "0" * 64
+        ):
+            raise GateCServiceError("official_board_configuration_invalid")
+        destination = (
+            "greenhouse_official_api"
+            if source.source_type == "greenhouse"
+            else "lever_eu_official_api"
+            if config.get("region") == "eu"
+            else "lever_global_official_api"
+        )
+        matches = [
+            request
+            for request in requests
+            if request.kind == "official_verification"
+            and request.board_candidate_ordinal == source.board_candidate_ordinal
+        ]
+        if len(matches) != 1:
+            raise GateCServiceError("official_board_configuration_invalid")
+        request = matches[0]
+        expected_wire_key = (
+            f"cdv2:{operation_id}:{plan_sha256}:"
+            f"b{source.board_candidate_ordinal:02d}:w001:{source.source_type}"
+        )
+        expected_identity = hashlib.sha256(
+            canonical_json_bytes(
+                {
+                    "operation_sha256": operation_sha256,
+                    "source_type": source.source_type,
+                    "source_key": source.source_key,
+                    "configuration_sha256": expected_configuration_sha,
+                    "destination": destination,
+                    "board_candidate_ordinal": source.board_candidate_ordinal,
+                    "wire_attempt_ordinal": 1,
+                    "collector_request_ordinal": 1,
+                }
+            )
+        ).hexdigest()
+        if (
+            request.provider != source.source_type
+            or request.destination != destination
+            or request.operation_key_sha256
+            != hashlib.sha256(expected_wire_key.encode("utf-8")).hexdigest()
+            or request.request_identity_sha256 != expected_identity
+            or source.request_identity_sha256 != expected_identity
+            or request.transmission != "sent"
+            or request.outcome != "succeeded"
+            or request.collector_request_ordinal != 1
+            or request.wire_attempt_ordinal != 1
+            or request.postings_count != source.postings_count
+        ):
+            raise GateCServiceError("official_board_configuration_invalid")
         seen.add(source.source_key)
         output.append(
             {
@@ -248,6 +324,46 @@ def _verified_source_configs(
             }
         )
     return tuple(output)
+
+
+def _validate_request_evidence(result: RealDiscoveryResult) -> None:
+    requests = result.requests
+    counts = result.counts
+    if not isinstance(counts, Mapping) or not requests:
+        raise GateCServiceError("real_discovery_request_evidence_invalid")
+    if tuple(request.request_ordinal for request in requests) != tuple(
+        range(1, len(requests) + 1)
+    ):
+        raise GateCServiceError("real_discovery_request_evidence_invalid")
+    if len({request.request_identity_sha256 for request in requests}) != len(requests):
+        raise GateCServiceError("real_discovery_request_evidence_invalid")
+    search = tuple(request for request in requests if request.kind == "search")
+    official = tuple(
+        request for request in requests if request.kind == "official_verification"
+    )
+    if (
+        len(search) != counts["search_requests_attempted"]
+        or len(official) != counts["board_verifications_attempted"]
+        or len(official) != counts["verification_wire_attempts_consumed"]
+        or sum(request.known_count for request in requests)
+        != counts["classified_hits"]
+        or sum(
+            request.outcome in {"succeeded", "empty", "failed", "malformed"}
+            for request in requests
+        )
+        != counts["search_requests_completed"]
+        or any(
+            request.request_identity_sha256 == "0" * 64
+            or request.operation_key_sha256 == "0" * 64
+            for request in requests
+        )
+        or any(
+            request.transmission != "sent"
+            or request.outcome not in {"succeeded", "failed"}
+            for request in official
+        )
+    ):
+        raise GateCServiceError("real_discovery_request_evidence_invalid")
 
 
 def persist_real_discovery_evidence(
@@ -394,9 +510,30 @@ async def execute_gate_c_real_discovery(
         raise GateCServiceError("real_discovery_binding_mismatch")
     state = result.state
     verified = result.verified_sources
-    if state != "completed" or not verified:
+    if not has_usable_real_discovery_result(
+        state,
+        verified,
+        result.terminal_code,
+        counts=result.counts,
+        truncation=result.truncation,
+        query_count=result.query_count,
+        brave_requests=result.brave_requests,
+        tavily_requests=result.tavily_requests,
+        candidates_seen=result.candidates_seen,
+        verifications_attempted=result.verifications_attempted,
+        wire_attempts_consumed=result.wire_attempts_consumed,
+    ):
         raise GateCServiceError("real_discovery_no_verified_boards")
-    configs = _verified_source_configs(verified)
+    if len(verified) > 8:
+        raise GateCServiceError("real_discovery_result_invalid")
+    _validate_request_evidence(result)
+    configs = _verified_source_configs(
+        verified,
+        operation_id=result.operation_id,
+        operation_sha256=result.operation_sha256,
+        plan_sha256=result.plan_sha256,
+        requests=result.requests,
+    )
     source_plan = _make_source_plan(authorization, accepted_b, configs)
     persist_real_discovery_evidence(result, source_plan, evidence_root)
 
@@ -413,9 +550,9 @@ async def execute_gate_c_real_discovery(
         query_count=len(plan.queries),
         host_count=len(plan.source_registry),
         family_counts=family_counts,
-        budget_status="within_bound",
-        result="completed",
-        reason=None,
+        budget_status=("bounded_partial" if state == "completed_partial" else "within_bound"),
+        result=state,
+        reason=(result.terminal_code if state == "completed_partial" else None),
     )
     return GateCResult(public, source_plan, None)
 

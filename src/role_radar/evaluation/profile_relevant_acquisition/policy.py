@@ -11,7 +11,7 @@ import re
 from collections.abc import Iterable, Mapping
 from typing import Final
 
-from role_radar.evaluation.profile_relevant_acquisition.contracts import SeedInputs
+from role_radar.evaluation.profile_relevant_acquisition.seed_inputs import SeedInputs
 
 SEED_RE: Final[re.Pattern[str]] = re.compile(r"^[0-9a-f]{64}$", re.ASCII)
 HASH_RE: Final[re.Pattern[str]] = re.compile(r"^[0-9a-f]{64}$", re.ASCII)

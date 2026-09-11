@@ -5,15 +5,25 @@ LLM providers, or persistence writers.  Live orchestration is supplied through
 injected adapters only after the separate Gate B approval.
 """
 
-from role_radar.evaluation.controlled_acquisition.configuration import (
-    ConfigurationError,
-    ControlledAcquisitionConfig,
-)
-from role_radar.evaluation.controlled_acquisition.contracts import (
-    DatasetResult,
-    Observation,
-    OperationState,
-)
+from importlib import import_module
+
+_LAZY_EXPORTS = {
+    "ConfigurationError": ("configuration", "ConfigurationError"),
+    "ControlledAcquisitionConfig": ("configuration", "ControlledAcquisitionConfig"),
+    "DatasetResult": ("contracts", "DatasetResult"),
+    "Observation": ("contracts", "Observation"),
+    "OperationState": ("contracts", "OperationState"),
+}
+
+
+def __getattr__(name: str) -> object:
+    try:
+        module_name, attribute = _LAZY_EXPORTS[name]
+    except KeyError as exc:
+        raise AttributeError(name) from exc
+    value = getattr(import_module(f"{__name__}.{module_name}"), attribute)
+    globals()[name] = value
+    return value
 
 __all__ = [
     "ConfigurationError",
