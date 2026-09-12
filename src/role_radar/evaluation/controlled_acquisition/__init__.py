@@ -25,6 +25,7 @@ def __getattr__(name: str) -> object:
     globals()[name] = value
     return value
 
+
 __all__ = [
     "ConfigurationError",
     "ControlledAcquisitionConfig",

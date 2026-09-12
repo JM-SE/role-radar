@@ -126,9 +126,7 @@ class RealDiscoveryResult:
     requests: tuple[ReportOnlyRequestEvidenceV1, ...] = ()
 
 
-ACCEPTED_REAL_DISCOVERY_STATES: frozenset[str] = frozenset(
-    {"completed", "completed_partial"}
-)
+ACCEPTED_REAL_DISCOVERY_STATES: frozenset[str] = frozenset({"completed", "completed_partial"})
 PARTIAL_REAL_DISCOVERY_TERMINAL_CODES: frozenset[str] = frozenset(
     {
         "board_verifications_exhausted",
@@ -183,8 +181,12 @@ def _valid_counts(
         counts["search_requests_attempted"] > MAX_REAL_SEARCH_REQUESTS
         or counts["search_requests_completed"]
         > MAX_REAL_SEARCH_REQUESTS + MAX_REAL_BOARD_VERIFICATIONS
+        or counts["search_requests_completed"]
+        > counts["search_requests_attempted"] + counts["board_verifications_attempted"]
         or counts["search_requests_completed"] < counts["search_requests_attempted"]
         or counts["classified_hits"] > MAX_REAL_CLASSIFIED_HITS
+        or counts["classified_hits"]
+        > counts["search_requests_attempted"] * MAX_REAL_CLASSIFIED_HITS // MAX_REAL_SEARCH_REQUESTS
         or counts["unique_board_candidates_seen"] > MAX_REAL_UNIQUE_BOARD_CANDIDATES_SEEN
         or counts["unique_board_candidates_retained"]
         != min(counts["unique_board_candidates_seen"], MAX_REAL_UNIQUE_BOARD_CANDIDATES)
@@ -192,8 +194,9 @@ def _valid_counts(
         or counts["boards_verified"] > counts["board_verifications_attempted"]
         or counts["boards_verified"] != len(verified_sources)
         or counts["verification_wire_attempts_consumed"] > MAX_REAL_WIRE_ATTEMPTS
-        or counts["verification_wire_attempts_consumed"]
-        < counts["board_verifications_attempted"]
+        or counts["verification_wire_attempts_consumed"] < counts["board_verifications_attempted"]
+        or len(verified_sources) > MAX_REAL_BOARD_VERIFICATIONS
+        or counts["boards_verified"] > MAX_REAL_UNIQUE_BOARD_CANDIDATES
     ):
         return False
     ordinals = [source.board_candidate_ordinal for source in verified_sources]
@@ -216,20 +219,35 @@ def _valid_counts(
     )
     if any(value is not None and type(value) is not int for value in metadata):
         return False
-    if brave_requests is not None and tavily_requests is not None and (
-        counts["search_requests_attempted"]
-        != cast(int, brave_requests) + cast(int, tavily_requests)
+    for value, maximum in (
+        (brave_requests, MAX_REAL_SEARCH_REQUESTS // 2),
+        (tavily_requests, MAX_REAL_SEARCH_REQUESTS // 2),
+        (candidates_seen, MAX_REAL_UNIQUE_BOARD_CANDIDATES_SEEN),
+        (verifications_attempted, MAX_REAL_BOARD_VERIFICATIONS),
+        (wire_attempts_consumed, MAX_REAL_WIRE_ATTEMPTS),
+    ):
+        if value is not None and not 0 <= cast(int, value) <= maximum:
+            return False
+    if (
+        brave_requests is not None
+        and tavily_requests is not None
+        and (
+            counts["search_requests_attempted"]
+            != cast(int, brave_requests) + cast(int, tavily_requests)
+        )
     ):
         return False
     if candidates_seen is not None and candidates_seen != counts["unique_board_candidates_seen"]:
         return False
-    if verifications_attempted is not None and verifications_attempted != counts[
-        "board_verifications_attempted"
-    ]:
+    if (
+        verifications_attempted is not None
+        and verifications_attempted != counts["board_verifications_attempted"]
+    ):
         return False
-    return wire_attempts_consumed is None or wire_attempts_consumed == counts[
-        "verification_wire_attempts_consumed"
-    ]
+    return (
+        wire_attempts_consumed is None
+        or wire_attempts_consumed == counts["verification_wire_attempts_consumed"]
+    )
 
 
 def has_usable_real_discovery_result(
@@ -273,7 +291,14 @@ def has_usable_real_discovery_result(
     ):
         return False
     if state == "completed":
-        return not any(truncation.values())
+        return not any(truncation.values()) and all(
+            counts[field] < limit
+            for field, limit in (
+                ("unique_board_candidates_seen", MAX_REAL_UNIQUE_BOARD_CANDIDATES),
+                ("board_verifications_attempted", MAX_REAL_BOARD_VERIFICATIONS),
+                ("verification_wire_attempts_consumed", MAX_REAL_WIRE_ATTEMPTS),
+            )
+        )
     if (
         not isinstance(terminal_code, str)
         or terminal_code not in PARTIAL_REAL_DISCOVERY_TERMINAL_CODES
@@ -299,10 +324,7 @@ def has_usable_real_discovery_result(
         return len(active) >= 2 and all(exhausted[name + "_exhausted"] for name in active)
     if sum(truncation.values()) != 1:
         return False
-    return (
-        truncation[terminal_code.removesuffix("_exhausted")] is True
-        and exhausted[terminal_code]
-    )
+    return truncation[terminal_code.removesuffix("_exhausted")] is True and exhausted[terminal_code]
 
 
 def _default_provider_factory(provider_name: str, api_key: str) -> Any:
@@ -520,14 +542,10 @@ async def run_real_gate_c_discovery(
         truncation=terminal.truncation,
         query_count=len(plan.queries),
         brave_requests=sum(
-            1
-            for item in terminal.requests
-            if item.kind == "search" and item.provider == "brave"
+            1 for item in terminal.requests if item.kind == "search" and item.provider == "brave"
         ),
         tavily_requests=sum(
-            1
-            for item in terminal.requests
-            if item.kind == "search" and item.provider == "tavily"
+            1 for item in terminal.requests if item.kind == "search" and item.provider == "tavily"
         ),
         candidates_seen=terminal.counts["unique_board_candidates_seen"],
         verifications_attempted=terminal.counts["board_verifications_attempted"],

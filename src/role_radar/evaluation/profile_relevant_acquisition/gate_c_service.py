@@ -256,9 +256,7 @@ def _verified_source_configs(
             or len(config) != len(source.configuration)
         ):
             raise GateCServiceError("official_board_configuration_substituted")
-        expected_configuration_sha = hashlib.sha256(
-            canonical_json_bytes(config)
-        ).hexdigest()
+        expected_configuration_sha = hashlib.sha256(canonical_json_bytes(config)).hexdigest()
         if (
             expected_configuration_sha != source.configuration_sha256
             or not 1 <= source.board_candidate_ordinal <= MAX_REAL_UNIQUE_BOARD_CANDIDATES
@@ -331,63 +329,147 @@ def _validate_request_evidence(result: RealDiscoveryResult) -> None:
     counts = result.counts
     if not isinstance(counts, Mapping) or not requests:
         raise GateCServiceError("real_discovery_request_evidence_invalid")
-    if tuple(request.request_ordinal for request in requests) != tuple(
-        range(1, len(requests) + 1)
-    ):
+    if tuple(request.request_ordinal for request in requests) != tuple(range(1, len(requests) + 1)):
         raise GateCServiceError("real_discovery_request_evidence_invalid")
     if len({request.request_identity_sha256 for request in requests}) != len(requests):
         raise GateCServiceError("real_discovery_request_evidence_invalid")
     search = tuple(request for request in requests if request.kind == "search")
-    official = tuple(
-        request for request in requests if request.kind == "official_verification"
-    )
+    official = tuple(request for request in requests if request.kind == "official_verification")
     if (
         len(search) != counts["search_requests_attempted"]
         or len(official) != counts["board_verifications_attempted"]
         or len(official) != counts["verification_wire_attempts_consumed"]
-        or sum(request.known_count for request in requests)
-        != counts["classified_hits"]
+        or sum(request.known_count for request in requests) != counts["classified_hits"]
         or sum(
-            request.outcome in {"succeeded", "empty", "failed", "malformed"}
-            for request in requests
+            request.outcome in {"succeeded", "empty", "failed", "malformed"} for request in requests
         )
         != counts["search_requests_completed"]
         or any(
-            request.request_identity_sha256 == "0" * 64
-            or request.operation_key_sha256 == "0" * 64
+            request.request_identity_sha256 == "0" * 64 or request.operation_key_sha256 == "0" * 64
             for request in requests
         )
         or any(
-            request.transmission != "sent"
-            or request.outcome not in {"succeeded", "failed"}
+            request.transmission != "sent" or request.outcome not in {"succeeded", "failed"}
+            for request in official
+        )
+        or any(
+            request.result_count != 0
+            or request.known_count != 0
+            or request.unknown_count != 0
+            or request.rejected_count != 0
+            or request.postings_count != 0
+            or request.collector_request_ordinal != 1
+            or request.wire_attempt_ordinal != 1
             for request in official
         )
     ):
         raise GateCServiceError("real_discovery_request_evidence_invalid")
+    for request in requests:
+        if request.kind == "search":
+            if (
+                request.identity_query_sha256 is None
+                or request.identity_max_results is None
+                or request.query_ordinal is None
+            ):
+                raise GateCServiceError("real_discovery_request_evidence_invalid")
+            expected_identity = hashlib.sha256(
+                canonical_json_bytes(
+                    {
+                        "operation_sha256": result.operation_sha256,
+                        "plan_sha256": result.plan_sha256,
+                        "provider": request.provider,
+                        "destination": request.destination,
+                        "query_ordinal": request.query_ordinal,
+                        "query_sha256": request.identity_query_sha256,
+                        "max_results": request.identity_max_results,
+                    }
+                )
+            ).hexdigest()
+        else:
+            if (
+                request.identity_source_key is None
+                or request.identity_configuration_sha256 is None
+                or request.board_candidate_ordinal is None
+                or request.collector_request_ordinal != 1
+                or request.wire_attempt_ordinal != 1
+            ):
+                raise GateCServiceError("real_discovery_request_evidence_invalid")
+            destination = request.destination
+            expected_wire_key = (
+                f"cdv2:{result.operation_id}:{result.plan_sha256}:"
+                f"b{request.board_candidate_ordinal:02d}:w001:{request.provider}"
+            )
+            if (
+                request.operation_key_sha256
+                != hashlib.sha256(expected_wire_key.encode("utf-8")).hexdigest()
+            ):
+                raise GateCServiceError("real_discovery_request_evidence_invalid")
+            expected_identity = hashlib.sha256(
+                canonical_json_bytes(
+                    {
+                        "operation_sha256": result.operation_sha256,
+                        "source_type": request.provider,
+                        "source_key": request.identity_source_key,
+                        "configuration_sha256": request.identity_configuration_sha256,
+                        "destination": destination,
+                        "board_candidate_ordinal": request.board_candidate_ordinal,
+                        "wire_attempt_ordinal": request.wire_attempt_ordinal,
+                        "collector_request_ordinal": request.collector_request_ordinal,
+                    }
+                )
+            ).hexdigest()
+        if request.request_identity_sha256 != expected_identity:
+            raise GateCServiceError("real_discovery_request_evidence_invalid")
 
 
-def persist_real_discovery_evidence(
-    result: object,
+def _persist_real_discovery_evidence(
+    result: RealDiscoveryResult,
     source_plan: SourcePlan,
     root: Path,
+    *,
+    authorization: GateCAuthorization,
+    accepted_b: AcceptedGateBBinding,
+    plan: DiscoveryQueryPlanV2,
 ) -> Path:
-    """Persist only allowlisted real-discovery evidence under the isolated root."""
+    """Persist only a result revalidated at the Gate C persistence boundary."""
 
     from role_radar.evaluation.filesystem import (
         atomic_write,
         ensure_private_root,
     )
 
-    plan_sha = getattr(result, "plan_sha256", None)
-    report_sha = getattr(result, "report_sha256", None)
-    verified = getattr(result, "verified_sources", None)
-    if (
-        not isinstance(plan_sha, str)
-        or not isinstance(report_sha, str)
-        or not isinstance(verified, tuple)
-        or not verified
+    if type(result) is not RealDiscoveryResult:
+        raise GateCServiceError("real_discovery_evidence_invalid")
+    if result.operation_id != authorization.operation_id or result.plan_sha256 != plan.plan_sha256:
+        raise GateCServiceError("real_discovery_binding_mismatch")
+    if not has_usable_real_discovery_result(
+        result.state,
+        result.verified_sources,
+        result.terminal_code,
+        counts=result.counts,
+        truncation=result.truncation,
+        query_count=result.query_count,
+        brave_requests=result.brave_requests,
+        tavily_requests=result.tavily_requests,
+        candidates_seen=result.candidates_seen,
+        verifications_attempted=result.verifications_attempted,
+        wire_attempts_consumed=result.wire_attempts_consumed,
     ):
         raise GateCServiceError("real_discovery_evidence_invalid")
+    _validate_request_evidence(result)
+    configs = _verified_source_configs(
+        result.verified_sources,
+        operation_id=result.operation_id,
+        operation_sha256=result.operation_sha256,
+        plan_sha256=result.plan_sha256,
+        requests=result.requests,
+    )
+    expected_source_plan = _make_source_plan(authorization, accepted_b, configs)
+    if expected_source_plan.source_plan_sha256 != source_plan.source_plan_sha256:
+        raise GateCServiceError("real_discovery_evidence_invalid")
+    plan_sha = result.plan_sha256
+    report_sha = result.report_sha256
+    verified = result.verified_sources
     entries: list[dict[str, object]] = []
     for source in verified:
         if not isinstance(source, ReportOnlyVerifiedSourceV1):
@@ -433,6 +515,29 @@ def persist_real_discovery_evidence(
     except Exception as exc:
         raise GateCServiceError("real_discovery_persist_failed") from exc
     return target
+
+
+def persist_real_discovery_evidence(*args: Any, **kwargs: Any) -> Path:
+    """Keep the historical import name without restoring the bypass.
+
+    Persistence is only safe with the complete authorization, Gate B binding,
+    and query plan context supplied by the execution path.  Callers using the
+    former three-argument API must fail closed rather than bypass validation.
+    """
+
+    required = {"authorization", "accepted_b", "plan"}
+    if not required.issubset(kwargs):
+        raise GateCServiceError("real_discovery_persistence_context_required")
+    if len(args) < 3:
+        raise GateCServiceError("real_discovery_persistence_context_required")
+    return _persist_real_discovery_evidence(
+        args[0],
+        args[1],
+        args[2],
+        authorization=kwargs["authorization"],
+        accepted_b=kwargs["accepted_b"],
+        plan=kwargs["plan"],
+    )
 
 
 class RealDiscoveryRunner(Protocol):
@@ -535,7 +640,14 @@ async def execute_gate_c_real_discovery(
         requests=result.requests,
     )
     source_plan = _make_source_plan(authorization, accepted_b, configs)
-    persist_real_discovery_evidence(result, source_plan, evidence_root)
+    _persist_real_discovery_evidence(
+        result,
+        source_plan,
+        evidence_root,
+        authorization=authorization,
+        accepted_b=accepted_b,
+        plan=plan,
+    )
 
     family_counts: dict[str, int] = {}
     for item in configs:

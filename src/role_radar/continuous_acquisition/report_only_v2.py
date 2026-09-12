@@ -699,6 +699,8 @@ def _report_request_evidence(
                 rejected_count=0,
                 duration_ms=int(getattr(response, "duration_ms", 0)),
                 error_code=getattr(response, "error_code", None),
+                identity_query_sha256=sha256(request.query.encode("utf-8")).hexdigest(),
+                identity_max_results=request.max_results,
             )
         )
     return tuple(result)
@@ -942,6 +944,8 @@ async def execute_report_only(
                             error_code="transmission_indeterminate",
                             collector_request_ordinal=1,
                             wire_attempt_ordinal=1,
+                            identity_source_key=str(getattr(candidate, "source_key", "")),
+                            identity_configuration_sha256=configuration_sha256,
                         )
                     )
                     terminal_code = "transmission_indeterminate"
@@ -978,6 +982,8 @@ async def execute_report_only(
                         error_code=None if verified is not None else "provider_failed",
                         collector_request_ordinal=1,
                         wire_attempt_ordinal=1,
+                        identity_source_key=str(getattr(candidate, "source_key", "")),
+                        identity_configuration_sha256=configuration_sha256,
                     )
                 )
         requests = (*requests, *official_requests)

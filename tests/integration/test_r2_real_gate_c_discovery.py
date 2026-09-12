@@ -354,20 +354,20 @@ def test_completed_partial_with_verified_sources_persists_bounded_result(
 
     async def _discover() -> Any:
         discovered = await run_real_gate_c_discovery(
-                capability=capability,
-                authorization=authorization,
-                accepted_b=accepted,
-                plan=plan,
-                config=config,
-                resolver=_FakeResolver(),
-                quota_adapter=quota,
-                artifact_root=tmp_path,
-                provider_factory=_provider_factory,
-                collector_factory=_collector_factory,
-                clock=NOW,
-                nonce_source=lambda: b"n" * 32,
-                now=NOW,
-            )
+            capability=capability,
+            authorization=authorization,
+            accepted_b=accepted,
+            plan=plan,
+            config=config,
+            resolver=_FakeResolver(),
+            quota_adapter=quota,
+            artifact_root=tmp_path,
+            provider_factory=_provider_factory,
+            collector_factory=_collector_factory,
+            clock=NOW,
+            nonce_source=lambda: b"n" * 32,
+            now=NOW,
+        )
         counts = dict(discovered.counts or {})
         counts.update(
             unique_board_candidates_seen=10,

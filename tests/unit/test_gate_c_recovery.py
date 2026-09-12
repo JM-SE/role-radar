@@ -66,6 +66,8 @@ def _historical_anchor() -> RecoveryTrustAnchor:
             if request.kind == "official_verification"
         ),
     )
+
+
 TRUST_ANCHOR = RecoveryTrustAnchor(
     operation_id=OPERATION_ID,
     profile_id="818eded4-2f69-4e66-ad12-cd0749e4ab3e",
@@ -131,6 +133,13 @@ def test_partial_result_requires_bounded_terminal_code() -> None:
     assert has_usable_real_discovery_result(
         "completed", (source,), None, counts=counts, truncation=no_truncation
     )
+    assert not has_usable_real_discovery_result(
+        "completed",
+        (source,),
+        None,
+        counts={**counts, "unique_board_candidates_seen": 10},
+        truncation=no_truncation,
+    )
     assert has_usable_real_discovery_result(
         "completed_partial",
         (source,),
@@ -146,6 +155,23 @@ def test_partial_result_requires_bounded_terminal_code() -> None:
             "unique_board_candidates": True,
             "board_verifications": True,
             "verification_wire_attempts": True,
+        },
+    )
+    assert not has_usable_real_discovery_result(
+        "completed_partial",
+        (source,),
+        "multiple_budgets_exhausted",
+        counts={
+            **counts,
+            "unique_board_candidates_seen": 10,
+            "unique_board_candidates_retained": 10,
+            "board_verifications_attempted": 8,
+            "verification_wire_attempts_consumed": 100,
+        },
+        truncation={
+            "unique_board_candidates": True,
+            "board_verifications": True,
+            "verification_wire_attempts": False,
         },
     )
     assert not has_usable_real_discovery_result(
@@ -257,9 +283,7 @@ def test_recovery_rejects_terminal_after_outer_packet_expiry() -> None:
         (OPERATION_DIR / "operation-v1.json").read_text(encoding="utf-8")
     )
     operation = _operation(operation_payload, accepted_b.packet, auth)
-    terminal = parse_terminal_report(
-        (OPERATION_DIR / "terminal-report-v1.json").read_bytes()
-    )
+    terminal = parse_terminal_report((OPERATION_DIR / "terminal-report-v1.json").read_bytes())
     outer_expiry = datetime.fromisoformat(auth["expires_at_utc"].replace("Z", "+00:00"))
     late = replace(
         terminal,
@@ -321,7 +345,7 @@ def test_recovery_rejects_request_ordinal_and_count_mismatch() -> None:
         b'{"value":1,"value":2}',
         b'{"value":NaN}',
         b'{"value":Infinity}',
-        b'{"value":' + (b'[' * 18) + b'0' + (b']' * 18) + b'}',
+        b'{"value":' + (b"[" * 18) + b"0" + (b"]" * 18) + b"}",
     ],
 )
 def test_recovery_uses_bounded_strict_json_loader(tmp_path: Path, payload: bytes) -> None:

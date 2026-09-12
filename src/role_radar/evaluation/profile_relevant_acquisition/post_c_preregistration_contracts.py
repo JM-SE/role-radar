@@ -12,7 +12,7 @@ import json
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Final, Protocol
+from typing import Final
 
 from role_radar.discovery.planner_v2 import DiscoveryQueryPlanV2
 from role_radar.evaluation.profile_relevant_acquisition.contracts import SeedInputs
@@ -23,17 +23,16 @@ from role_radar.evaluation.profile_relevant_acquisition.gate_c_authorization imp
     gate_b_packet_sha256,
 )
 from role_radar.evaluation.profile_relevant_acquisition.gate_c_service import GateCResult
+from role_radar.evaluation.profile_relevant_acquisition.post_c_effect_contracts import (
+    PostCPreregistrationError,
+    PostCPreregistrationSeal,
+    PrivateSealWriter,
+)
 from role_radar.evaluation.profile_relevant_acquisition.source_plan import SourcePlan
 from role_radar.sources.identity import canonical_source_key
 
 HEX64: Final = re.compile(r"^[0-9a-f]{64}$", re.ASCII)
 SCHEMA_VERSION: Final = "f10.1f-post-c-preregistration-v1"
-
-
-class PostCPreregistrationError(ValueError):
-    def __init__(self, code: str) -> None:
-        self.code = code
-        super().__init__(code)
 
 
 def _text(value: object, code: str) -> None:
@@ -282,20 +281,6 @@ class PostCPreregistrationRequest:
         }
 
 
-@dataclass(frozen=True, slots=True)
-class PostCPreregistrationSeal:
-    operation_id: str
-    canonical_bytes: bytes
-    preregistration_sha256: str
-
-    def __post_init__(self) -> None:
-        if (
-            type(self.canonical_bytes) is not bytes
-            or hashlib.sha256(self.canonical_bytes).hexdigest() != self.preregistration_sha256
-        ):
-            raise PostCPreregistrationError("post_c_seal_hash_mismatch")
-
-
 def build_seal(request: PostCPreregistrationRequest) -> PostCPreregistrationSeal:
     try:
         raw = json.dumps(
@@ -308,13 +293,6 @@ def build_seal(request: PostCPreregistrationRequest) -> PostCPreregistrationSeal
     except (TypeError, ValueError, UnicodeError) as exc:
         raise PostCPreregistrationError("post_c_canonical_invalid") from exc
     return PostCPreregistrationSeal(request.operation_id, raw, hashlib.sha256(raw).hexdigest())
-
-
-class PrivateSealWriter(Protocol):
-    approved_root: str
-
-    def write(self, seal: PostCPreregistrationSeal) -> None: ...
-    def read(self, operation_id: str) -> bytes | None: ...
 
 
 _REQUEST_FIELDS = frozenset(PostCPreregistrationRequest.__dataclass_fields__)

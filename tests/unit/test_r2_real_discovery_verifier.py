@@ -303,8 +303,8 @@ def test_wrong_schema_marker_rejects(tmp_path: Path) -> None:
 def test_excessive_ttl_rejects(tmp_path: Path) -> None:
     authorization, accepted, plan, config = _bundle(tmp_path)
     doc = _packet_doc(authorization, accepted, plan)
-    doc["authorization"]["expires_at_utc"] = (NOW + timedelta(hours=25)).isoformat().replace(
-        "+00:00", "Z"
+    doc["authorization"]["expires_at_utc"] = (
+        (NOW + timedelta(hours=25)).isoformat().replace("+00:00", "Z")
     )
     _write_packet(tmp_path, doc)
     rebuilt_auth = parse_rebuilt_authorization(doc)

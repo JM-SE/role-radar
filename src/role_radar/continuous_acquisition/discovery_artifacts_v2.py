@@ -532,6 +532,13 @@ class ReportOnlyRequestEvidenceV1:
     duration_ms: int = 0
     error_code: str | None = None
     wire_attempt_ordinal: int | None = None
+    # These fields are runtime-only identity inputs.  They are deliberately
+    # omitted from the persisted wire schema; historical recovery uses its
+    # immutable trust anchor for the same binding.
+    identity_query_sha256: str | None = None
+    identity_max_results: int | None = None
+    identity_source_key: str | None = None
+    identity_configuration_sha256: str | None = None
 
     def __post_init__(self) -> None:
         if type(self.request_ordinal) is not int or self.request_ordinal < 1:
@@ -582,6 +589,16 @@ class ReportOnlyRequestEvidenceV1:
         if self.kind == "search" and self.board_candidate_ordinal is not None:
             raise DiscoveryArtifactError("terminal_request_invalid")
         if self.kind == "official_verification" and self.board_candidate_ordinal is None:
+            raise DiscoveryArtifactError("terminal_request_invalid")
+        if self.identity_query_sha256 is not None:
+            _sha(self.identity_query_sha256, field="terminal_request_hash")
+        if self.identity_configuration_sha256 is not None:
+            _sha(self.identity_configuration_sha256, field="terminal_request_hash")
+        if self.identity_max_results is not None and (
+            type(self.identity_max_results) is not int or self.identity_max_results < 0
+        ):
+            raise DiscoveryArtifactError("terminal_request_invalid")
+        if self.identity_source_key is not None and not isinstance(self.identity_source_key, str):
             raise DiscoveryArtifactError("terminal_request_invalid")
 
     def as_dict(self) -> dict[str, object]:

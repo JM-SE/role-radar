@@ -285,9 +285,7 @@ def _read_json(path: Path, *, root: Path) -> dict[str, Any]:
         "terminal-report-v1.json": MAX_TERMINAL_REPORT_BYTES,
     }.get(path.name, MAX_RECOVERY_ARTIFACT_BYTES)
     try:
-        descriptor = os.open(
-            path, os.O_RDONLY | os.O_CLOEXEC | getattr(os, "O_NOFOLLOW", 0)
-        )
+        descriptor = os.open(path, os.O_RDONLY | os.O_CLOEXEC | getattr(os, "O_NOFOLLOW", 0))
         try:
             before = os.fstat(descriptor)
             raw = os.read(descriptor, max_bytes + 1)
@@ -586,10 +584,7 @@ def _packet(
         or value.get("derivation") != f'sha256hex(ascii("{git_sha}"))'
     ):
         raise _fail("gate_c_recovery_binding_mismatch")
-    if (
-        type(value.get("revision")) is not int
-        or value["revision"] < 1
-    ):
+    if type(value.get("revision")) is not int or value["revision"] < 1:
         raise _fail("gate_c_recovery_packet_invalid")
     window = value.get("window")
     if window != {
@@ -649,21 +644,16 @@ def _operation(
         plan = value["plan_identity"]
         if not isinstance(policy, Mapping) or not isinstance(plan, Mapping):
             raise _fail("gate_c_recovery_operation_invalid")
-        if (
-            dict(policy)
-            != {
-                "schema_version": 1,
-                "policy_version": packet.policy_version,
-                "policy_sha256": packet.policy_sha256,
-            }
-            or dict(plan)
-            != {
-                "schema_version": "discovery-query-plan-v2",
-                "planner_version": "discovery-planner-v2",
-                "compiler_version": "profile-terms-compiler-v1",
-                "plan_sha256": auth["provenance"]["query_plan_sha256"],
-            }
-        ):
+        if dict(policy) != {
+            "schema_version": 1,
+            "policy_version": packet.policy_version,
+            "policy_sha256": packet.policy_sha256,
+        } or dict(plan) != {
+            "schema_version": "discovery-query-plan-v2",
+            "planner_version": "discovery-planner-v2",
+            "compiler_version": "profile-terms-compiler-v1",
+            "plan_sha256": auth["provenance"]["query_plan_sha256"],
+        }:
             raise _fail("gate_c_recovery_binding_mismatch")
         if value["providers"] != [
             {"provider": "brave", "tier": "free", "enabled": True},
@@ -740,13 +730,11 @@ def _operation(
         ):
             raise _fail("gate_c_recovery_binding_mismatch")
         if (
-            operation.created_at < _parse_utc(
-                packet.window_start_utc, "gate_c_recovery_operation_invalid"
-            )
+            operation.created_at
+            < _parse_utc(packet.window_start_utc, "gate_c_recovery_operation_invalid")
             or operation.created_at >= operation.expires_at
-            or operation.expires_at < _parse_utc(
-                auth["expires_at_utc"], "gate_c_recovery_operation_invalid"
-            )
+            or operation.expires_at
+            < _parse_utc(auth["expires_at_utc"], "gate_c_recovery_operation_invalid")
             or operation.authorization_max_ttl_seconds != 86_400
             or tuple(item.utc_month for item in contexts)
             != (operation.created_at.strftime("%Y-%m"),) * 2
@@ -823,12 +811,14 @@ def _source_configs(
         ):
             raise _fail("gate_c_recovery_sources_invalid")
         seen.add(source.source_key)
-        output.append({
-            "family": source.source_type,
-            "source_key": source.source_key,
-            "configuration_version": 1,
-            "configuration": dict(source.configuration),
-        })
+        output.append(
+            {
+                "family": source.source_type,
+                "source_key": source.source_key,
+                "configuration_version": 1,
+                "configuration": dict(source.configuration),
+            }
+        )
     return tuple(output)
 
 
@@ -839,9 +829,9 @@ def _validate_terminal_requests(
     operation_id: str | None = None,
     operation_sha256: str | None = None,
     plan_sha256: str | None = None,
-        expected_search_request_identities: tuple[str, ...] | None = None,
+    expected_search_request_identities: tuple[str, ...] | None = None,
     expected_official_request_identities: tuple[str, ...] | None = None,
-    ) -> None:
+) -> None:
     requests = terminal.requests
     if operation_sha256 is not None and terminal.operation_sha256 != operation_sha256:
         raise _fail("gate_c_recovery_request_invalid")
@@ -894,6 +884,14 @@ def _validate_terminal_requests(
                 raise _fail("gate_c_recovery_request_invalid")
             search_ordinals.add((request.provider, request.query_ordinal))
             search_identities.append(request.request_identity_sha256)
+            if expected_search_request_identities is not None and (
+                len(search_identities) > len(expected_search_request_identities)
+                or (
+                    request.request_identity_sha256
+                    != expected_search_request_identities[len(search_identities) - 1]
+                )
+            ):
+                raise _fail("gate_c_recovery_request_identity_invalid")
             search_counts[request.provider] += 1
             expected_destination = {
                 "brave": "search:brave",
@@ -906,9 +904,10 @@ def _validate_terminal_requests(
                     f"cdv2:{operation_id}:{plan_sha256}:"
                     f"q{request.query_ordinal:02d}:{request.provider}"
                 )
-                if request.operation_key_sha256 != hashlib.sha256(
-                    operation_key.encode("utf-8")
-                ).hexdigest():
+                if (
+                    request.operation_key_sha256
+                    != hashlib.sha256(operation_key.encode("utf-8")).hexdigest()
+                ):
                     raise _fail("gate_c_recovery_request_invalid")
         else:
             verification_count += 1
@@ -928,6 +927,14 @@ def _validate_terminal_requests(
                 raise _fail("gate_c_recovery_request_invalid")
             official_ordinals.add(request.board_candidate_ordinal)
             official_identities.append(request.request_identity_sha256)
+            if expected_official_request_identities is not None and (
+                len(official_identities) > len(expected_official_request_identities)
+                or (
+                    request.request_identity_sha256
+                    != expected_official_request_identities[len(official_identities) - 1]
+                )
+            ):
+                raise _fail("gate_c_recovery_request_identity_invalid")
             wire_count += 1
             if request.provider == "greenhouse":
                 expected = "greenhouse_official_api"
@@ -950,9 +957,10 @@ def _validate_terminal_requests(
                     f"cdv2:{operation_id}:{plan_sha256}:"
                     f"b{request.board_candidate_ordinal:02d}:w001:{request.provider}"
                 )
-                if request.operation_key_sha256 != hashlib.sha256(
-                    wire_key.encode("utf-8")
-                ).hexdigest():
+                if (
+                    request.operation_key_sha256
+                    != hashlib.sha256(wire_key.encode("utf-8")).hexdigest()
+                ):
                     raise _fail("gate_c_recovery_request_invalid")
     if (
         search_counts["brave"] > auth["max_brave_requests"]
@@ -966,26 +974,19 @@ def _validate_terminal_requests(
         counts["search_requests_attempted"] > MAX_DISCOVERY_QUERIES * 2
         or counts["search_requests_completed"]
         > MAX_DISCOVERY_QUERIES * 2 + MAX_UNIQUE_BOARD_VERIFICATIONS_PER_RUN
-        or counts["classified_hits"]
-        > MAX_DISCOVERY_QUERIES * MAX_DISCOVERY_RESULTS_PER_QUERY
-        or counts["unique_board_candidates_seen"]
-        > MAX_UNIQUE_BOARD_CANDIDATES_SEEN_PER_RUN
-        or counts["unique_board_candidates_retained"]
-        > MAX_UNIQUE_BOARD_CANDIDATES_PER_RUN
-        or counts["unique_board_candidates_retained"]
-        > counts["unique_board_candidates_seen"]
-        or counts["board_verifications_attempted"]
-        > MAX_UNIQUE_BOARD_VERIFICATIONS_PER_RUN
+        or counts["classified_hits"] > MAX_DISCOVERY_QUERIES * MAX_DISCOVERY_RESULTS_PER_QUERY
+        or counts["unique_board_candidates_seen"] > MAX_UNIQUE_BOARD_CANDIDATES_SEEN_PER_RUN
+        or counts["unique_board_candidates_retained"] > MAX_UNIQUE_BOARD_CANDIDATES_PER_RUN
+        or counts["unique_board_candidates_retained"] > counts["unique_board_candidates_seen"]
+        or counts["board_verifications_attempted"] > MAX_UNIQUE_BOARD_VERIFICATIONS_PER_RUN
         or counts["boards_verified"] > counts["board_verifications_attempted"]
-        or counts["verification_wire_attempts_consumed"]
-        > MAX_VERIFICATION_WIRE_ATTEMPTS_PER_RUN
+        or counts["verification_wire_attempts_consumed"] > MAX_VERIFICATION_WIRE_ATTEMPTS_PER_RUN
     ):
         raise _fail("gate_c_recovery_terminal_counts_invalid")
     expected_counts = {
         "search_requests_attempted": len(search_ordinals),
         "search_requests_completed": sum(
-            request.outcome in {"succeeded", "empty", "failed", "malformed"}
-            for request in requests
+            request.outcome in {"succeeded", "empty", "failed", "malformed"} for request in requests
         ),
         "classified_hits": sum(request.known_count for request in requests),
         "unique_board_candidates_seen": counts["unique_board_candidates_seen"],
@@ -996,15 +997,9 @@ def _validate_terminal_requests(
     }
     if counts != expected_counts:
         raise _fail("gate_c_recovery_terminal_counts_invalid")
-    if (
-        expected_search_request_identities is not None
-        and tuple(search_identities) != expected_search_request_identities
-    ):
+    if tuple(search_identities) != expected_search_request_identities:
         raise _fail("gate_c_recovery_request_identity_invalid")
-    if (
-        expected_official_request_identities is None
-        or tuple(official_identities) != expected_official_request_identities
-    ):
+    if tuple(official_identities) != expected_official_request_identities:
         raise _fail("gate_c_recovery_request_identity_invalid")
 
 
@@ -1026,8 +1021,13 @@ def _validate_partial_terminal(terminal: ReportOnlyTerminalReportV1) -> None:
     }
     active_flags = {name for name, enabled in terminal.truncation.items() if enabled}
     if any(
-        source.board_candidate_ordinal
-        > terminal.counts["unique_board_candidates_retained"]
+        (terminal.truncation[name] and not exhausted[name])
+        or (not terminal.truncation[name] and exhausted[name])
+        for name in exhausted
+    ):
+        raise _fail("gate_c_recovery_state_ineligible")
+    if any(
+        source.board_candidate_ordinal > terminal.counts["unique_board_candidates_retained"]
         for source in terminal.verified_sources
     ):
         raise _fail("gate_c_recovery_state_ineligible")
@@ -1093,6 +1093,32 @@ def _validate_recovery_window(
         or terminal.started_at_utc >= terminal.completed_at_utc
     ):
         raise _fail("gate_c_recovery_window_invalid")
+
+
+def validate_partial_gate_c_semantics(
+    terminal: ReportOnlyTerminalReportV1,
+    packet: GateBPacket,
+    auth: Mapping[str, Any],
+    operation: DiscoveryOperationV2,
+    *,
+    trusted_anchor: RecoveryTrustAnchor,
+    operation_sha256: str,
+    plan_sha256: str,
+) -> None:
+    """Apply the complete pure recovered Gate C semantic boundary."""
+
+    _validate_terminal_requests(
+        terminal,
+        auth,
+        operation_id=operation.operation_id,
+        operation_sha256=operation_sha256,
+        plan_sha256=plan_sha256,
+        expected_search_request_identities=trusted_anchor.search_request_identities,
+        expected_official_request_identities=trusted_anchor.official_request_identities,
+    )
+    _validate_partial_terminal(terminal)
+    _validate_recovery_window(packet, auth, operation, terminal)
+    _validate_trusted_anchor(trusted_anchor, packet, operation, terminal)
 
 
 def _profile_binding_matches(value: object, packet: GateBPacket) -> bool:
@@ -1188,12 +1214,16 @@ def recover_completed_partial(
         if isinstance(exc, GateCRecoveryError):
             raise
         raise _fail("gate_c_recovery_report_invalid") from exc
-    expected_auth_sha = hashlib.sha256(canonical_json_bytes({
-        "operation_id": operation.operation_id,
-        "operation_sha256": operation_payload["operation_sha256"],
-        "challenge_sha256": operation_payload["challenge_sha256"],
-        "expires_at_utc": operation_payload["authorization_expires_at_utc"],
-    })).hexdigest()
+    expected_auth_sha = hashlib.sha256(
+        canonical_json_bytes(
+            {
+                "operation_id": operation.operation_id,
+                "operation_sha256": operation_payload["operation_sha256"],
+                "challenge_sha256": operation_payload["challenge_sha256"],
+                "expires_at_utc": operation_payload["authorization_expires_at_utc"],
+            }
+        )
+    ).hexdigest()
     for artifact in (start, terminal):
         if (
             artifact.operation_id != operation.operation_id
@@ -1205,8 +1235,7 @@ def recover_completed_partial(
             or artifact.authorization_expires_at_utc != operation.expires_at
             or artifact.authorization_sha256 != expected_auth_sha
             or artifact.quota_contexts != operation.quota_contexts
-            or artifact.authorization_max_ttl_seconds
-            != operation.authorization_max_ttl_seconds
+            or artifact.authorization_max_ttl_seconds != operation.authorization_max_ttl_seconds
         ):
             raise _fail("gate_c_recovery_binding_mismatch")
     if terminal.start_marker_sha256 != start.start_marker_sha256:
@@ -1215,18 +1244,15 @@ def recover_completed_partial(
         raise _fail("gate_c_recovery_binding_mismatch")
     if trusted_anchor is None:
         raise _fail("gate_c_recovery_trust_anchor_required")
-    _validate_terminal_requests(
+    validate_partial_gate_c_semantics(
         terminal,
+        gate_b,
         auth,
-        operation_id=operation.operation_id,
+        operation,
+        trusted_anchor=trusted_anchor,
         operation_sha256=operation_payload["operation_sha256"],
         plan_sha256=operation_payload["plan_identity"]["plan_sha256"],
-        expected_search_request_identities=trusted_anchor.search_request_identities,
-        expected_official_request_identities=trusted_anchor.official_request_identities,
     )
-    _validate_partial_terminal(terminal)
-    _validate_recovery_window(gate_b, auth, operation, terminal)
-    _validate_trusted_anchor(trusted_anchor, gate_b, operation, terminal)
     source_configs = _source_configs(
         terminal.verified_sources, operation_payload["operation_sha256"], terminal.requests
     )
@@ -1338,4 +1364,5 @@ __all__ = [
     "GateCRecoveryResult",
     "RecoveryTrustAnchor",
     "recover_completed_partial",
+    "validate_partial_gate_c_semantics",
 ]

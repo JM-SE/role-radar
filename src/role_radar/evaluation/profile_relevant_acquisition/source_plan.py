@@ -14,10 +14,10 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Final
 
-from role_radar.evaluation.controlled_acquisition.protocols import PLAN_VERSION_V2
 from role_radar.evaluation.profile_relevant_acquisition.seed_inputs import SeedInputs
 
 SCHEMA_VERSION: Final[str] = "f10.1f-source-plan-v1"
+PLAN_VERSION_V2: Final[str] = "f10.1-plan-v2"
 HEX64_RE: Final[re.Pattern[str]] = re.compile(r"^[0-9a-f]{64}$", re.ASCII)
 NAMESPACE_RE: Final[re.Pattern[str]] = re.compile(r"^[a-z0-9][a-z0-9\-]+[a-z0-9]$", re.ASCII)
 SYNTHETIC_FORBIDDEN_ROOTS: Final[tuple[str, ...]] = (
