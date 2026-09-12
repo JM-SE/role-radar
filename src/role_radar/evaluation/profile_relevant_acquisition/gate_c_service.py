@@ -438,7 +438,13 @@ def _persist_real_discovery_evidence(
         ensure_private_root,
     )
 
-    if type(result) is not RealDiscoveryResult:
+    if (
+        type(result) is not RealDiscoveryResult
+        or type(source_plan) is not SourcePlan
+        or type(authorization) is not GateCAuthorization
+        or type(accepted_b) is not AcceptedGateBBinding
+        or type(plan) is not DiscoveryQueryPlanV2
+    ):
         raise GateCServiceError("real_discovery_evidence_invalid")
     if result.operation_id != authorization.operation_id or result.plan_sha256 != plan.plan_sha256:
         raise GateCServiceError("real_discovery_binding_mismatch")
@@ -526,9 +532,20 @@ def persist_real_discovery_evidence(*args: Any, **kwargs: Any) -> Path:
     """
 
     required = {"authorization", "accepted_b", "plan"}
-    if not required.issubset(kwargs):
+    if (
+        len(args) != 3
+        or set(kwargs) != required
+        or not all(
+            type(kwargs[name]) is expected
+            for name, expected in (
+                ("authorization", GateCAuthorization),
+                ("accepted_b", AcceptedGateBBinding),
+                ("plan", DiscoveryQueryPlanV2),
+            )
+        )
+    ):
         raise GateCServiceError("real_discovery_persistence_context_required")
-    if len(args) < 3:
+    if type(args[0]) is not RealDiscoveryResult or type(args[1]) is not SourcePlan:
         raise GateCServiceError("real_discovery_persistence_context_required")
     return _persist_real_discovery_evidence(
         args[0],

@@ -120,6 +120,15 @@ def _regular_directory(metadata: os.stat_result, mode: int) -> bool:
     )
 
 
+def validate_pinned_root(root_fd: int, *, mode: int = 0o700) -> tuple[int, int]:
+    """Revalidate a previously pinned directory without following its path."""
+
+    metadata = os.fstat(root_fd)
+    if not _regular_directory(metadata, mode):
+        raise RecoveryFilesystemError("post_c_recovery_root_replaced")
+    return metadata.st_dev, metadata.st_ino
+
+
 @contextmanager
 def _open_parent(root_fd: int, parts: tuple[str, ...]) -> Iterator[tuple[int, str]]:
     current = os.dup(root_fd)
@@ -243,11 +252,12 @@ def read_json(
     maximum: int = MAX_JSON_BYTES,
     require_canonical: bool = True,
     approved_raw_sha256: str | None = None,
-) -> tuple[dict[str, Any], bytes]:
+    require_object: bool = True,
+) -> tuple[Any, bytes]:
     raw = read_bytes(root_fd, root, path, maximum=maximum)
     try:
         value = json.loads(raw.decode("utf-8"), object_pairs_hook=_pairs)
-        if not isinstance(value, dict):
+        if require_object and not isinstance(value, dict):
             raise ValueError("object required")
         _validate_tree(value, depth=0, nodes=[0])
         canonical = json.dumps(
