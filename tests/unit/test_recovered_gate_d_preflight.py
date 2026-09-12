@@ -1,7 +1,18 @@
+from dataclasses import replace
 from datetime import UTC, datetime
 
 import pytest
 
+from role_radar.evaluation.profile_relevant_acquisition import (
+    recovered_gate_d_adaptation_authorization as adaptation_auth,
+)
+from role_radar.evaluation.profile_relevant_acquisition.recovered_gate_d_adaptation import (
+    RecoveredGateDAdaptationBinding,
+)
+from role_radar.evaluation.profile_relevant_acquisition.recovered_gate_d_adaptation_service import (
+    authorize_recovered_gate_d,
+    run_recovered_gate_d_synthetic,
+)
 from role_radar.evaluation.profile_relevant_acquisition.recovered_gate_d_authorization import (
     RecoveredGateDPreflightAuthorization,
 )
@@ -44,6 +55,27 @@ def _authorization() -> RecoveredGateDPreflightAuthorization:
     )
 
 
+def _adapted_authorization() -> adaptation_auth.RecoveredGateDAdaptationAuthorization:
+    authorization = _authorization()
+    return adaptation_auth.RecoveredGateDAdaptationAuthorization(
+        action=adaptation_auth.ACTION,
+        approval_reference="r2-gate-d-adaptation-20260912-001",
+        operator_id="jmse",
+        window_start_utc=authorization.window_start_utc,
+        expires_at_utc=authorization.expires_at_utc,
+        historical_root=authorization.historical_root,
+        recovery_root=authorization.recovery_root,
+        post_c_root=authorization.post_c_root,
+        operation_id=authorization.operation_id,
+        seal_sha256=authorization.seal_sha256,
+        source_plan_sha256=authorization.source_plan_sha256,
+        report_sha256=authorization.report_sha256,
+        post_c_authorization_sha256=authorization.post_c_authorization_sha256,
+        source_keys=authorization.source_keys,
+        clock=authorization.clock,
+    )
+
+
 def test_fixture_is_read_only_and_reports_normal_gate_d_incompatibility() -> None:
     authorization = _authorization()
 
@@ -70,3 +102,61 @@ def test_preflight_rejects_expired_window_before_loading() -> None:
             authorization,
             clock=lambda: datetime(2026, 9, 13, tzinfo=UTC),
         )
+
+
+def test_recovered_adaptation_revalidates_fixture_and_accepts_only_synthetic_delegate() -> None:
+    seen: list[str] = []
+
+    def delegate(binding: RecoveredGateDAdaptationBinding) -> str:
+        seen.append(binding.predecessor_state)
+        return "synthetic-ok"
+
+    # Use the adaptation's explicit action/approval while preserving the
+    # exact immutable artifact anchors from the preflight fixture.
+    adapted = _adapted_authorization()
+    assert run_recovered_gate_d_synthetic(adapted, delegate) == "synthetic-ok"
+    assert seen == ["completed_partial"]
+    assert authorize_recovered_gate_d(adapted).source_count == 6
+
+
+def test_recovered_binding_cannot_be_forged_directly() -> None:
+    with pytest.raises(ValueError, match="not_loader_issued"):
+        RecoveredGateDAdaptationBinding(
+            _adapted_authorization(), "completed_partial", "multiple_budgets_exhausted", 6
+        )
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("operation_id", "different-operation"),
+        ("seal_sha256", "0" * 64),
+        ("source_plan_sha256", "1" * 64),
+        ("report_sha256", "2" * 64),
+        ("post_c_authorization_sha256", "3" * 64),
+        ("source_keys", ("greenhouse:other",) * 6),
+    ],
+)
+def test_recovered_adaptation_rejects_changed_trust_anchor(field: str, value: object) -> None:
+    with pytest.raises(ValueError, match=r"anchor|sources"):
+        replace(_adapted_authorization(), **{field: value})
+
+
+def test_recovered_adaptation_rejects_subclass_and_never_calls_delegate() -> None:
+    class ForgedAuthorization(adaptation_auth.RecoveredGateDAdaptationAuthorization):
+        def validate_current(self, now: datetime) -> None:
+            return None
+
+    base = _adapted_authorization()
+    forged = ForgedAuthorization(
+        **{name: getattr(base, name) for name in base.__dataclass_fields__ if name != "_token"}
+    )
+    called = False
+
+    def delegate(_: RecoveredGateDAdaptationBinding) -> None:
+        nonlocal called
+        called = True
+
+    with pytest.raises(ValueError, match="authorization_invalid"):
+        run_recovered_gate_d_synthetic(forged, delegate)
+    assert not called
