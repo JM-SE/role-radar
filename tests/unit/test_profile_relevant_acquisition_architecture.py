@@ -68,6 +68,10 @@ EXPECTED_MODULES = {
     "recovered_gate_d_adaptation_authorization.py",
     "recovered_gate_d_adaptation.py",
     "recovered_gate_d_adaptation_service.py",
+    "recovered_gate_e_preflight_authorization.py",
+    "recovered_gate_e_preflight_filesystem.py",
+    "recovered_gate_e_preflight_loader.py",
+    "recovered_gate_e_compatibility.py",
     "output.py",
     "__init__.py",
 }
