@@ -93,7 +93,7 @@ def _execution_authorization() -> execution_auth.RecoveredGateDExecutionAuthoriz
         action=execution_auth.ACTION,
         approval_reference="r2-gate-d-20260912-001",
         operator_id="jmse",
-        candidate_commit_sha256="fd79c6dc088119251d02b5b9cedd386a9366c22d",
+        candidate_commit_sha256="734f5c08f23a3e2a97032c54cabef0f324a2bf94",
         window_start_utc=base.window_start_utc,
         expires_at_utc=base.expires_at_utc,
         historical_root=base.historical_root,

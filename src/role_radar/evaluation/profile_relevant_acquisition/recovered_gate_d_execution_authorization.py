@@ -22,7 +22,7 @@ from .recovered_gate_d_authorization import (
 )
 
 ACTION: Final = "offline_recovered_bounded_synthetic_acquisition"
-EXPECTED_COMMIT_SHA256: Final = "fd79c6dc088119251d02b5b9cedd386a9366c22d"
+EXPECTED_COMMIT_SHA256: Final = "734f5c08f23a3e2a97032c54cabef0f324a2bf94"
 EXPECTED_APPROVAL_REFERENCE: Final = "r2-gate-d-20260912-001"
 EXPECTED_OPERATOR_ID: Final = "jmse"
 EXPECTED_WINDOW_START_UTC: Final = "2026-09-12T00:00:00Z"
