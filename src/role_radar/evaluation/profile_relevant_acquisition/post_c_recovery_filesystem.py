@@ -136,6 +136,8 @@ def _open_parent(root_fd: int, parts: tuple[str, ...]) -> Iterator[tuple[int, st
                     raise RecoveryFilesystemError("post_c_recovery_artifact_permissions_invalid")
             except RecoveryFilesystemError:
                 raise
+            except FileNotFoundError:
+                raise
             except OSError as exc:
                 raise RecoveryFilesystemError("post_c_recovery_artifact_unreadable") from exc
             os.close(current)
@@ -179,6 +181,8 @@ def read_bytes(root_fd: int, root: Path, path: Path, *, maximum: int = MAX_JSON_
                 return _read_fd(fd, maximum=maximum, mode=0o600)
             finally:
                 os.close(fd)
+    except FileNotFoundError as exc:
+        raise RecoveryFilesystemError("post_c_recovery_artifact_unreadable") from exc
     except RecoveryFilesystemError:
         raise
     except OSError as exc:
@@ -210,6 +214,8 @@ def read_optional_bytes(
                 return _read_fd(fd, maximum=maximum, mode=0o600)
             finally:
                 os.close(fd)
+    except FileNotFoundError:
+        return None
     except RecoveryFilesystemError:
         raise
     except OSError as exc:
