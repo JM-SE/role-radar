@@ -265,8 +265,7 @@ def read_json(
 
 def list_children(root_fd: int) -> tuple[str, ...]:
     try:
-        with os.fdopen(os.dup(root_fd), "rb", closefd=True) as stream:
-            names = tuple(os.listdir(stream.fileno()))
+        names = tuple(os.listdir(root_fd))
     except OSError as exc:
         raise RecoveryFilesystemError("post_c_recovery_root_invalid") from exc
     return names
@@ -296,6 +295,8 @@ def write_no_replace(
     *,
     expected_identity: tuple[int, int] | None = None,
     expected_leaf: str | None = None,
+    expected_directory: str | None = "post-c",
+    allowed_leaves: frozenset[str] | None = None,
 ) -> None:
     relative = _relative_parts(relative)
     if len(payload) > MAX_SEAL_BYTES:
@@ -311,6 +312,8 @@ def write_no_replace(
                     payload,
                     expected_identity=expected_identity,
                     expected_leaf=expected_leaf,
+                    expected_directory=expected_directory,
+                    allowed_leaves=allowed_leaves,
                 )
             finally:
                 fcntl.flock(root_fd, fcntl.LOCK_UN)
@@ -328,6 +331,8 @@ def _write_no_replace_locked(
     *,
     expected_identity: tuple[int, int] | None,
     expected_leaf: str | None,
+    expected_directory: str | None,
+    allowed_leaves: frozenset[str] | None,
 ) -> None:
     if expected_identity is not None:
         metadata = os.fstat(root_fd)
@@ -335,7 +340,13 @@ def _write_no_replace_locked(
             raise RecoveryFilesystemError("post_c_recovery_root_replaced")
     current = os.dup(root_fd)
     try:
-        _validate_output_entries(root_fd, relative, expected_leaf=expected_leaf)
+        _validate_output_entries(
+            root_fd,
+            relative,
+            expected_leaf=expected_leaf,
+            expected_directory=expected_directory,
+            allowed_leaves=allowed_leaves,
+        )
         for component in relative[:-1]:
             try:
                 child = os.open(
@@ -357,7 +368,13 @@ def _write_no_replace_locked(
             os.close(current)
             current = child
         name = relative[-1]
-        _validate_output_entries(root_fd, relative, expected_leaf=expected_leaf)
+        _validate_output_entries(
+            root_fd,
+            relative,
+            expected_leaf=expected_leaf,
+            expected_directory=expected_directory,
+            allowed_leaves=allowed_leaves,
+        )
         temporary_name = f".recovery-{os.getpid()}-{time.time_ns()}"
         temporary_fd: int | None = None
         for attempt in range(8):
@@ -415,19 +432,39 @@ def _write_no_replace_locked(
 
 
 def _validate_output_entries(
-    root_fd: int, relative: tuple[str, ...], *, expected_leaf: str | None
+    root_fd: int,
+    relative: tuple[str, ...],
+    *,
+    expected_leaf: str | None,
+    expected_directory: str | None,
+    allowed_leaves: frozenset[str] | None,
 ) -> None:
     """Reject unexpected output entries while the root FD is pinned."""
 
-    if not relative or relative[0] != "post-c" or len(relative) != 2:
+    if not relative:
+        raise RecoveryFilesystemError("post_c_recovery_artifact_path_invalid")
+    if expected_directory is None:
+        if len(relative) != 1:
+            raise RecoveryFilesystemError("post_c_recovery_artifact_path_invalid")
+        allowed = allowed_leaves or frozenset()
+        try:
+            names = set(os.listdir(root_fd))
+            if names - allowed:
+                raise RecoveryFilesystemError("post_c_recovery_output_conflict")
+        except RecoveryFilesystemError:
+            raise
+        except OSError as exc:
+            raise RecoveryFilesystemError("post_c_recovery_output_conflict") from exc
+        return
+    if relative[0] != expected_directory or len(relative) != 2:
         raise RecoveryFilesystemError("post_c_recovery_artifact_path_invalid")
     try:
         names = set(os.listdir(root_fd))
-        if names - {"post-c"}:
+        if names - {expected_directory}:
             raise RecoveryFilesystemError("post_c_recovery_output_conflict")
         try:
             directory_fd = os.open(
-                "post-c",
+                expected_directory,
                 os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | _no_follow(),
                 dir_fd=root_fd,
             )
@@ -440,8 +477,8 @@ def _validate_output_entries(
             if not _regular_directory(metadata, 0o700):
                 raise RecoveryFilesystemError("post_c_recovery_output_conflict")
             leaves = set(os.listdir(directory_fd))
-            allowed = {expected_leaf} if expected_leaf is not None else set()
-            if leaves - allowed:
+            allowed_leaves_set: set[str] = {expected_leaf} if expected_leaf is not None else set()
+            if leaves - allowed_leaves_set:
                 raise RecoveryFilesystemError("post_c_recovery_output_conflict")
         finally:
             os.close(directory_fd)

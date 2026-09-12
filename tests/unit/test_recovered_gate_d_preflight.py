@@ -1,3 +1,4 @@
+import json
 from dataclasses import replace
 from datetime import UTC, datetime
 
@@ -5,6 +6,12 @@ import pytest
 
 from role_radar.evaluation.profile_relevant_acquisition import (
     recovered_gate_d_adaptation_authorization as adaptation_auth,
+)
+from role_radar.evaluation.profile_relevant_acquisition import (
+    recovered_gate_d_execution_authorization as execution_auth,
+)
+from role_radar.evaluation.profile_relevant_acquisition import (
+    recovered_gate_d_execution_filesystem as execution_filesystem,
 )
 from role_radar.evaluation.profile_relevant_acquisition.recovered_gate_d_adaptation import (
     RecoveredGateDAdaptationBinding,
@@ -18,6 +25,10 @@ from role_radar.evaluation.profile_relevant_acquisition.recovered_gate_d_authori
 )
 from role_radar.evaluation.profile_relevant_acquisition.recovered_gate_d_compatibility import (
     assess_recovered_gate_d_compatibility,
+)
+from role_radar.evaluation.profile_relevant_acquisition.recovered_gate_d_execution import (
+    RecoveredGateDSyntheticRequest,
+    run_recovered_gate_d_bounded_synthetic,
 )
 from role_radar.evaluation.profile_relevant_acquisition.recovered_gate_d_loader import (
     RecoveredGateDLoadError,
@@ -73,6 +84,35 @@ def _adapted_authorization() -> adaptation_auth.RecoveredGateDAdaptationAuthoriz
         post_c_authorization_sha256=authorization.post_c_authorization_sha256,
         source_keys=authorization.source_keys,
         clock=authorization.clock,
+    )
+
+
+def _execution_authorization() -> execution_auth.RecoveredGateDExecutionAuthorization:
+    base = _authorization()
+    return execution_auth.RecoveredGateDExecutionAuthorization(
+        action=execution_auth.ACTION,
+        approval_reference="r2-gate-d-20260912-001",
+        operator_id="jmse",
+        candidate_commit_sha256="fd79c6dc088119251d02b5b9cedd386a9366c22d",
+        window_start_utc=base.window_start_utc,
+        expires_at_utc=base.expires_at_utc,
+        historical_root=base.historical_root,
+        recovery_root=base.recovery_root,
+        post_c_root=base.post_c_root,
+        output_root="/home/jmse/r2-evidence/r2-gate-d-20260912-001",
+        operation_id=base.operation_id,
+        seal_sha256=base.seal_sha256,
+        source_plan_sha256=base.source_plan_sha256,
+        report_sha256=base.report_sha256,
+        post_c_authorization_sha256=base.post_c_authorization_sha256,
+        source_keys=base.source_keys,
+        namespace="profile-relevant-acquisition",
+        selection_seed="selection-seed",
+        partition_seed="partition-seed",
+        budget_units=10,
+        max_parent_pool=6,
+        max_journal_entries=32,
+        clock=base.clock,
     )
 
 
@@ -160,3 +200,119 @@ def test_recovered_adaptation_rejects_subclass_and_never_calls_delegate() -> Non
     with pytest.raises(ValueError, match="authorization_invalid"):
         run_recovered_gate_d_synthetic(forged, delegate)
     assert not called
+
+
+def test_recovered_synthetic_execution_is_only_an_injected_fixture() -> None:
+    class Adapter:
+        def run(self, request: RecoveredGateDSyntheticRequest) -> dict[str, object]:
+            assert request.source_count == 6
+            assert request.budget_units == 10
+            return {"fixture": "bounded"}
+
+    class Writer:
+        def __init__(self) -> None:
+            self.root = "/home/jmse/r2-evidence/r2-gate-d-20260912-001"
+            self.values: dict[str, bytes] = {}
+
+        def publish(self, name: str, payload: bytes) -> None:
+            self.values[name] = payload
+
+        def read(self, name: str) -> bytes | None:
+            return self.values.get(name)
+
+        def list_names(self) -> tuple[str, ...]:
+            return tuple(self.values)
+
+    writer = Writer()
+    result = run_recovered_gate_d_bounded_synthetic(_execution_authorization(), Adapter(), writer)
+    assert result.result == "sealed"
+    assert set(writer.values) == {
+        "journal.json",
+        "checkpoint.json",
+        "evidence.json",
+        "parent-pool.json",
+        "manifest.json",
+    }
+
+
+def test_recovered_execution_filesystem_requires_existing_empty_root(tmp_path) -> None:
+    root = tmp_path / "output"
+    root.mkdir(mode=0o700)
+    writer = execution_filesystem.RecoveredGateDExecutionFilesystemWriter(root)
+    writer.publish("journal.json", b"[]")
+    assert writer.read("journal.json") == b"[]"
+    assert (
+        frozenset(
+            {
+                "journal.json",
+                "checkpoint.json",
+                "evidence.json",
+                "parent-pool.json",
+                "manifest.json",
+            }
+        )
+        == execution_filesystem.ARTIFACT_NAMES
+    )
+
+
+def test_recovered_synthetic_execution_replays_without_adapter() -> None:
+    class Adapter:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def run(self, request: RecoveredGateDSyntheticRequest) -> dict[str, object]:
+            self.calls += 1
+            return {"fixture": "bounded"}
+
+    class Writer:
+        root = "/home/jmse/r2-evidence/r2-gate-d-20260912-001"
+
+        def __init__(self) -> None:
+            self.values: dict[str, bytes] = {}
+
+        def publish(self, name: str, payload: bytes) -> None:
+            self.values[name] = payload
+
+        def read(self, name: str) -> bytes | None:
+            return self.values.get(name)
+
+        def list_names(self) -> tuple[str, ...]:
+            return tuple(self.values)
+
+    adapter = Adapter()
+    writer = Writer()
+    first = run_recovered_gate_d_bounded_synthetic(_execution_authorization(), adapter, writer)
+    second = run_recovered_gate_d_bounded_synthetic(_execution_authorization(), adapter, writer)
+    assert first == second
+    assert adapter.calls == 1
+
+
+def test_recovered_synthetic_replay_rejects_manifest_mutation() -> None:
+    class Adapter:
+        def run(self, request: RecoveredGateDSyntheticRequest) -> dict[str, object]:
+            return {"fixture": "bounded"}
+
+    class Writer:
+        root = "/home/jmse/r2-evidence/r2-gate-d-20260912-001"
+
+        def __init__(self) -> None:
+            self.values: dict[str, bytes] = {}
+
+        def publish(self, name: str, payload: bytes) -> None:
+            self.values[name] = payload
+
+        def read(self, name: str) -> bytes | None:
+            return self.values.get(name)
+
+        def list_names(self) -> tuple[str, ...]:
+            return tuple(self.values)
+
+    writer = Writer()
+    run_recovered_gate_d_bounded_synthetic(_execution_authorization(), Adapter(), writer)
+    manifest = json.loads(writer.values["manifest.json"])
+    manifest["source_keys"] = list(reversed(manifest["source_keys"]))
+    writer.values["manifest.json"] = json.dumps(
+        manifest, sort_keys=True, separators=(",", ":")
+    ).encode()
+    with pytest.raises(ValueError, match="output_conflict"):
+        run_recovered_gate_d_bounded_synthetic(_execution_authorization(), Adapter(), writer)
