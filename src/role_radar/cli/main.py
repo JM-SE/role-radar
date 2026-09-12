@@ -488,6 +488,9 @@ def _parser() -> argparse.ArgumentParser:
     from role_radar.cli.evaluation_r2_post_c import register_parser as register_post_c_parser
 
     register_post_c_parser(evaluation_commands)
+    from role_radar.cli.evaluation_r2_gate_d import register_parser as register_gate_d_parser
+
+    register_gate_d_parser(evaluation_commands)
     return parser
 
 
@@ -503,6 +506,10 @@ def _run_evaluation(args: argparse.Namespace) -> int:
         return run(args)
     if args.evaluation_command == "r2-post-c":
         from role_radar.cli.evaluation_r2_post_c import run
+
+        return run(args)
+    if args.evaluation_command == "r2-gate-d":
+        from role_radar.cli.evaluation_r2_gate_d import run
 
         return run(args)
     if args.evaluation_command in {"f10-1", "f10-1c"}:

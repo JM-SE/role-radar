@@ -59,6 +59,9 @@ EXPECTED_MODULES = {
     "post_c_preregistration_contracts.py",
     "post_c_effect_contracts.py",
     "post_c_preregistration_service.py",
+    "recovered_gate_d_authorization.py",
+    "recovered_gate_d_compatibility.py",
+    "recovered_gate_d_loader.py",
     "output.py",
     "__init__.py",
 }
