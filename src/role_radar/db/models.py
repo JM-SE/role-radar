@@ -698,6 +698,32 @@ class DiscoveryQuery(Base):
     verified_count: Mapped[int] = mapped_column(default=0, nullable=False)
 
 
+class FeedbackDecision(Base):
+    """Revisiones humanas anexadas sobre candidatos de discovery del producto."""
+
+    __tablename__ = "feedback_decisions"
+    __table_args__ = (
+        UniqueConstraint("run_id", "job_id", "revision", name="uq_feedback_decisions_revision"),
+        Index("ix_feedback_decisions_run_job", "run_id", "job_id"),
+        CheckConstraint("label IN ('apply','maybe','reject')", name="ck_feedback_decisions_label"),
+        CheckConstraint("revision > 0", name="ck_feedback_decisions_revision"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("job_search_runs.id", ondelete="RESTRICT"), nullable=False
+    )
+    job_id: Mapped[str] = mapped_column(ForeignKey("jobs.id", ondelete="RESTRICT"), nullable=False)
+    revision: Mapped[int] = mapped_column(nullable=False, default=1)
+    label: Mapped[str] = mapped_column(String(16), nullable=False)
+    primary_reason: Mapped[str] = mapped_column(String(64), nullable=False)
+    secondary_reasons_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    note: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    relevance_band: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    policy_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    decided_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
 class AcquisitionBudgetPeriod(Base):
     """UTC-month budget ledger; no provider result data is stored here."""
 

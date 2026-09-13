@@ -53,6 +53,7 @@ class Pipeline:
         discovery_provider: Any = None,
         discovery_collector_factory: Any = None,
         discovery_query_key_secret: bytes | str | None = None,
+        discovery_policy_v1: Any | None = None,
         free_source_terms: JobicyTermsAcceptance | None = None,
         free_source_collector_factory: Any = None,
         mailbox_provider_factory: Any = None,
@@ -75,6 +76,7 @@ class Pipeline:
             provider=discovery_provider,
             collector_factory=discovery_collector_factory or collector_factory,
             query_key_secret=discovery_query_key_secret,
+            discovery_policy_v1=discovery_policy_v1,
         )
         self._free_sources = PipelineFreeSourcesService(
             session_factory,

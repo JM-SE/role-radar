@@ -424,6 +424,9 @@ def _parser() -> argparse.ArgumentParser:
     from role_radar.cli.continuous_discovery_v2 import register_continuous_discovery_v2_parser
 
     register_continuous_discovery_v2_parser(subparsers)
+    from role_radar.cli.feedback import register_feedback_parser
+
+    register_feedback_parser(subparsers)
     evaluation = subparsers.add_parser(
         "evaluation", help="operaciones offline/controladas de evaluación"
     )
@@ -1749,6 +1752,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_evaluation(args)
     if args.command == "continuous-discovery-v2":
         return _run_continuous_discovery_v2(args)
+    if args.command == "feedback":
+        return _run_feedback(args)
     if args.command == "continuous-discovery":
         return _run_legacy_discovery_deprecated()
     if args.command == "continuous-acquisition":
@@ -1857,6 +1862,14 @@ def _run_continuous_discovery_v2(args: argparse.Namespace) -> int:
     from role_radar.cli.continuous_discovery_v2 import run_continuous_discovery_v2
 
     return run_continuous_discovery_v2(args)
+
+
+def _run_feedback(args: argparse.Namespace) -> int:
+    """Lazy, thin dispatch to the current product feedback adapter."""
+
+    from role_radar.cli.feedback import run_feedback
+
+    return run_feedback(Settings(), args)
 
 
 def _run_continuous_gate_a(args: argparse.Namespace) -> int:

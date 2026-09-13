@@ -1,13 +1,15 @@
 """Discovery orchestration: synchronous prepare/finalize around DTO-only I/O."""
 
 import inspect
-from collections.abc import Callable
+import warnings
+from collections.abc import Callable, Mapping
 from types import MappingProxyType
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from role_radar.acquisition.discovery_policy import LoadedDiscoveryPolicyV1
 from role_radar.collectors.outcomes import CollectionSuccess
 from role_radar.collectors.policy import CollectionRunBudget
 from role_radar.collectors.protocols import CollectorRuntime, JobCollector, SourceSnapshot
@@ -24,6 +26,7 @@ from role_radar.discovery.contracts import (
     DiscoveryFinalization,
     DiscoveryPlan,
     KnownOfficialCandidate,
+    PlannedQuery,
     QueryExecution,
     QueryIdentity,
     SearchRequest,
@@ -32,7 +35,17 @@ from role_radar.discovery.contracts import (
 )
 from role_radar.discovery.null_provider import NullSearchProvider
 from role_radar.discovery.planner import QueryPlannerV1
-from role_radar.discovery.policy import DiscoveryPolicy
+from role_radar.discovery.planner_v2 import (
+    DiscoveryPlanError,
+    plan_profile_discovery,
+    validate_discovery_query_plan,
+)
+from role_radar.discovery.policy import DiscoveryPolicy, DiscoveryPolicyV1
+from role_radar.discovery.profile_terms import (
+    DiscoveryTermsError,
+    FrozenCandidateProfileV1,
+    compile_profile_terms,
+)
 from role_radar.discovery.protocols import SearchProvider
 from role_radar.discovery.query_keys import QueryKeyFactory
 from role_radar.discovery.url_classifier import classify_url
@@ -42,7 +55,7 @@ from role_radar.domain.enums import (
     DiscoveryMode,
     DiscoveryQueryStatus,
 )
-from role_radar.domain.profile import CandidateProfileV1
+from role_radar.domain.profile import CandidateProfileV1, canonical_profile_sha256
 from role_radar.normalization.jobs import normalize_raw_job
 from role_radar.repositories.discovery import DiscoveryRepository
 from role_radar.services.acquired_job_writer import AcquiredJobWriter
@@ -59,12 +72,17 @@ class PipelineDiscoveryService:
         collector_factory: Callable[[SourceSnapshot], JobCollector] | None = None,
         query_key_secret: bytes | str | None = None,
         policy: DiscoveryPolicy | None = None,
+        discovery_policy_v1: DiscoveryPolicyV1
+        | LoadedDiscoveryPolicyV1
+        | Mapping[str, object]
+        | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._provider = provider or NullSearchProvider()
         self._collector_factory = collector_factory
         self._secret = query_key_secret
         self._policy = policy or DiscoveryPolicy()
+        self._discovery_policy_v1 = discovery_policy_v1
 
     def prepare(self, run_id: str) -> DiscoveryPlan | None:
         with self._session_factory() as session:
@@ -91,27 +109,33 @@ class PipelineDiscoveryService:
             if profile_row is None:
                 raise LookupError("profile not found")
             profile = CandidateProfileV1.model_validate(profile_row.profile_json)
-            planner = QueryPlannerV1()
-            queries = planner.plan(profile)
+            v2_queries = self._profile_bound_v2_queries(profile_row, profile)
+            if v2_queries is None:
+                planner = QueryPlannerV1()
+                queries = planner.plan(profile)
+                planner_version: str = planner.version
+                policy_version: str = self._policy.version
+                snapshot: dict[str, object] = _planner_profile_snapshot(profile)
+            else:
+                queries, planner_version, policy_version, snapshot = v2_queries
             identities: tuple[QueryIdentity, ...] = ()
             planner_hash = "query_key_unavailable"
             if self._secret is not None:
                 try:
                     factory = QueryKeyFactory(self._secret)
-                    identities = factory.identities(queries, planner_version=planner.version)
-                    planner_hash = factory.planner_hash(identities, planner_version=planner.version)
+                    identities = factory.identities(queries, planner_version=planner_version)
+                    planner_hash = factory.planner_hash(identities, planner_version=planner_version)
                 except ValueError:
                     pass
-            snapshot = _planner_profile_snapshot(profile)
             repo = DiscoveryRepository(session)
             cycle = repo.get_cycle_for_run(run_id)
             if cycle is None:
                 cycle = repo.create_cycle(
                     run_id=run_id,
                     profile_snapshot=snapshot,
-                    planner_version=planner.version,
+                    planner_version=planner_version,
                     planner_hash=planner_hash,
-                    policy_version=self._policy.version,
+                    policy_version=policy_version,
                 )
                 for identity in identities:
                     repo.add_query(cycle_id=cycle.id, identity=identity)
@@ -135,10 +159,76 @@ class PipelineDiscoveryService:
                 profile_snapshot=MappingProxyType(snapshot),
                 queries=queries,
                 identities=identities,
-                planner_version=planner.version,
+                planner_version=planner_version,
                 planner_hash=planner_hash,
-                policy_version=self._policy.version,
+                policy_version=policy_version,
             )
+
+    def _profile_bound_v2_queries(
+        self, profile_row: CandidateProfile, profile: CandidateProfileV1
+    ) -> tuple[tuple[PlannedQuery, ...], str, str, dict[str, object]] | None:
+        """Build profile-bound v2 queries, or None to keep the v1 path.
+
+        Any binding mismatch or planning failure falls back to v1 with a
+        warning; the v2 compiler/planner semantics are never reinterpreted.
+        """
+
+        configured = self._discovery_policy_v1
+        if configured is None:
+            return None
+        if isinstance(configured, LoadedDiscoveryPolicyV1):
+            policy = configured.policy
+        elif isinstance(configured, DiscoveryPolicyV1):
+            policy = configured
+        elif isinstance(configured, Mapping):
+            try:
+                policy = DiscoveryPolicyV1.model_validate(configured)
+            except ValueError:
+                warnings.warn("discovery_v2_policy_invalid", stacklevel=2)
+                return None
+        else:
+            warnings.warn("discovery_v2_policy_invalid", stacklevel=2)
+            return None
+        binding = policy.profile_binding
+        if (
+            profile_row.id != binding.profile_id
+            or profile_row.version != binding.row_version
+            or profile_row.schema_version != binding.schema_version
+            or not profile_row.is_active
+            or canonical_profile_sha256(profile_row.profile_json)
+            != binding.canonical_profile_sha256
+        ):
+            warnings.warn("discovery_v2_binding_mismatch", stacklevel=2)
+            return None
+        try:
+            frozen = FrozenCandidateProfileV1(binding=binding, profile=profile)
+            compiled = compile_profile_terms(frozen, policy)
+            planned = validate_discovery_query_plan(plan_profile_discovery(compiled, policy))
+        except (DiscoveryTermsError, DiscoveryPlanError, ValueError):
+            warnings.warn("discovery_v2_plan_invalid", stacklevel=2)
+            return None
+        queries = tuple(
+            PlannedQuery(
+                ordinal=item.ordinal,
+                family=item.family,
+                provider_intent=item.provider_intent,
+                canonical_query=item.canonical_query,
+            )
+            for item in planned.queries
+        )
+        snapshot = _planner_profile_snapshot(profile)
+        snapshot.update(
+            {
+                "discovery_planner": "v2",
+                "profile_binding": binding.as_dict(),
+                "policy_version": policy.policy_version,
+                "policy_sha256": planned.policy_sha256,
+                "plan_sha256": planned.plan_sha256,
+                "compiler_version": planned.compiler_version,
+                "approved_phrases": list(compiled.approved_phrases),
+            }
+        )
+        return queries, planned.planner_version, policy.policy_version, snapshot
 
     async def execute(self, plan: DiscoveryPlan) -> DiscoveryExecution:
         if plan.reused:

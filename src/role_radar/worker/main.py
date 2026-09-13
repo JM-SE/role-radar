@@ -2,13 +2,23 @@
 
 import asyncio
 import signal
+from collections.abc import Callable
+from typing import Any
+
+from sqlalchemy.orm import Session
 
 from role_radar.acquisition.configuration import (
+    AcquisitionConfig,
     AcquisitionConfigError,
     ProductionAcquisitionFilePolicy,
     load_acquisition_config,
 )
 from role_radar.acquisition.credentials import CredentialError
+from role_radar.acquisition.discovery_policy import (
+    DiscoveryPolicyFileError,
+    load_discovery_policy,
+    production_discovery_policy_file_policy,
+)
 from role_radar.broker.factory import create_deep_llm_provider, create_llm_provider
 from role_radar.config import Settings
 from role_radar.db.engine import get_engine
@@ -24,6 +34,47 @@ from role_radar.worker.pipeline import Pipeline
 from role_radar.worker.runner import WorkerRunner
 
 
+def compose_discovery_provider(
+    session_factory: Callable[[], Session],
+    *,
+    brave_search: Any | None = None,
+    tavily_search: Any | None = None,
+    query_hmac: bytes | None = None,
+    acquisition_config: AcquisitionConfig | None = None,
+) -> SearchRoutingService | None:
+    """Compose the daily discovery provider.
+
+    Returns None when the HMAC secret, both search providers, or the
+    acquisition config is unavailable, keeping discovery advisory-only.
+    """
+
+    if query_hmac is None:
+        return None
+    if brave_search is None and tavily_search is None:
+        return None
+    if acquisition_config is None:
+        return None
+    return SearchRoutingService(
+        session_factory,
+        brave=brave_search,
+        tavily=tavily_search,
+        budget=AcquisitionBudgetService(session_factory, acquisition_config),
+        config=acquisition_config,
+    )
+
+
+def load_discovery_policy_v1() -> Any | None:
+    """Load the operator-owned v2 discovery policy, or None when unavailable."""
+
+    try:
+        loaded = load_discovery_policy(
+            file_policy=production_discovery_policy_file_policy(),
+        )
+    except DiscoveryPolicyFileError:
+        return None
+    return loaded.policy
+
+
 def run_worker(settings: Settings | None = None) -> None:
     current = settings or Settings()
     engine = get_engine(current.database_url)
@@ -33,8 +84,8 @@ def run_worker(settings: Settings | None = None) -> None:
     brave_search = tavily_search = None
     discovery_provider = None
     discovery_hmac: bytes | None = None
-    query_hmac: bytes | None = None
     acquisition_config = None
+    discovery_policy_v1 = load_discovery_policy_v1()
     mailbox_descriptor_resolver = None
     mailbox_credential_resolver = None
     mailbox_hmac_keys: dict[str, tuple[bytes, bytes]] = {}
@@ -51,14 +102,13 @@ def run_worker(settings: Settings | None = None) -> None:
             asyncio.run(brave_search.__aenter__())
         if tavily_search is not None:
             asyncio.run(tavily_search.__aenter__())
-        if query_hmac is not None and (brave_search is not None or tavily_search is not None):
-            discovery_provider = SearchRoutingService(
-                factory,
-                brave=brave_search,
-                tavily=tavily_search,
-                budget=AcquisitionBudgetService(factory, acquisition_config),
-                config=acquisition_config,
-            )
+        discovery_provider = compose_discovery_provider(
+            factory,
+            brave_search=brave_search,
+            tavily_search=tavily_search,
+            query_hmac=discovery_hmac,
+            acquisition_config=acquisition_config,
+        )
         mailbox_descriptor_resolver = capabilities.mailbox_descriptors.get
         if capabilities.mailbox_credentials is not None:
             credential_provider = capabilities.mailbox_credentials
@@ -98,6 +148,7 @@ def run_worker(settings: Settings | None = None) -> None:
             ),
             discovery_provider=discovery_provider,
             discovery_query_key_secret=discovery_hmac,
+            discovery_policy_v1=discovery_policy_v1,
             free_source_terms=capabilities.jobicy_terms if acquisition_config is not None else None,
             mailbox_descriptor_resolver=mailbox_descriptor_resolver,
             mailbox_credential_resolver=mailbox_credential_resolver,
