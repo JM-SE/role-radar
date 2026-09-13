@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Any, cast
 
@@ -19,7 +20,34 @@ def register_feedback_parser(subparsers: Any) -> argparse.ArgumentParser:
     """Register only syntax; behavior lives in the feedback services."""
 
     parser = cast(argparse.ArgumentParser, subparsers.add_parser("feedback"))
+    parser.description = (
+        "Label the current run's candidates. The standard workflow is the "
+        "interactive 'review' command; the remaining commands are automation "
+        "and reporting seams."
+    )
     commands = parser.add_subparsers(dest="feedback_command", required=True)
+    review = commands.add_parser(
+        "review",
+        help="Label candidates interactively, one at a time (standard workflow).",
+        description=(
+            "Walk the run's feedback surface one candidate at a time, render "
+            "each with display v2, and record a confirmed apply/maybe/reject "
+            "decision. Decided items are skipped so an interrupted session "
+            "resumes; Ctrl-D or 'q' stops and keeps prior decisions."
+        ),
+    )
+    review.add_argument("--run", required=True)
+    review.add_argument(
+        "--relabel",
+        action="store_true",
+        help="Revisit already-decided items to correct them.",
+    )
+    review.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Label at most N items this session.",
+    )
     status = commands.add_parser("status")
     status.add_argument("--run", required=True)
     show = commands.add_parser("show")
@@ -75,6 +103,50 @@ def _load_policy_file(path: str) -> Any:
     return load_discovery_policy(path, file_policy=test_discovery_policy_file_policy())
 
 
+def _run_review(session: Any, args: Any) -> int:
+    """Run the standard interactive labeling session on a TTY."""
+
+    from role_radar.evaluation.blind_labeling.interaction import StdTerminalIO
+    from role_radar.services.feedback_review import run_review
+
+    if not sys.stdin.isatty():
+        payload, code = _blocked("review_requires_tty")
+        print(_payload(payload))
+        return code
+    if args.limit is not None and args.limit < 1:
+        payload, code = _blocked("review_limit_invalid")
+        print(_payload(payload))
+        return code
+    io = StdTerminalIO(
+        input_fn=lambda prompt: input(prompt),
+        output_fn=lambda value: sys.stdout.write(value),
+        is_tty=True,
+    )
+    try:
+        run_review(
+            session,
+            args.run,
+            io,
+            relabel=args.relabel,
+            limit=args.limit,
+        )
+    except LookupError:
+        session.rollback()
+        payload, code = _blocked("run_not_found")
+        print(_payload(payload))
+        return code
+    except KeyboardInterrupt:
+        session.rollback()
+        print("\nSession interrupted; prior decisions were kept.")
+        return 130
+    except Exception:
+        session.rollback()
+        payload, code = _blocked("internal_error")
+        print(_payload(payload))
+        return 1
+    return 0
+
+
 def run_feedback(settings: Any, args: Any) -> int:
     """Dispatch one feedback subcommand and print canonical JSON."""
 
@@ -93,6 +165,8 @@ def run_feedback(settings: Any, args: Any) -> int:
     engine, session = _open_feedback_session(settings)
     try:
         command = args.feedback_command
+        if command == "review":
+            return _run_review(session, args)
         if command == "status":
             run = session.get(JobSearchRun, args.run)
             if run is None:

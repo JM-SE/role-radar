@@ -9,6 +9,7 @@ MODULES = (
     "src/role_radar/cli/feedback.py",
     "src/role_radar/services/feedback_service.py",
     "src/role_radar/services/feedback_refinement.py",
+    "src/role_radar/services/feedback_review.py",
     "src/role_radar/discovery/relevance.py",
     "src/role_radar/repositories/feedback.py",
 )
