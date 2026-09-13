@@ -1,0 +1,55 @@
+{
+  "version": 2,
+  "api": {
+    "listen": "127.0.0.1:8010",
+    "metrics_enabled": true
+  },
+  "database": {
+    "url_env": "ROLE_RADAR_BROKER_DATABASE_URL",
+    "migration_url_env": "ROLE_RADAR_BROKER_MIGRATION_DATABASE_URL",
+    "provisioner_url_env": "ROLE_RADAR_BROKER_PROVISIONER_DATABASE_URL",
+    "max_connections": 10
+  },
+  "retention": {
+    "payload": "1h",
+    "result": "168h",
+    "metadata": "720h"
+  },
+  "backends": {
+    "role-radar-instruct": {
+      "type": "fake",
+      "features": ["structured_output"]
+    },
+    "role-radar-thinking": {
+      "type": "fake",
+      "features": ["structured_output"]
+    }
+  },
+  "capabilities": {
+    "structured-extraction": {
+      "backend": "role-radar-instruct"
+    },
+    "deep-job-evaluation": {
+      "backend": "role-radar-thinking"
+    }
+  },
+  "workloads": {
+    "role-radar": {
+      "priority_class": "normal",
+      "max_active_tasks": 10,
+      "max_attempts": 3,
+      "retry_delays_seconds": [1, 5],
+      "max_output_tokens": 2048,
+      "max_output_bytes": 8192,
+      "allowed_generation": {
+        "max_tokens": { "min": 1, "max": 2048 },
+        "temperature": { "min": 0, "max": 1 },
+        "top_p": { "min": 0, "max": 1 },
+        "top_k": { "min": 1, "max": 100 }
+      },
+      "required_features": [],
+      "allowed_capabilities": ["structured-extraction", "deep-job-evaluation"],
+      "workload_timeout_seconds": 600
+    }
+  }
+}

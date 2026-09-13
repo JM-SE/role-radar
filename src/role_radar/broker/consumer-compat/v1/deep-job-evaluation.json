@@ -1,0 +1,22 @@
+{
+  "version": "consumer-compat/v1",
+  "api_range": ">=0.1.1 <0.2.0",
+  "workload": "role-radar",
+  "capability": "deep-job-evaluation",
+  "generation": {
+    "max_tokens": 2048,
+    "temperature": 0.3,
+    "top_p": 0.95,
+    "top_k": 20
+  },
+  "response": {
+    "kind": "json_schema",
+    "schema_required": true
+  },
+  "max_request_content_bytes": 32768,
+  "required_min_output_bytes": 512,
+  "min_workload_timeout_seconds": 600,
+  "min_backend_response_start_timeout_seconds": 0,
+  "max_acceptable_attempts": 3,
+  "consumer_overall_deadline_seconds": 1200
+}
