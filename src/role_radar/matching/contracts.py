@@ -13,7 +13,28 @@ from role_radar.matching.policy import (
     canonical_technology,
 )
 
-Provenance = Literal["ats", "extraction", "unknown"]
+Provenance = Literal["ats", "extraction", "location", "unknown"]
+
+
+@dataclass(frozen=True, slots=True)
+class ProfileBinding:
+    profile_id: str
+    row_version: int
+    schema_version: int
+    canonical_profile_sha256: str
+
+    def canonical_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class FeedbackEligibilityDecision:
+    policy_version: str
+    profile_binding: ProfileBinding
+    input_sha256: str
+    eligible: bool
+    reason_codes: tuple[str, ...]
+    extraction_id: str | None
 
 
 @dataclass(frozen=True, slots=True)

@@ -6,8 +6,9 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
+from sqlalchemy.orm import Session
 
-from role_radar.db.models import CandidateProfile
+from role_radar.db.models import CandidateProfile, JobSearchRun, RunJob
 from role_radar.domain.enums import DiscoveryMode, RunJobStage, RunJobStatus
 from role_radar.evaluation.blind_labeling.validation import ValidationError
 from role_radar.repositories.discovery import DiscoveryRepository
@@ -25,7 +26,9 @@ from role_radar.services.feedback_service import (
 PHRASES = ["Backend Engineer"]
 
 
-def seed_run(db_session, approved=PHRASES) -> str:
+def seed_run(
+    db_session: Session, approved: list[str] | tuple[str, ...] = PHRASES
+) -> str:
     profile_id = str(uuid4())
     db_session.add(
         CandidateProfile(
@@ -42,7 +45,13 @@ def seed_run(db_session, approved=PHRASES) -> str:
     )
     DiscoveryRepository(db_session).create_cycle(
         run_id=run.id,
-        profile_snapshot={"approved_phrases": list(approved)},
+        profile_snapshot={
+            "approved_phrases": list(approved),
+            "profile_binding": {
+                "profile_id": profile_id, "row_version": 1, "schema_version": 1,
+                "canonical_profile_sha256": "0" * 64,
+            },
+        },
         planner_version="discovery-planner-v2",
         planner_hash="0" * 64,
         policy_version="gate-a-v1",
@@ -51,7 +60,7 @@ def seed_run(db_session, approved=PHRASES) -> str:
     return run.id
 
 
-def seed_job(db_session, run_id: str, title: str, description: str) -> str:
+def seed_job(db_session: Session, run_id: str, title: str, description: str) -> str:
     job = JobRepository(db_session).create(
         title=title,
         company="Acme",
@@ -70,11 +79,43 @@ def seed_job(db_session, run_id: str, title: str, description: str) -> str:
     RunJobRepository(db_session).finish(
         row, status=RunJobStatus.SUCCEEDED, outcome={"acquisition": "discovery"}
     )
+    run = db_session.get(JobSearchRun, run_id)
+    assert run is not None
+    profile = db_session.get(CandidateProfile, run.profile_id)
+    assert profile is not None
+    scored = RunJobRepository(db_session).claim_attempt(
+        run_id=run_id,
+        job_id=job.id,
+        stage=RunJobStage.SCORED,
+        max_attempts=3,
+        now=datetime.now(UTC),
+    )
+    assert scored is not None
+    RunJobRepository(db_session).finish(
+        scored,
+        status=RunJobStatus.SUCCEEDED,
+        outcome={
+            "job_score_id": "fixture",
+            "feedback_eligibility": {
+                "policy_version": "feedback-remote-eligibility-v1",
+                "profile_binding": {
+                    "profile_id": profile.id,
+                    "row_version": profile.version,
+                    "schema_version": profile.schema_version,
+                    "canonical_profile_sha256": "0" * 64,
+                },
+                "input_sha256": "1" * 64,
+                "eligible": True,
+                "reason_codes": ["exact_region_match"],
+                "extraction_id": "fixture-extraction",
+            },
+        },
+    )
     db_session.flush()
     return job.id
 
 
-def seed_surface(db_session) -> tuple[str, str, str, str, str]:
+def seed_surface(db_session: Session) -> tuple[str, str, str, str, str]:
     run_id = seed_run(db_session)
     relevant = seed_job(
         db_session, run_id, "Backend Engineer", "Backend Engineer with Python daily"
@@ -85,7 +126,15 @@ def seed_surface(db_session) -> tuple[str, str, str, str, str]:
     return run_id, relevant, near, unrelated, excluded
 
 
-def test_surface_orders_bands_and_counts(db_session) -> None:
+def test_surface_requires_same_run_scored_eligibility(db_session: Session) -> None:
+    run_id, _relevant, _near, _unrelated, _excluded = seed_surface(db_session)
+    for row in db_session.query(RunJob).filter_by(run_id=run_id, stage=RunJobStage.SCORED):
+        db_session.delete(row)
+    db_session.flush()
+    assert build_surface(db_session, run_id).items == ()
+
+
+def test_surface_orders_bands_and_counts(db_session: Session) -> None:
     run_id, relevant, near, unrelated, _excluded = seed_surface(db_session)
     surface = build_surface(db_session, run_id)
     assert [item.job_id for item in surface.items] == [relevant, near, unrelated]
@@ -101,7 +150,7 @@ def test_surface_orders_bands_and_counts(db_session) -> None:
     }
 
 
-def test_render_uses_display_v2(db_session) -> None:
+def test_render_uses_display_v2(db_session: Session) -> None:
     run_id, relevant, *_ = seed_surface(db_session)
     candidate = next(
         item for item in collect_candidates(db_session, run_id) if item.job_id == relevant
@@ -111,7 +160,32 @@ def test_render_uses_display_v2(db_session) -> None:
     assert "Acme" in rendered
 
 
-def test_submit_decide_and_resume(db_session) -> None:
+@pytest.mark.parametrize(
+    ("description", "placeholder"),
+    [
+        ("Backend Engineer details: https://jobs.example.test/apply", "[URL]"),
+        ("Backend Engineer contact: hiring@example.test", "[EMAIL]"),
+    ],
+)
+def test_render_redacts_external_references_without_mutating_candidate(
+    db_session: Session, description: str, placeholder: str
+) -> None:
+    run_id = seed_run(db_session)
+    job_id = seed_job(db_session, run_id, "Backend Engineer", description)
+    candidate = next(
+        item for item in collect_candidates(db_session, run_id) if item.job_id == job_id
+    )
+
+    rendered = render_candidate(candidate, index=1, total=1)
+
+    assert placeholder in rendered
+    assert description not in rendered
+    assert next(
+        item for item in collect_candidates(db_session, run_id) if item.job_id == job_id
+    ).description == description
+
+
+def test_submit_decide_and_resume(db_session: Session) -> None:
     run_id, relevant, near, *_ = seed_surface(db_session)
     row, created = submit_feedback(
         db_session,
@@ -131,7 +205,7 @@ def test_submit_decide_and_resume(db_session) -> None:
     assert pending == [near, surface.items[2].job_id]
 
 
-def test_submit_rejects_unknown_job(db_session) -> None:
+def test_submit_rejects_unknown_job(db_session: Session) -> None:
     run_id, *_ = seed_surface(db_session)
     with pytest.raises(LookupError):
         submit_feedback(
@@ -143,7 +217,7 @@ def test_submit_rejects_unknown_job(db_session) -> None:
         )
 
 
-def test_submit_enforces_note_rules(db_session) -> None:
+def test_submit_enforces_note_rules(db_session: Session) -> None:
     run_id, relevant, *_ = seed_surface(db_session)
     with pytest.raises(ValidationError):
         submit_feedback(
@@ -174,7 +248,7 @@ def test_submit_enforces_note_rules(db_session) -> None:
     assert row.note == "night shifts only"
 
 
-def test_summary_reports_bands(db_session) -> None:
+def test_summary_reports_bands(db_session: Session) -> None:
     run_id, relevant, near, *_ = seed_surface(db_session)
     submit_feedback(
         db_session, run_id=run_id, job_id=relevant, label="apply", primary_reason="skills_match"

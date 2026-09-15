@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from uuid import uuid4
 
+from sqlalchemy.orm import Session
+
 from role_radar.db.models import CandidateProfile
 from role_radar.discovery.policy import DiscoveryPhraseGrammarV1, DiscoveryPolicyV1
 from role_radar.domain.enums import DiscoveryCycleStatus, DiscoveryMode
@@ -37,7 +39,9 @@ PROFILE_PAYLOAD = {
 SECRET = b"0123456789abcdef0123456789abcdef"
 
 
-async def test_v2_prepare_execute_finalize_reaches_terminal_cycle(db_session) -> None:
+async def test_v2_prepare_execute_finalize_reaches_terminal_cycle(
+    db_session: Session,
+) -> None:
     profile_id = str(uuid4())
     db_session.add(
         CandidateProfile(

@@ -153,6 +153,10 @@ def build_job_facts(job: JobSnapshot) -> FactsBuildResult:
         )
         if regions:
             regions_provenance = location_provenance
+            if any(item.field == "location" for item in ambiguities):
+                ambiguities.append(
+                    Ambiguity("location_region_conflict", "regions", location_provenance)
+                )
     remote, remote_provenance = choose(
         "remote_policy", _extract_value(extraction_payload.get("remote_policy"))
     )

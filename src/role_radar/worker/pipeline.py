@@ -28,6 +28,10 @@ from role_radar.free_sources.terms import JobicyTermsAcceptance
 from role_radar.notifications.contracts import TelegramGateway
 from role_radar.notifications.fake import DisabledTelegramGateway
 from role_radar.repositories.runs import RunRepository
+from role_radar.services.eligibility_reprocessing import (
+    MANIFEST_KEY,
+    EligibilityReprocessingService,
+)
 from role_radar.services.pipeline_collection import PipelineCollectionService
 from role_radar.services.pipeline_deep_evaluation import PipelineDeepEvaluationService
 from role_radar.services.pipeline_discovery import PipelineDiscoveryService
@@ -95,6 +99,7 @@ class Pipeline:
         )
         self._extraction = PipelineExtractionService(session_factory, provider=provider)
         self._scoring = PipelineScoringService(session_factory)
+        self._eligibility = EligibilityReprocessingService(session_factory, self._extraction)
         self._deep = (
             PipelineDeepEvaluationService(
                 session_factory, provider=deep_provider, settings=self._settings
@@ -140,6 +145,9 @@ class Pipeline:
                     if self._notification_retry_wait(run_id):
                         return self._release_notification_run(run_id)
                 return self._complete(run_id)
+            manifest = await self._eligibility.process(run_id)
+            if not manifest["complete"]:
+                raise RuntimeError("feedback_eligibility_reprocessing_pending")
             snapshots = self._collection.prepare(
                 run_id, exclude_source_types=frozenset({SourceType.JOBICY})
             )
@@ -318,7 +326,10 @@ class Pipeline:
             if run is None:
                 raise LookupError("run not found")
             jobs = list(session.scalars(select(RunJob).where(RunJob.run_id == run_id)))
+            eligibility = (run.stats_json or {}).get(MANIFEST_KEY)
             stats = recompute_stats(run.source_results_json, jobs)
+            if eligibility is not None:
+                stats[MANIFEST_KEY] = eligibility
             batches = list(
                 session.scalars(select(NotificationBatch).where(NotificationBatch.run_id == run_id))
             )
@@ -385,7 +396,11 @@ class Pipeline:
             if run is None:
                 raise LookupError("run not found")
             jobs = list(session.scalars(select(RunJob).where(RunJob.run_id == run_id)))
-            run.stats_json = recompute_stats(run.source_results_json, jobs)
+            stats = recompute_stats(run.source_results_json, jobs)
+            manifest = (run.stats_json or {}).get(MANIFEST_KEY)
+            if manifest is not None:
+                    stats[MANIFEST_KEY] = manifest
+            run.stats_json = stats
             run.status = JobSearchRunStatus.FAILED
             run.error_code = error_code[:128]
             run.completed_at = datetime.now(UTC)

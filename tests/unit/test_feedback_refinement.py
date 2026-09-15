@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import tomllib
 from datetime import UTC, datetime
+from typing import Any
 from uuid import uuid4
 
 import pytest
+from sqlalchemy.orm import Session
 
-from role_radar.db.models import CandidateProfile
+from role_radar.db.models import CandidateProfile, JobSearchRun
 from role_radar.discovery.policy import DiscoveryPhraseGrammarV1, DiscoveryPolicyV1
 from role_radar.domain.enums import DiscoveryMode, RunJobStage, RunJobStatus
 from role_radar.domain.profile import canonical_profile_sha256
+from role_radar.repositories.discovery import DiscoveryRepository
 from role_radar.repositories.jobs import JobRepository
 from role_radar.repositories.run_jobs import RunJobRepository
 from role_radar.repositories.runs import RunRepository
@@ -46,7 +49,7 @@ PROFILE_PAYLOAD = {
 }
 
 
-def make_policy(profile_id: str, payload: dict, version: str) -> DiscoveryPolicyV1:
+def make_policy(profile_id: str, payload: dict[str, Any], version: str) -> DiscoveryPolicyV1:
     return DiscoveryPolicyV1.model_validate(
         {
             "schema_version": 1,
@@ -73,7 +76,7 @@ def make_policy(profile_id: str, payload: dict, version: str) -> DiscoveryPolicy
     )
 
 
-def seed_run(db_session) -> tuple[str, str]:
+def seed_run(db_session: Session) -> tuple[str, str]:
     profile_id = str(uuid4())
     db_session.add(
         CandidateProfile(
@@ -88,11 +91,20 @@ def seed_run(db_session) -> tuple[str, str]:
     run = RunRepository(db_session).create_run(
         "test", profile_id=profile_id, discovery_mode=DiscoveryMode.SCHEDULED_DUE
     )
+    DiscoveryRepository(db_session).create_cycle(
+        run_id=run.id,
+        profile_snapshot={"profile_binding": {
+            "profile_id": profile_id, "row_version": 1, "schema_version": 1,
+            "canonical_profile_sha256": "0" * 64,
+        }},
+        planner_version="discovery-planner-v2", planner_hash="0" * 64,
+        policy_version="gate-a-v1",
+    )
     db_session.flush()
     return run.id, profile_id
 
 
-def seed_job(db_session, run_id: str, title: str, description: str) -> str:
+def seed_job(db_session: Session, run_id: str, title: str, description: str) -> str:
     job = JobRepository(db_session).create(
         title=title,
         company="Acme",
@@ -111,10 +123,30 @@ def seed_job(db_session, run_id: str, title: str, description: str) -> str:
         row, status=RunJobStatus.SUCCEEDED, outcome={"acquisition": "discovery"}
     )
     db_session.flush()
+    run = db_session.get(JobSearchRun, run_id)
+    assert run is not None
+    scored = RunJobRepository(db_session).claim_attempt(
+        run_id=run_id, job_id=job.id, stage=RunJobStage.SCORED,
+        max_attempts=3, now=datetime.now(UTC)
+    )
+    assert scored is not None
+    RunJobRepository(db_session).finish(
+        scored, status=RunJobStatus.SUCCEEDED,
+        outcome={"feedback_eligibility": {
+            "policy_version": "feedback-remote-eligibility-v1",
+            "profile_binding": {
+                "profile_id": run.profile_id, "row_version": 1,
+                "schema_version": 1, "canonical_profile_sha256": "0" * 64,
+            },
+            "input_sha256": "1" * 64, "eligible": True,
+            "reason_codes": ["exact_region_match"], "extraction_id": "fixture-extraction",
+        }},
+    )
+    db_session.flush()
     return job.id
 
 
-def seed_decisions(db_session, run_id: str) -> None:
+def seed_decisions(db_session: Session, run_id: str) -> None:
     for index in range(3):
         job_id = seed_job(db_session, run_id, "Java Developer", f"COBOL maintenance role {index}")
         submit_feedback(
@@ -135,7 +167,7 @@ def seed_decisions(db_session, run_id: str) -> None:
     db_session.commit()
 
 
-def test_propose_flags_zero_precision_coverage(db_session) -> None:
+def test_propose_flags_zero_precision_coverage(db_session: Session) -> None:
     run_id, profile_id = seed_run(db_session)
     seed_decisions(db_session, run_id)
     proposal = propose_refinement(
@@ -151,7 +183,7 @@ def test_propose_flags_zero_precision_coverage(db_session) -> None:
     assert by_group["legacy"]["primary"] is False
 
 
-def test_propose_respects_decision_threshold(db_session) -> None:
+def test_propose_respects_decision_threshold(db_session: Session) -> None:
     run_id, profile_id = seed_run(db_session)
     job_id = seed_job(db_session, run_id, "Java Developer", "COBOL maintenance role")
     submit_feedback(
@@ -171,7 +203,7 @@ def test_propose_respects_decision_threshold(db_session) -> None:
     assert proposal["removals"] == []
 
 
-def test_apply_emits_validated_successor(db_session) -> None:
+def test_apply_emits_validated_successor(db_session: Session) -> None:
     run_id, profile_id = seed_run(db_session)
     seed_decisions(db_session, run_id)
     policy = make_policy(profile_id, PROFILE_PAYLOAD, "gate-a-v1")

@@ -6,6 +6,7 @@ import json
 import os
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import create_engine
@@ -17,6 +18,10 @@ from role_radar.db.models import CandidateProfile
 from role_radar.discovery.policy import DiscoveryPhraseGrammarV1, DiscoveryPolicyV1
 from role_radar.domain.enums import DiscoveryMode, RunJobStage, RunJobStatus
 from role_radar.domain.profile import canonical_profile_sha256
+from role_radar.evaluation.blind_labeling.display_policy import (
+    DISPLAY_ERROR_HTML_MALFORMED,
+    DisplayError,
+)
 from role_radar.repositories.discovery import DiscoveryRepository
 from role_radar.services.feedback_refinement import emit_policy_toml, policy_payload
 
@@ -67,7 +72,11 @@ def make_policy(profile_id: str, version: str) -> DiscoveryPolicyV1:
     )
 
 
-def seed_database(database: Path, legacy_jobs: int = 1) -> tuple[str, str, tuple[str, ...]]:
+def seed_database(
+    database: Path,
+    legacy_jobs: int = 1,
+    relevant_description: str = "Backend Engineer with Python daily",
+) -> tuple[str, str, tuple[str, ...]]:
     import role_radar.db.models  # noqa: F401
     from role_radar.repositories.jobs import JobRepository
     from role_radar.repositories.run_jobs import RunJobRepository
@@ -93,13 +102,19 @@ def seed_database(database: Path, legacy_jobs: int = 1) -> tuple[str, str, tuple
     )
     DiscoveryRepository(session).create_cycle(
         run_id=run.id,
-        profile_snapshot={"approved_phrases": ["Backend Engineer", "COBOL"]},
+        profile_snapshot={
+            "approved_phrases": ["Backend Engineer", "COBOL"],
+            "profile_binding": {
+                "profile_id": profile_id, "row_version": 1, "schema_version": 1,
+                "canonical_profile_sha256": canonical_profile_sha256(PROFILE_PAYLOAD),
+            },
+        },
         planner_version="discovery-planner-v2",
         planner_hash="0" * 64,
         policy_version="gate-a-v1",
     )
     job_ids = []
-    postings = [("Backend Engineer", "Backend Engineer with Python daily")]
+    postings = [("Backend Engineer", relevant_description)]
     postings.extend(
         ("Java Developer", f"COBOL maintenance role {index}") for index in range(legacy_jobs)
     )
@@ -121,6 +136,23 @@ def seed_database(database: Path, legacy_jobs: int = 1) -> tuple[str, str, tuple
         RunJobRepository(session).finish(
             row, status=RunJobStatus.SUCCEEDED, outcome={"acquisition": "discovery"}
         )
+        scored = RunJobRepository(session).claim_attempt(
+            run_id=run.id, job_id=job.id, stage=RunJobStage.SCORED,
+            max_attempts=3, now=datetime.now(UTC)
+        )
+        assert scored is not None
+        RunJobRepository(session).finish(
+            scored, status=RunJobStatus.SUCCEEDED,
+            outcome={"feedback_eligibility": {
+                "policy_version": "feedback-remote-eligibility-v1",
+                "profile_binding": {
+                    "profile_id": profile_id, "row_version": 1, "schema_version": 1,
+                    "canonical_profile_sha256": canonical_profile_sha256(PROFILE_PAYLOAD),
+                }, "input_sha256": "1" * 64,
+                "eligible": True, "reason_codes": ["exact_region_match"],
+                "extraction_id": "fixture-extraction",
+            }}
+        )
         job_ids.append(job.id)
     wanted_run_id = run.id
     wanted_job_ids = tuple(job_ids)
@@ -140,14 +172,18 @@ def write_policy(tmp_path: Path, profile_id: str) -> Path:
     return path
 
 
-def run_cli(monkeypatch, capsys, database: Path, *argv: str) -> tuple[int, dict]:
+def run_cli(
+    monkeypatch: Any, capsys: Any, database: Path, *argv: str
+) -> tuple[int, dict[str, Any]]:
     monkeypatch.setenv("ROLE_RADAR_DATABASE_URL", f"sqlite:///{database}")
     code = main(["feedback", *argv])
     out = capsys.readouterr().out.strip()
     return code, json.loads(out)
 
 
-def test_status_next_decide_summary(monkeypatch, capsys, tmp_path: Path) -> None:
+def test_status_next_decide_summary(
+    monkeypatch: Any, capsys: Any, tmp_path: Path
+) -> None:
     database = tmp_path / "feedback.db"
     run_id, relevant, _legacy = seed_database(database)
     code, status = run_cli(monkeypatch, capsys, database, "status", "--run", run_id)
@@ -201,7 +237,47 @@ def test_status_next_decide_summary(monkeypatch, capsys, tmp_path: Path) -> None
     assert summary["labels"]["apply"] == 1
 
 
-def test_decide_invalid_reason_is_blocked(monkeypatch, capsys, tmp_path: Path) -> None:
+def test_next_redacts_visible_url(
+    monkeypatch: Any, capsys: Any, tmp_path: Path
+) -> None:
+    database = tmp_path / "feedback.db"
+    visible_url = "Backend Engineer details: https://jobs.example.test/apply"
+    run_id, relevant, _legacy = seed_database(database, relevant_description=visible_url)
+
+    code, payload = run_cli(monkeypatch, capsys, database, "next", "--run", run_id)
+
+    assert code == 0
+    assert payload["result"] == "ok"
+    assert payload["job_id"] == relevant
+    assert visible_url not in payload["rendered"]
+    assert "[URL]" in payload["rendered"]
+
+
+def test_next_maps_display_errors_without_exposing_description(
+    monkeypatch: Any, capsys: Any, tmp_path: Path
+) -> None:
+    database = tmp_path / "feedback.db"
+    description = "Backend Engineer confidential details"
+    run_id, _relevant, _legacy = seed_database(database, relevant_description=description)
+
+    def fail_render(*_args: Any, **_kwargs: Any) -> str:
+        raise DisplayError(DISPLAY_ERROR_HTML_MALFORMED)
+
+    monkeypatch.setattr("role_radar.services.feedback_service.render_candidate", fail_render)
+    code, payload = run_cli(monkeypatch, capsys, database, "next", "--run", run_id)
+
+    assert code == 2
+    assert payload == {
+        "schema_version": "feedback-result-v1",
+        "result": "blocked",
+        "code": "feedback_display_invalid",
+    }
+    assert description not in json.dumps(payload)
+
+
+def test_decide_invalid_reason_is_blocked(
+    monkeypatch: Any, capsys: Any, tmp_path: Path
+) -> None:
     database = tmp_path / "feedback.db"
     run_id, relevant, _legacy = seed_database(database)
     code, payload = run_cli(
@@ -222,7 +298,9 @@ def test_decide_invalid_reason_is_blocked(monkeypatch, capsys, tmp_path: Path) -
     assert payload["code"] == "feedback_decision_invalid"
 
 
-def test_propose_and_apply(monkeypatch, capsys, tmp_path: Path) -> None:
+def test_propose_and_apply(
+    monkeypatch: Any, capsys: Any, tmp_path: Path
+) -> None:
     database = tmp_path / "feedback.db"
     run_id, _relevant, legacy_jobs = seed_database(database, legacy_jobs=3)
     for legacy_job in legacy_jobs:

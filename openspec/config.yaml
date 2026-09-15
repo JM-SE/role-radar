@@ -1,0 +1,61 @@
+strict_tdd: true
+context: |
+  role-radar is a Python project.
+  Detected markers: pyproject.toml, Makefile.
+  Additional evidence: Test-like files detected (295); examples: .venv/lib/python3.13/site-packages/certifi/tests/__init__.py, .venv/lib/python3.13/site-packages/certifi/tests/test_certify.py, .venv/lib/python3.13/site-packages/greenlet/tests/__init__.py, .venv/lib/python3.13/site-packages/greenlet/tests/_test_extension.c, .venv/lib/python3.13/site-packages/greenlet/tests/_test_extension.cpython-313-x86_64-linux-gnu.so.
+  Primary test command: make test.
+  Unit tests: pytest (pytest); pytest via Makefile (make test).
+  Integration tests: none.
+  E2E tests: none.
+rules:
+  proposal:
+    require_problem_statement: true
+  spec:
+    require_acceptance_criteria: true
+  design:
+    require_tradeoffs: true
+  tasks:
+    protect_review_workload: true
+  apply:
+    test_command: "make test"
+  verify:
+    test_command: "make test"
+testing:
+  detected: "2026-09-15"
+  runner:
+    command: "make test"
+    framework: "pytest via Makefile"
+  layers:
+    unit: "pytest, pytest via Makefile"
+    integration: ""
+    e2e: ""
+  commands:
+    unit:
+      - scope: "."
+        command: "pytest"
+        framework: "pytest"
+      - scope: "."
+        command: "make test"
+        framework: "pytest via Makefile"
+    integration:
+      []
+    e2e:
+      []
+  coverage:
+    command: ""
+    commands:
+      []
+quality:
+  lint: "make lint"
+  lint_commands:
+    - scope: "."
+      command: "make lint"
+      framework: "linter"
+  typecheck: ""
+  typecheck_commands:
+    []
+  format: "make fmt"
+  format_commands:
+    - scope: "."
+      command: "make fmt"
+      framework: "formatter"

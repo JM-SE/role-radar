@@ -42,8 +42,10 @@ def checkpoint_succeeded(row: RunJob | None) -> bool:
 
 
 def recompute_stats(
-    source_results: dict[str, Any] | None, run_jobs: Iterable[RunJob]
-) -> dict[str, int]:
+    source_results: dict[str, Any] | None,
+    run_jobs: Iterable[RunJob],
+    previous_stats: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     stats = {key: 0 for key in STAT_KEYS}
     for result in (source_results or {}).values():
         if "due" in result:
@@ -86,4 +88,8 @@ def recompute_stats(
                     stats["deep_failed"] += 1
             elif row.status is RunJobStatus.SKIPPED:
                 stats["deep_skipped"] += 1
+    if previous_stats and "feedback_eligibility_reprocessing" in previous_stats:
+        stats["feedback_eligibility_reprocessing"] = previous_stats[
+            "feedback_eligibility_reprocessing"
+        ]
     return stats

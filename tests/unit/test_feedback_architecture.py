@@ -31,7 +31,7 @@ FORBIDDEN_TOKENS = (
 )
 
 ALLOWED_BLIND_SUBMODULES = frozenset(
-    {"contracts", "display", "interaction", "policy", "validation"}
+    {"contracts", "display", "display_policy", "interaction", "policy", "validation"}
 )
 
 

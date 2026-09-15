@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -19,8 +20,10 @@ from role_radar.discovery.relevance import (
 from role_radar.domain.enums import RunJobStage, RunJobStatus
 from role_radar.evaluation.blind_labeling.contracts import Decision, Label, PilotItem
 from role_radar.evaluation.blind_labeling.display import render_pilot_item
+from role_radar.evaluation.blind_labeling.display_policy import DISPLAY_VISIBLE_EMAIL_PATTERN
 from role_radar.evaluation.blind_labeling.interaction import compose_rendered_item
 from role_radar.evaluation.blind_labeling.validation import ValidationError, validate_decision
+from role_radar.matching.feedback_eligibility import validate_feedback_eligibility
 from role_radar.repositories.discovery import DiscoveryRepository
 from role_radar.repositories.feedback import FeedbackRepository
 
@@ -63,6 +66,7 @@ class FeedbackSurface:
     items: tuple[FeedbackItem, ...]
     unrelated_count: int
     excluded_count: int
+    eligibility: dict[str, Any]
 
 
 def _is_discovery_row(row: RunJob) -> bool:
@@ -116,6 +120,55 @@ def _renderable(item: FeedbackCandidate) -> bool:
     )
 
 
+def _eligibility_for_run(
+    session: Session, run: JobSearchRun, candidates: tuple[FeedbackCandidate, ...], cycle: Any
+) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
+    """Join discovery rows to their immutable, same-run scoring checkpoint."""
+    manifest = (run.stats_json or {}).get("feedback_eligibility_reprocessing") or {}
+    binding = manifest.get("profile_binding") or (cycle.profile_snapshot_json or {}).get(
+        "profile_binding", {}
+    ) if cycle is not None else manifest.get("profile_binding", {})
+    rows = {
+        row.job_id: row
+        for row in session.scalars(
+            select(RunJob).where(
+                RunJob.run_id == run.id,
+                RunJob.stage == RunJobStage.SCORED,
+                RunJob.status == RunJobStatus.SUCCEEDED,
+            )
+        )
+    }
+    decisions: dict[str, dict[str, Any]] = {}
+    counts: dict[str, Any] = {"eligible": 0, "excluded": 0, "reason_counts": {}}
+    for candidate in candidates:
+        row = rows.get(candidate.job_id)
+        decision = (row.outcome_json or {}).get("feedback_eligibility") if row else None
+        if row is not None and (
+            not isinstance(binding, dict)
+            or not {"profile_id", "row_version", "schema_version", "canonical_profile_sha256"}
+            <= binding.keys()
+        ):
+            raise RuntimeError("feedback_eligibility_binding_invalid")
+        valid = validate_feedback_eligibility(decision, profile_binding=binding or None)
+        if valid and isinstance(decision, dict) and decision.get("eligible") is True:
+            decisions[candidate.job_id] = decision
+            counts["eligible"] += 1
+        else:
+            counts["excluded"] += 1
+            reason = "missing_eligibility" if row is None else (
+                "malformed_eligibility"
+                if decision is None
+                or not validate_feedback_eligibility(
+                    decision, profile_binding=binding or None
+                )
+                else "stale_input"
+            )
+            reasons = counts["reason_counts"]
+            reasons[reason] = reasons.get(reason, 0) + 1
+    counts["reason_counts"] = dict(sorted(counts["reason_counts"].items()))
+    return decisions, counts
+
+
 def build_surface(session: Session, run_id: str) -> FeedbackSurface:
     """Ensambla la superficie ordenada con relevancia recomputada del snapshot."""
 
@@ -125,6 +178,8 @@ def build_surface(session: Session, run_id: str) -> FeedbackSurface:
     cycle = DiscoveryRepository(session).get_cycle_for_run(run_id)
     approved = _approved_phrases(session, run_id)
     candidates = collect_candidates(session, run_id)
+    admitted, eligibility = _eligibility_for_run(session, run, candidates, cycle)
+    candidates = tuple(item for item in candidates if item.job_id in admitted)
     renderable = [item for item in candidates if _renderable(item)]
     latest = FeedbackRepository(session).latest_for_run(run_id)
     if approved:
@@ -218,6 +273,22 @@ def build_surface(session: Session, run_id: str) -> FeedbackSurface:
         items=tuple(items),
         unrelated_count=unrelated_count,
         excluded_count=excluded_count,
+        eligibility=eligibility,
+    )
+
+
+_FEEDBACK_VISIBLE_URL = re.compile(
+    r"(?:https?://|www\.|mailto:|\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+"
+    r"[a-z]{2,63}(?=[/?#]))[^\s<]*",
+    re.IGNORECASE,
+)
+
+
+def _feedback_preview(description: str) -> str:
+    """Redact external references only in the feedback display copy."""
+
+    return DISPLAY_VISIBLE_EMAIL_PATTERN.sub(
+        "[EMAIL]", _FEEDBACK_VISIBLE_URL.sub("[URL]", description)
     )
 
 
@@ -230,7 +301,7 @@ def render_candidate(candidate: FeedbackCandidate, *, index: int, total: int) ->
             title=candidate.title,
             company=candidate.company,
             location=candidate.location,
-            description=candidate.description,
+            description=_feedback_preview(candidate.description),
         )
     )
     return compose_rendered_item(rendered, index=index, total=total)
@@ -297,4 +368,5 @@ def summarize(session: Session, run_id: str) -> dict[str, Any]:
         "unrelated_count": surface.unrelated_count,
         "excluded_count": surface.excluded_count,
         "decided_bands": bands,
+        "eligibility": surface.eligibility,
     }

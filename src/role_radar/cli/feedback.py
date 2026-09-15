@@ -151,6 +151,7 @@ def run_feedback(settings: Any, args: Any) -> int:
     """Dispatch one feedback subcommand and print canonical JSON."""
 
     from role_radar.db.models import JobSearchRun
+    from role_radar.evaluation.blind_labeling.display_policy import DisplayError
     from role_radar.evaluation.blind_labeling.validation import ValidationError
     from role_radar.repositories.feedback import FeedbackConflictError
     from role_radar.services.feedback_refinement import apply_refinement, propose_refinement
@@ -187,6 +188,7 @@ def run_feedback(settings: Any, args: Any) -> int:
                         "candidates": len(surface.items),
                         "unrelated_count": surface.unrelated_count,
                         "excluded_count": surface.excluded_count,
+                        "eligibility": surface.eligibility,
                     }
                 )
             )
@@ -324,9 +326,23 @@ def run_feedback(settings: Any, args: Any) -> int:
         payload, code = _blocked("feedback_command_invalid")
         print(_payload(payload))
         return code
+    except RuntimeError as exc:
+        session.rollback()
+        if str(exc).startswith("feedback_eligibility_"):
+            payload, code = _blocked("feedback_eligibility_blocked")
+            print(_payload(payload))
+            return code
+        payload, code = _blocked("internal_error")
+        print(_payload(payload))
+        return 1
     except LookupError:
         session.rollback()
         payload, code = _blocked("run_not_found")
+        print(_payload(payload))
+        return code
+    except DisplayError:
+        session.rollback()
+        payload, code = _blocked("feedback_display_invalid")
         print(_payload(payload))
         return code
     except Exception:

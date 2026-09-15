@@ -8,6 +8,12 @@ from hypothesis import strategies as st
 from role_radar.domain.profile import CandidateProfileV1
 from role_radar.matching.contracts import JobFacts
 from role_radar.matching.engine import score_job
+from role_radar.matching.facts import (
+    ExtractionSnapshot,
+    JobSnapshot,
+    SourceReferenceSnapshot,
+    build_job_facts,
+)
 from role_radar.matching.profile_adapter import adapt_legacy_profile
 
 
@@ -201,3 +207,30 @@ def test_score_bounds_hold_for_duplicate_skill_inputs(skills: list[str]) -> None
     )
     assert 0 <= result.preliminary_score <= 100
     assert sum(signal.points for signal in result.signals) == result.preliminary_score
+
+
+def test_location_fallback_marks_conflicting_ats_locations_as_region_conflict() -> None:
+    result = build_job_facts(
+        JobSnapshot(
+            id="job-1",
+            title="Engineer",
+            description_hash="hash",
+            source_references=(
+                SourceReferenceSnapshot("a", {"location": "Spain"}, authority=2),
+                SourceReferenceSnapshot("b", {"location": "France"}, authority=1),
+            ),
+            extractions=(
+                ExtractionSnapshot("extraction-1", "hash", "valid", {"remote_policy": "remote"}),
+            ),
+        )
+    )
+    assert result.facts.regions == ("spain",)
+    assert any(
+        item.code == "location_region_conflict" and item.field == "regions"
+        for item in result.ambiguities
+    )
+
+
+def test_location_worldwide_is_excluded_from_fallback_regions() -> None:
+    result = build_job_facts(JobSnapshot(id="job-1", title="Engineer", location="Worldwide"))
+    assert result.facts.regions == ()
