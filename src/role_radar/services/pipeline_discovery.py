@@ -1,7 +1,6 @@
 """Discovery orchestration: synchronous prepare/finalize around DTO-only I/O."""
 
 import inspect
-import warnings
 from collections.abc import Callable, Mapping
 from types import MappingProxyType
 from typing import Any
@@ -34,7 +33,6 @@ from role_radar.discovery.contracts import (
     VerifiedBatch,
 )
 from role_radar.discovery.null_provider import NullSearchProvider
-from role_radar.discovery.planner import QueryPlannerV1
 from role_radar.discovery.planner_v2 import (
     DiscoveryPlanError,
     plan_profile_discovery,
@@ -56,6 +54,7 @@ from role_radar.domain.enums import (
     DiscoveryQueryStatus,
 )
 from role_radar.domain.profile import CandidateProfileV1, canonical_profile_sha256
+from role_radar.matching.transient_clarification import MAX_ATTEMPTS_PER_RUN
 from role_radar.normalization.jobs import normalize_raw_job
 from role_radar.repositories.discovery import DiscoveryRepository
 from role_radar.services.acquired_job_writer import AcquiredJobWriter
@@ -109,15 +108,13 @@ class PipelineDiscoveryService:
             if profile_row is None:
                 raise LookupError("profile not found")
             profile = CandidateProfileV1.model_validate(profile_row.profile_json)
-            v2_queries = self._profile_bound_v2_queries(profile_row, profile)
-            if v2_queries is None:
-                planner = QueryPlannerV1()
-                queries = planner.plan(profile)
-                planner_version: str = planner.version
-                policy_version: str = self._policy.version
-                snapshot: dict[str, object] = _planner_profile_snapshot(profile)
-            else:
-                queries, planner_version, policy_version, snapshot = v2_queries
+            try:
+                queries, planner_version, policy_version, snapshot = (
+                    self._profile_bound_v2_queries(profile_row, profile)
+                )
+            except DiscoveryPlanError as exc:
+                self._record_config_failure(session, run_id, profile, exc.code)
+                raise
             identities: tuple[QueryIdentity, ...] = ()
             planner_hash = "query_key_unavailable"
             if self._secret is not None:
@@ -166,16 +163,17 @@ class PipelineDiscoveryService:
 
     def _profile_bound_v2_queries(
         self, profile_row: CandidateProfile, profile: CandidateProfileV1
-    ) -> tuple[tuple[PlannedQuery, ...], str, str, dict[str, object]] | None:
-        """Build profile-bound v2 queries, or None to keep the v1 path.
+    ) -> tuple[tuple[PlannedQuery, ...], str, str, dict[str, object]]:
+        """Build profile-bound v2 queries; config failures raise a stable code.
 
-        Any binding mismatch or planning failure falls back to v1 with a
-        warning; the v2 compiler/planner semantics are never reinterpreted.
+        Missing/invalid policy and binding mismatches fail this leg visibly
+        (recorded on the FAILED cycle) instead of falling back to the generic
+        v1 planner, which ignores mapped target titles.
         """
 
         configured = self._discovery_policy_v1
         if configured is None:
-            return None
+            raise DiscoveryPlanError(DiscoveryErrorCode.POLICY_MISSING.value)
         if isinstance(configured, LoadedDiscoveryPolicyV1):
             policy = configured.policy
         elif isinstance(configured, DiscoveryPolicyV1):
@@ -183,12 +181,10 @@ class PipelineDiscoveryService:
         elif isinstance(configured, Mapping):
             try:
                 policy = DiscoveryPolicyV1.model_validate(configured)
-            except ValueError:
-                warnings.warn("discovery_v2_policy_invalid", stacklevel=2)
-                return None
+            except ValueError as exc:
+                raise DiscoveryPlanError(DiscoveryErrorCode.POLICY_INVALID.value) from exc
         else:
-            warnings.warn("discovery_v2_policy_invalid", stacklevel=2)
-            return None
+            raise DiscoveryPlanError(DiscoveryErrorCode.POLICY_INVALID.value)
         binding = policy.profile_binding
         if (
             profile_row.id != binding.profile_id
@@ -198,15 +194,15 @@ class PipelineDiscoveryService:
             or canonical_profile_sha256(profile_row.profile_json)
             != binding.canonical_profile_sha256
         ):
-            warnings.warn("discovery_v2_binding_mismatch", stacklevel=2)
-            return None
+            raise DiscoveryPlanError(DiscoveryErrorCode.PROFILE_BINDING_MISMATCH.value)
         try:
             frozen = FrozenCandidateProfileV1(binding=binding, profile=profile)
             compiled = compile_profile_terms(frozen, policy)
             planned = validate_discovery_query_plan(plan_profile_discovery(compiled, policy))
-        except (DiscoveryTermsError, DiscoveryPlanError, ValueError):
-            warnings.warn("discovery_v2_plan_invalid", stacklevel=2)
-            return None
+        except DiscoveryPlanError:
+            raise
+        except (DiscoveryTermsError, ValueError) as exc:
+            raise DiscoveryPlanError(DiscoveryErrorCode.POLICY_INVALID.value) from exc
         queries = tuple(
             PlannedQuery(
                 ordinal=item.ordinal,
@@ -229,6 +225,28 @@ class PipelineDiscoveryService:
             }
         )
         return queries, planned.planner_version, policy.policy_version, snapshot
+
+    @staticmethod
+    def _record_config_failure(
+        session: Session, run_id: str, profile: CandidateProfileV1, code: str
+    ) -> None:
+        """Persist one FAILED cycle so the config defect is operator-visible."""
+
+        repo = DiscoveryRepository(session)
+        if repo.get_cycle_for_run(run_id) is not None:
+            return
+        snapshot = _planner_profile_snapshot(profile)
+        snapshot["discovery_planner"] = "v2"
+        cycle = repo.create_cycle(
+            run_id=run_id,
+            profile_snapshot=snapshot,
+            planner_version="discovery-planner-v2",
+            planner_hash="query_key_unavailable",
+            policy_version="discovery-policy-v1",
+            status=DiscoveryCycleStatus.FAILED,
+        )
+        repo.finish_cycle(cycle.id, status=DiscoveryCycleStatus.FAILED, stats={}, error_code=code)
+        session.commit()
 
     async def execute(self, plan: DiscoveryPlan) -> DiscoveryExecution:
         if plan.reused:
@@ -308,6 +326,8 @@ class PipelineDiscoveryService:
                 rejected,
                 verified_count,
             )
+            if response.status not in {"succeeded", "empty"}:
+                first_error = first_error or DiscoveryErrorCode.PROVIDER_FAILED.value
             query_results.append(query_execution)
             self._checkpoint_query(plan.cycle_id, query_execution)
         return DiscoveryExecution(
@@ -367,6 +387,7 @@ class PipelineDiscoveryService:
                 repo.finish_query(execution.plan.cycle_id, query)
             writer = AcquiredJobWriter(session)
             source_service = DiscoveredSourceService(session)
+            clarification_attempts_used = 0
             for batch in execution.verified_batches:
                 registration = source_service.register_verified(
                     batch.candidate, new_sources_used=created
@@ -383,7 +404,11 @@ class PipelineDiscoveryService:
                     raw_jobs=batch.jobs,
                     acquisition="discovery",
                     cycle_id=execution.plan.cycle_id,
+                    max_clarification_attempts=max(
+                        0, MAX_ATTEMPTS_PER_RUN - clarification_attempts_used
+                    ),
                 )
+                clarification_attempts_used += written.clarification_attempts
                 verified_jobs += written.accepted
             stats = {
                 "queries": len(execution.queries),

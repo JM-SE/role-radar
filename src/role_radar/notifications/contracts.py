@@ -4,6 +4,7 @@ ORM objects and HTTP clients deliberately do not cross this boundary.
 """
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Protocol
 
 
@@ -11,18 +12,22 @@ from typing import Protocol
 class DigestCandidate:
     job_id: str
     job_score_id: str
-    deep_evaluation_id: str
+    deep_evaluation_id: str | None
     title: str
     company: str
     location: str | None
     application_url: str
     final_score: int
     preliminary_score: int
-    first_seen_at: object
+    first_seen_at: datetime | None
     strengths: tuple[str, ...] = ()
     gaps: tuple[str, ...] = ()
     model_concerns: tuple[str, ...] = ()
     uncertainties: tuple[str, ...] = ()
+    published_at: datetime | None = None
+    expires_at: datetime | None = None
+    status: str = "new"
+    match_explanation: str = ""
 
 
 @dataclass(frozen=True, slots=True)

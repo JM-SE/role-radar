@@ -38,7 +38,7 @@ class RunResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     error_code: str | None
-    stats: dict[str, int]
+    stats: dict[str, Any]
     claimed_by: str | None
     lease_expires_at: datetime | None
     heartbeat_at: datetime | None

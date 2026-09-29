@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from role_radar.db.models import JobSearchRun, RunJob
 from role_radar.domain.enums import RunJobStage, RunJobStatus
-from role_radar.matching.feedback_eligibility import serialize_feedback_eligibility
+from role_radar.matching.product_eligibility import serialize_product_eligibility
 from role_radar.repositories.runs import RunRepository
 from role_radar.services.matching_service import MatchingService
 
@@ -40,24 +40,26 @@ class PipelineScoringService:
                     )
                 )
                 if existing is not None and existing.status is RunJobStatus.SUCCEEDED:
-                    if "feedback_eligibility" in (existing.outcome_json or {}):
+                    if "product_eligibility" in (existing.outcome_json or {}):
                         continue
                     try:
-                        score, decision = MatchingService(session).score_job_with_eligibility(
+                        score, decision = MatchingService(
+                            session
+                        ).score_job_with_product_eligibility(
                             job_id=job_id, profile_id=run.profile_id
                         )
                         existing.outcome_json = {
                             "job_score_id": score.id,
                             "eligible": score.eligible,
                             "score": score.preliminary_score,
-                            "feedback_eligibility": serialize_feedback_eligibility(decision),
+                            "product_eligibility": serialize_product_eligibility(decision),
                         }
                         session.commit()
                     except Exception:
                         session.rollback()
                     continue
                 try:
-                    score, decision = MatchingService(session).score_job_with_eligibility(
+                    score, decision = MatchingService(session).score_job_with_product_eligibility(
                         job_id=job_id, profile_id=run.profile_id
                     )
                     RunRepository(session).update_run_job(
@@ -69,7 +71,7 @@ class PipelineScoringService:
                             "job_score_id": score.id,
                             "eligible": score.eligible,
                             "score": score.preliminary_score,
-                            "feedback_eligibility": serialize_feedback_eligibility(decision),
+                            "product_eligibility": serialize_product_eligibility(decision),
                         },
                     )
                 except Exception:

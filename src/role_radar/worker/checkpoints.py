@@ -13,6 +13,7 @@ STAT_KEYS = (
     "new_jobs",
     "duplicates",
     "prefiltered",
+    "profile_rejected",
     "extracted",
     "extraction_failed",
     "scored",
@@ -60,6 +61,7 @@ def recompute_stats(
             stats["new_jobs"] += int(result.get("new_jobs", 0))
             stats["duplicates"] += int(result.get("duplicates", 0))
             stats["prefiltered"] += int(result.get("prefiltered", 0))
+            stats["profile_rejected"] += int(result.get("profile_rejected", 0))
             stats["failed"] += int(result.get("failed", 0))
         else:
             stats["sources_failed"] += 1
@@ -88,8 +90,8 @@ def recompute_stats(
                     stats["deep_failed"] += 1
             elif row.status is RunJobStatus.SKIPPED:
                 stats["deep_skipped"] += 1
-    if previous_stats and "feedback_eligibility_reprocessing" in previous_stats:
-        stats["feedback_eligibility_reprocessing"] = previous_stats[
-            "feedback_eligibility_reprocessing"
+    if previous_stats and "product_eligibility_reprocessing" in previous_stats:
+        stats["product_eligibility_reprocessing"] = previous_stats[
+            "product_eligibility_reprocessing"
         ]
     return stats

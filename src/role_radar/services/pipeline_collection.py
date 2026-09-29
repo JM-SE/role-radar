@@ -28,6 +28,7 @@ from role_radar.collectors.registry import (
 from role_radar.config import Settings
 from role_radar.db.models import JobSearchRun, Source
 from role_radar.domain.enums import JobSearchRunStatus, SourceType
+from role_radar.matching.transient_clarification import MAX_ATTEMPTS_PER_RUN
 from role_radar.services.acquired_job_writer import AcquiredJobWriter
 
 
@@ -172,12 +173,27 @@ class PipelineCollectionService:
         projected["status"] = result.outcome.status
         projected["collected"] = len(result.outcome.jobs)
         projected["failed"] = result.outcome.rejection_counts.rejected_items
+        previous_results = dict(run.source_results_json or {})
+        current_source_clarifications = (
+            previous_results.get(result.source_id, {}).get("clarification_attempts", 0)
+            if isinstance(previous_results.get(result.source_id), dict)
+            else 0
+        )
         written = writer.write(
-            run_id=run_id, source_id=source.id, raw_jobs=result.outcome.jobs, acquisition="ats"
+            run_id=run_id,
+            source_id=source.id,
+            raw_jobs=result.outcome.jobs,
+            acquisition="ats",
+            max_clarification_attempts=MAX_ATTEMPTS_PER_RUN,
         )
         projected["prefiltered"] += written.prefiltered
         projected["new_jobs"] += written.new_jobs
         projected["duplicates"] += written.duplicates
+        projected["profile_rejected"] = written.profile_rejected
+        projected["profile_reason_counts"] = dict(written.profile_reason_counts)
+        projected["clarification_attempts"] = (
+            current_source_clarifications + written.clarification_attempts
+        )
         source.last_success_at = datetime.now(UTC)
         source.last_error_code = None
         self._set_result(run, result.source_id, projected)
@@ -213,6 +229,9 @@ class PipelineCollectionService:
             "new_jobs": 0,
             "duplicates": 0,
             "prefiltered": 0,
+            "profile_rejected": 0,
+            "profile_reason_counts": {},
+            "clarification_attempts": 0,
             "failed": 0,
             "collection_metrics": {
                 "logical_requests": metrics.logical_requests,

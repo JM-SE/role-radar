@@ -146,6 +146,22 @@ class RunRepository:
         run.source_results_json = outcomes
         self._session.flush()
 
+    def reserve_clarification_attempt(self, run_id: str, *, max_attempts: int) -> bool:
+        """Atomically reserve one description-clarification attempt for a run."""
+        if max_attempts <= 0:
+            return False
+        result = self._session.execute(
+            update(JobSearchRun)
+            .where(
+                JobSearchRun.id == run_id,
+                JobSearchRun.clarification_attempts < max_attempts,
+            )
+            .values(
+                clarification_attempts=JobSearchRun.clarification_attempts + 1,
+            )
+        )
+        return result.rowcount == 1
+
     def claim_next(
         self,
         *,

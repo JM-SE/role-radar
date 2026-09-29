@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-import warnings
 from uuid import uuid4
 
 import pytest
 
 from role_radar.db.models import CandidateProfile
+from role_radar.discovery.contracts import ProviderTier, SearchRequest, SearchResponse
 from role_radar.discovery.policy import DiscoveryPhraseGrammarV1, DiscoveryPolicyV1
-from role_radar.domain.enums import DiscoveryCycleStatus, DiscoveryMode
+from role_radar.domain.enums import DiscoveryCycleStatus, DiscoveryMode, DiscoveryQueryStatus
 from role_radar.domain.profile import canonical_profile_sha256
 from role_radar.repositories.discovery import DiscoveryRepository
 from role_radar.repositories.runs import RunRepository
@@ -151,7 +151,9 @@ def test_title_change_shifts_planned_queries(db_session) -> None:
     assert all("Platform Engineer" in query for query in queries_b)
 
 
-def test_binding_mismatch_falls_back_to_v1(db_session) -> None:
+def test_binding_mismatch_fails_visibly(db_session) -> None:
+    from role_radar.discovery.planner_v2 import DiscoveryPlanError
+
     profile_id = fresh_profile_id()
     payload = profile_payload(("backend engineer",))
     seed_profile(db_session, profile_id, payload)
@@ -162,23 +164,69 @@ def test_binding_mismatch_falls_back_to_v1(db_session) -> None:
         query_key_secret=SECRET,
         discovery_policy_v1=foreign,
     )
-    with pytest.warns(UserWarning, match="discovery_v2_binding_mismatch"):
-        plan = service.prepare(run_id)
-    assert plan is not None
-    assert plan.planner_version == "query-planner-v1"
+    with pytest.raises(DiscoveryPlanError, match="discovery_profile_binding_mismatch"):
+        service.prepare(run_id)
+    cycle = DiscoveryRepository(db_session).get_cycle_for_run(run_id)
+    assert cycle is not None
+    assert cycle.status == DiscoveryCycleStatus.FAILED
+    assert cycle.error_code == "discovery_profile_binding_mismatch"
 
 
-def test_unconfigured_policy_keeps_v1_without_warning(db_session) -> None:
+def test_unconfigured_policy_fails_visibly(db_session) -> None:
+    from role_radar.discovery.planner_v2 import DiscoveryPlanError
+
     profile_id = fresh_profile_id()
     payload = profile_payload(("backend engineer",))
     seed_profile(db_session, profile_id, payload)
     run_id = seed_run(db_session, profile_id)
     service = PipelineDiscoveryService(lambda: db_session, query_key_secret=SECRET)
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")
-        plan = service.prepare(run_id)
+    with pytest.raises(DiscoveryPlanError, match="discovery_policy_missing"):
+        service.prepare(run_id)
+    cycle = DiscoveryRepository(db_session).get_cycle_for_run(run_id)
+    assert cycle is not None
+    assert cycle.status == DiscoveryCycleStatus.FAILED
+    assert cycle.error_code == "discovery_policy_missing"
+
+
+@pytest.mark.asyncio
+async def test_failed_provider_response_degrades_discovery_cycle(db_session) -> None:
+    profile_id = fresh_profile_id()
+    payload = profile_payload(("backend engineer",))
+    seed_profile(db_session, profile_id, payload)
+    run_id = seed_run(db_session, profile_id)
+
+    class FailedProvider:
+        async def search(self, _request: SearchRequest) -> SearchResponse:
+            return SearchResponse(
+                provider="brave",
+                tier=ProviderTier.FREE,
+                status="failed",
+                error_code="provider-specific-detail-must-not-persist",
+            )
+
+        async def aclose(self) -> None:
+            return None
+
+    service = PipelineDiscoveryService(
+        lambda: db_session,
+        provider=FailedProvider(),  # type: ignore[arg-type]
+        query_key_secret=SECRET,
+        discovery_policy_v1=policy_for(profile_id, payload, "gate-a-v1"),
+    )
+    plan = service.prepare(run_id)
     assert plan is not None
-    assert plan.planner_version == "query-planner-v1"
+    execution = await service.execute(plan)
+    service.finalize(execution)
+
+    cycle = DiscoveryRepository(db_session).get_cycle_for_run(run_id)
+    assert cycle is not None
+    assert cycle.status is DiscoveryCycleStatus.DEGRADED
+    assert cycle.error_code == "provider_failed"
+    assert cycle.error_code != "provider-specific-detail-must-not-persist"
+    assert all(
+        query.status == DiscoveryQueryStatus.FAILED.value
+        for query in DiscoveryRepository(db_session).list_queries(cycle.id)
+    )
 
 
 def test_terminal_cycle_replays_previous_plan(db_session) -> None:

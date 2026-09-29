@@ -38,6 +38,7 @@ from role_radar.free_sources.contracts import (
 )
 from role_radar.free_sources.due_policy import reserve_one_slot, utc
 from role_radar.free_sources.terms import JobicyTermsAcceptance, validate_jobicy_terms
+from role_radar.matching.transient_clarification import MAX_ATTEMPTS_PER_RUN
 from role_radar.repositories.source_poll_states import SourcePollStateRepository
 from role_radar.services.acquired_job_writer import AcquiredJobWriter
 
@@ -280,6 +281,7 @@ class PipelineFreeSourcesService:
                     source_id=source.id,
                     raw_jobs=outcome.jobs,
                     acquisition="free_source",
+                    max_clarification_attempts=MAX_ATTEMPTS_PER_RUN,
                 )
                 SourcePollStateRepository(session).finalize(
                     source.id,
@@ -299,6 +301,9 @@ class PipelineFreeSourcesService:
                         new_jobs=written.new_jobs,
                         duplicates=written.duplicates,
                         prefiltered=written.prefiltered,
+                        profile_rejected=written.profile_rejected,
+                        profile_reason_counts=dict(written.profile_reason_counts),
+                        clarification_attempts=written.clarification_attempts,
                     ),
                 )
                 session.commit()

@@ -1,5 +1,6 @@
 """File-backed finalize boundary: success is atomic and sanitised."""
 
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -11,6 +12,8 @@ from role_radar.db.base import Base
 from role_radar.db.models import Job, JobSearchRun
 from role_radar.domain.dto import RawJob
 from role_radar.domain.enums import SourceType
+from role_radar.domain.profile import CandidateProfileV1
+from role_radar.repositories.profiles import ProfileRepository
 from role_radar.repositories.runs import RunRepository
 from role_radar.repositories.sources import SourceRepository
 from role_radar.services.pipeline_collection import CollectionResult, PipelineCollectionService
@@ -24,24 +27,45 @@ def test_file_backed_finalize_persists_only_allowlisted_result(tmp_path: Path) -
         return Session(engine)
 
     with Session(engine) as session:
+        profile_data = json.loads(
+            (Path(__file__).parents[2] / "fixtures" / "profile_seed.json").read_text()
+        )
+        profile_data["profile_json"] = CandidateProfileV1.model_validate(
+            profile_data["profile_json"]
+        ).model_copy(
+            update={
+                "target_roles": ("frontend",),
+                "target_titles": (),
+                "regions": ("argentina",),
+                "hard_constraints": CandidateProfileV1.model_validate(
+                    profile_data["profile_json"]
+                ).hard_constraints.model_copy(
+                    update={"available_work_authorizations": ("argentina",)}
+                ),
+            }
+        ).model_dump(mode="json")
+        profile = ProfileRepository(session).create_v1(
+            name=profile_data["name"], profile_json=profile_data["profile_json"]
+        )
         source = SourceRepository(session).create(
             type=SourceType.GREENHOUSE,
             name="Acme",
             configuration={"board_token": "acme", "company": "Acme"},
             enabled=True,
         )
-        run = RunRepository(session).create_run("bounded")
+        run = RunRepository(session).create_run("bounded", profile_id=profile.id)
         session.commit()
         source_id, run_id = source.id, run.id
 
     raw = RawJob(
         source="greenhouse",
         external_id="1",
-        title="Engineer",
+        title="Senior Frontend Engineer",
         company="Acme",
+        location="Remote",
         source_url="https://boards.greenhouse.io/acme/jobs/1",
         application_url="https://boards.greenhouse.io/acme/jobs/1",
-        description="Build APIs",
+        description="Fully remote position. Work remotely from Argentina.",
         structured_data={"id": "1"},
         collected_at=datetime.now(UTC),
     )
@@ -65,6 +89,9 @@ def test_file_backed_finalize_persists_only_allowlisted_result(tmp_path: Path) -
             "new_jobs",
             "duplicates",
             "prefiltered",
+            "profile_rejected",
+            "profile_reason_counts",
+            "clarification_attempts",
             "failed",
             "collection_metrics",
             "rejection_counts",
@@ -72,4 +99,6 @@ def test_file_backed_finalize_persists_only_allowlisted_result(tmp_path: Path) -
             "http_status",
             "stop_code",
         }
+        assert result["new_jobs"] == 1
+        assert result["profile_rejected"] == 0
         assert session.scalar(select(Job.id)) is not None

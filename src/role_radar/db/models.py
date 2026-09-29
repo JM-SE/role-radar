@@ -79,6 +79,71 @@ class CandidateProfile(Base):
     scores: Mapped[list[JobScore]] = relationship(back_populates="profile")
     deep_evaluations: Mapped[list[JobDeepEvaluation]] = relationship(back_populates="profile")
 
+class SourceActivationCampaign(Base):
+    __tablename__ = "source_activation_campaigns"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('active','paused','completed')",
+            name="ck_activation_campaign_status",
+        ),
+        CheckConstraint("batch_size > 0", name="ck_activation_campaign_batch_size"),
+        Index("ix_activation_campaigns_status", "status"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    profile_id: Mapped[str] = mapped_column(
+        ForeignKey("candidate_profiles.id", ondelete="RESTRICT"), nullable=False
+    )
+    status: Mapped[str] = mapped_column(String(16), default="active", nullable=False)
+    batch_size: Mapped[int] = mapped_column(nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
+    )
+
+    members: Mapped[list[SourceActivationMember]] = relationship(
+        back_populates="campaign", cascade="all, delete-orphan"
+    )
+
+
+class SourceActivationMember(Base):
+    __tablename__ = "source_activation_members"
+    __table_args__ = (
+        UniqueConstraint("campaign_id", "source_id", name="uq_activation_member_source"),
+        UniqueConstraint("campaign_id", "ordinal", name="uq_activation_member_ordinal"),
+        CheckConstraint(
+            "role IN ('baseline','managed')", name="ck_activation_member_role"
+        ),
+        CheckConstraint(
+            "state IN ('pending','retained')", name="ck_activation_member_state"
+        ),
+        CheckConstraint(
+            "failure_streak >= 0 AND no_signal_streak >= 0",
+            name="ck_activation_member_streaks",
+        ),
+        Index("ix_activation_members_campaign_state", "campaign_id", "state"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    campaign_id: Mapped[str] = mapped_column(
+        ForeignKey("source_activation_campaigns.id", ondelete="CASCADE"), nullable=False
+    )
+    source_id: Mapped[str] = mapped_column(
+        ForeignKey("sources.id", ondelete="RESTRICT"), nullable=False
+    )
+    role: Mapped[str] = mapped_column(String(16), nullable=False)
+    ordinal: Mapped[int] = mapped_column(nullable=False)
+    state: Mapped[str] = mapped_column(String(24), default="pending", nullable=False)
+    failure_streak: Mapped[int] = mapped_column(default=0, nullable=False)
+    no_signal_streak: Mapped[int] = mapped_column(default=0, nullable=False)
+    last_selected_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    last_run_id: Mapped[str | None] = mapped_column(
+        ForeignKey("job_search_runs.id", ondelete="SET NULL"), nullable=True
+    )
+
+    campaign: Mapped[SourceActivationCampaign] = relationship(back_populates="members")
+    source: Mapped[Source] = relationship()
+
 
 class Source(Base):
     """Fuente de ofertas (board ATS, web, email, manual...)."""
@@ -528,7 +593,6 @@ class JobSourceReference(Base):
             sqlite_where=sa_text("external_id IS NOT NULL"),
         ),
     )
-
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     job_id: Mapped[str] = mapped_column(ForeignKey("jobs.id"))
     source_id: Mapped[str] = mapped_column(ForeignKey("sources.id"))
@@ -558,6 +622,10 @@ class JobSearchRun(Base):
         CheckConstraint(
             "discovery_mode IN ('none','scheduled_due')",
             name="ck_job_search_runs_discovery_mode",
+        ),
+        CheckConstraint(
+            "clarification_attempts >= 0",
+            name="ck_job_search_runs_clarification_attempts",
         ),
     )
 
@@ -601,6 +669,15 @@ class JobSearchRun(Base):
     stats_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     source_snapshot_json: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
     source_results_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    clarification_attempts: Mapped[int] = mapped_column(
+        default=0, server_default="0", nullable=False
+    )
+    activation_campaign_id: Mapped[str | None] = mapped_column(
+        ForeignKey("source_activation_campaigns.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    campaign_finalized_at: Mapped[datetime | None] = mapped_column(nullable=True)
     claimed_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
     lease_expires_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
@@ -721,6 +798,14 @@ class FeedbackDecision(Base):
     note: Mapped[str | None] = mapped_column(String(512), nullable=True)
     relevance_band: Mapped[str | None] = mapped_column(String(16), nullable=True)
     policy_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    profile_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    row_version: Mapped[int | None] = mapped_column(nullable=True)
+    schema_version: Mapped[int | None] = mapped_column(nullable=True)
+    canonical_profile_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    policy_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    relevance_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    text_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    reviewer: Mapped[str | None] = mapped_column(String(64), nullable=True)
     decided_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
@@ -985,8 +1070,8 @@ class NotificationItem(Base):
     recipient_key_hash: Mapped[str] = mapped_column(String(64))
     job_id: Mapped[str] = mapped_column(ForeignKey("jobs.id", ondelete="RESTRICT"), index=True)
     job_score_id: Mapped[str] = mapped_column(ForeignKey("job_scores.id", ondelete="RESTRICT"))
-    deep_evaluation_id: Mapped[str] = mapped_column(
-        ForeignKey("job_deep_evaluations.id", ondelete="RESTRICT")
+    deep_evaluation_id: Mapped[str | None] = mapped_column(
+        ForeignKey("job_deep_evaluations.id", ondelete="RESTRICT"), nullable=True
     )
     rank: Mapped[int] = mapped_column()
     status: Mapped[NotificationItemStatus] = mapped_column(

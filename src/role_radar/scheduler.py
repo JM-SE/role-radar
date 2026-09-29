@@ -28,3 +28,30 @@ def latest_slot(
     if legacy_utc:
         return f"{schedule_id}:{anchor.astimezone(UTC).strftime('%Y-%m-%dT%H:%M:%SZ')}"
     return f"{schedule_id}:{anchor.strftime('%Y-%m-%d')}"
+
+
+def latest_interval_slot(
+    now: datetime,
+    *,
+    schedule_id: str = "source-campaign",
+    interval_hours: int = 6,
+    timezone_name: str = "America/Argentina/Buenos_Aires",
+) -> str:
+    """Return a stable wall-clock slot aligned with local calendar timers.
+
+    The interval is a local civil-time cadence, not a promise of equal elapsed
+    seconds across daylight-saving transitions. Slot keys include the UTC
+    offset so their identity remains unambiguous when local clocks change.
+    """
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise ValueError("interval slots require a timezone-aware datetime")
+    if not schedule_id.strip():
+        raise ValueError("schedule_id must not be empty")
+    if type(interval_hours) is not int or interval_hours <= 0 or 24 % interval_hours:
+        raise ValueError("interval_hours must be a positive divisor of 24")
+
+    zone = ZoneInfo(timezone_name)
+    current = now.astimezone(zone)
+    start_hour = (current.hour // interval_hours) * interval_hours
+    anchor = current.replace(hour=start_hour, minute=0, second=0, microsecond=0)
+    return f"{schedule_id}:{anchor.isoformat(timespec='seconds')}"

@@ -137,7 +137,7 @@ class Pipeline:
                 return self._complete(run_id)
             if resume_deep and self._deep is not None:
                 await self._deep.process(run_id)
-                if self._is_daily_digest(run_id):
+                if self._is_notification_enabled(run_id):
                     self._transition(run_id, JobSearchRunStatus.NOTIFYING)
                     await self._notifications.process(
                         run_id, recipient_key=self._notification_recipient
@@ -147,7 +147,7 @@ class Pipeline:
                 return self._complete(run_id)
             manifest = await self._eligibility.process(run_id)
             if not manifest["complete"]:
-                raise RuntimeError("feedback_eligibility_reprocessing_pending")
+                raise RuntimeError("product_eligibility_reprocessing_pending")
             snapshots = self._collection.prepare(
                 run_id, exclude_source_types=frozenset({SourceType.JOBICY})
             )
@@ -220,7 +220,7 @@ class Pipeline:
                 self._deep.prepare_queue(run_id, job_ids)
                 self._transition(run_id, JobSearchRunStatus.DEEP_EVALUATING)
                 await self._deep.process(run_id)
-            if self._is_daily_digest(run_id):
+            if self._is_notification_enabled(run_id):
                 self._transition(run_id, JobSearchRunStatus.NOTIFYING)
                 await self._notifications.process(
                     run_id, recipient_key=self._notification_recipient
@@ -355,29 +355,32 @@ class Pipeline:
             run.claimed_by = None
             run.lease_expires_at = None
             run.heartbeat_at = None
+            from role_radar.services.source_activation import SourceActivationCampaignService
+            SourceActivationCampaignService(session).finalize_run(run_id)
             session.commit()
             return run
 
-    def _is_daily_digest(self, run_id: str) -> bool:
+    def _is_notification_enabled(self, run_id: str) -> bool:
         with self._session_factory() as session:
             run = session.get(JobSearchRun, run_id)
             return (
                 run is not None
-                and getattr(run.notification_mode, "value", run.notification_mode) == "daily_digest"
+                and getattr(run.notification_mode, "value", run.notification_mode)
+                in {"daily_digest", "match_alerts"}
             )
 
     def _notification_retry_wait(self, run_id: str) -> bool:
         with self._session_factory() as session:
-            status = session.scalar(
-                select(NotificationBatch.status)
-                .where(NotificationBatch.run_id == run_id)
-                .order_by(NotificationBatch.updated_at.desc())
+            return session.scalar(
+                select(NotificationBatch.id)
+                .where(
+                    NotificationBatch.run_id == run_id,
+                    NotificationBatch.status.in_(
+                        (NotificationBatchStatus.RETRY_WAIT, NotificationBatchStatus.SENDING)
+                    ),
+                )
                 .limit(1)
-            )
-            return status in {
-                NotificationBatchStatus.RETRY_WAIT,
-                NotificationBatchStatus.SENDING,
-            }
+            ) is not None
 
     def _release_notification_run(self, run_id: str) -> JobSearchRun:
         with self._session_factory() as session:
@@ -407,6 +410,8 @@ class Pipeline:
             run.claimed_by = None
             run.lease_expires_at = None
             run.heartbeat_at = None
+            from role_radar.services.source_activation import SourceActivationCampaignService
+            SourceActivationCampaignService(session).finalize_run(run_id)
             session.commit()
             return run
 

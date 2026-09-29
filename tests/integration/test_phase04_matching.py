@@ -47,7 +47,7 @@ def test_matching_persists_and_replays_same_operation(db_session: Session) -> No
     )
     db_session.commit()
 
-    first, decision = MatchingService(db_session).score_job_with_eligibility(
+    first, decision = MatchingService(db_session).score_job_with_product_eligibility(
         job_id=job.id, profile_id=profile.id
     )
     assert decision.extraction_id is None

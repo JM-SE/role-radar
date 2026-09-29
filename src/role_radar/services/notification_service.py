@@ -1,4 +1,4 @@
-"""Transactional outbox preparation and at-most-once Telegram delivery."""
+"""Transactional multipart outbox preparation and at-most-once Telegram delivery."""
 
 import hashlib
 from collections.abc import Callable
@@ -25,8 +25,14 @@ from role_radar.notifications.contracts import (
     TelegramGateway,
     TelegramSendRequest,
 )
-from role_radar.notifications.formatter import FORMATTER_VERSION, format_digest, utf16_units
-from role_radar.notifications.selection import select_top_digest
+from role_radar.notifications.formatter import (
+    ALERT_FORMATTER_VERSION,
+    FORMATTER_VERSION,
+    LEGACY_DIGEST_FORMATTER_VERSION,
+    format_digest_batches,
+    utf16_units,
+)
+from role_radar.notifications.selection import select_delivery_candidates
 from role_radar.repositories.jobs import JobRepository
 from role_radar.repositories.notification_batches import NotificationBatchRepository
 from role_radar.repositories.notification_items import NotificationItemRepository
@@ -41,67 +47,133 @@ class NotificationService:
 
     def prepare(
         self, run_id: str, *, recipient_key: str, schedule_slot: str | None = None
-    ) -> NotificationBatch | None:
-        """Reserve and render in one DB transaction, without external I/O."""
+    ) -> tuple[NotificationBatch, ...]:
+        """Reserve every rendered delivery part atomically, without external I/O."""
         recipient_hash = recipient_key_hash(recipient_key)
         with self._session_factory() as session:
             run = session.get(JobSearchRun, run_id)
             if run is None:
                 raise LookupError("run not found")
             slot = schedule_slot or run.schedule_slot or "manual"
-            operation_key = f"{run_id}:{slot}:telegram:{recipient_hash}:{FORMATTER_VERSION}"
-            batches = NotificationBatchRepository(session)
-            existing = batches.get_by_operation(operation_key)
-            if existing is not None:
-                return existing
-            candidates = JobRepository(session).list_digest_candidates(
-                run_id=run_id, channel="telegram", recipient_key_hash=recipient_hash
+            mode = getattr(run.notification_mode, "value", run.notification_mode)
+            formatter_version = (
+                ALERT_FORMATTER_VERSION
+                if mode == "match_alerts"
+                else FORMATTER_VERSION
             )
-            selected = select_top_digest(candidates).selected
-            formatted = format_digest(selected, max_units=self._settings.telegram_message_max_units)
-            if formatted is None:
-                _mark_run_jobs_skipped(session, run_id, "no_digest_candidates")
-                session.commit()
-                return None
-            batch = NotificationBatch(
-                run_id=run_id,
-                schedule_slot=slot,
-                channel="telegram",
-                recipient_key_hash=recipient_hash,
-                operation_key=operation_key,
-                fingerprint=formatted.body_hash,
-                formatter_version=FORMATTER_VERSION,
-                status=NotificationBatchStatus.PREPARED,
-                body=formatted.body,
-                body_hash=formatted.body_hash,
-                body_length=utf16_units(formatted.body),
-                item_count=len(formatted.candidates),
+            prefix = f"{run_id}:{slot}:telegram:{recipient_hash}:{formatter_version}:part:"
+            existing = tuple(
+                session.scalars(
+                    select(NotificationBatch)
+                    .where(NotificationBatch.operation_key.startswith(prefix))
+                    .order_by(NotificationBatch.operation_key)
+                )
             )
-            session.add(batch)
-            session.flush()
-            for rank, candidate in enumerate(formatted.candidates, 1):
-                session.add(
-                    NotificationItem(
-                        batch_id=batch.id,
-                        run_id=run_id,
-                        channel="telegram",
-                        recipient_key_hash=recipient_hash,
-                        job_id=candidate.job_id,
-                        job_score_id=candidate.job_score_id,
-                        deep_evaluation_id=candidate.deep_evaluation_id,
-                        rank=rank,
+            legacy_operation_key = f"{run_id}:{slot}:telegram:{recipient_hash}:{formatter_version}"
+            legacy = session.scalar(
+                select(NotificationBatch).where(
+                    NotificationBatch.operation_key == legacy_operation_key
+                )
+            )
+            legacy_v1 = None
+            if mode == "daily_digest":
+                legacy_v1_key = (
+                    f"{run_id}:{slot}:telegram:{recipient_hash}:"
+                    f"{LEGACY_DIGEST_FORMATTER_VERSION}"
+                )
+                legacy_v1 = session.scalar(
+                    select(NotificationBatch).where(
+                        NotificationBatch.operation_key == legacy_v1_key
                     )
                 )
-                _mark_run_job(session, run_id, candidate.job_id, RunJobStatus.PENDING)
-            try:
+                if legacy_v1 is not None:
+                    session.expunge(legacy_v1)
+            if existing:
+                for batch in existing:
+                    session.expunge(batch)
+                return existing
+            if legacy is not None:
+                session.expunge(legacy)
+                return (legacy,)
+            if legacy_v1 is not None:
+                return (legacy_v1,)
+            if mode not in {"match_alerts", "daily_digest"}:
                 session.commit()
+                return ()
+            if getattr(run.status, "value", run.status) != "notifying":
+                raise ValueError("notification_run_not_ready")
+            candidates = JobRepository(session).list_delivery_candidates(
+                run_id=run_id, channel="telegram", recipient_key_hash=recipient_hash
+            )
+            selection = select_delivery_candidates(candidates)
+            for job_id, reason in selection.exclusions:
+                _mark_run_job(session, run_id, job_id, RunJobStatus.SKIPPED, reason)
+            if not selection.selected:
+                _mark_run_jobs_skipped(session, run_id, "no_delivery_candidates")
+                session.commit()
+                return ()
+            formatted = format_digest_batches(
+                selection.selected,
+                max_units=self._settings.telegram_message_max_units,
+                heading=(
+                    "New Role Radar matches"
+                    if mode == "match_alerts"
+                    else "Daily digest"
+                ),
+            )
+            prepared: list[NotificationBatch] = []
+            try:
+                for ordinal, part in enumerate(formatted, 1):
+                    batch = NotificationBatch(
+                        run_id=run_id,
+                        schedule_slot=slot,
+                        channel="telegram",
+                        recipient_key_hash=recipient_hash,
+                        operation_key=f"{prefix}{ordinal:04d}",
+                        fingerprint=part.body_hash,
+                        formatter_version=formatter_version,
+                        status=NotificationBatchStatus.PREPARED,
+                        body=part.body,
+                        body_hash=part.body_hash,
+                        body_length=utf16_units(part.body),
+                        item_count=len(part.candidates),
+                    )
+                    session.add(batch)
+                    session.flush()
+                    for rank, candidate in enumerate(part.candidates, 1):
+                        session.add(
+                            NotificationItem(
+                                batch_id=batch.id,
+                                run_id=run_id,
+                                channel="telegram",
+                                recipient_key_hash=recipient_hash,
+                                job_id=candidate.job_id,
+                                job_score_id=candidate.job_score_id,
+                                deep_evaluation_id=candidate.deep_evaluation_id,
+                                rank=rank,
+                            )
+                        )
+                        _mark_run_job(session, run_id, candidate.job_id, RunJobStatus.PENDING)
+                    prepared.append(batch)
+                session.commit()
+                for batch in prepared:
+                    session.refresh(batch)
+                    session.expunge(batch)
             except IntegrityError:
                 session.rollback()
-                existing = batches.get_by_operation(operation_key)
-                if existing is not None:
+                existing = tuple(
+                    session.scalars(
+                        select(NotificationBatch)
+                        .where(NotificationBatch.operation_key.startswith(prefix))
+                        .order_by(NotificationBatch.operation_key)
+                    )
+                )
+                if existing:
+                    for batch in existing:
+                        session.expunge(batch)
                     return existing
                 raise
-            return batch
+            return tuple(prepared)
 
     async def deliver(self, batch_id: str, gateway: TelegramGateway) -> NotificationBatch | None:
         with self._session_factory() as session:
@@ -109,13 +181,20 @@ class NotificationService:
             batch = repo.claim_sending(batch_id, max_attempts=self._settings.telegram_max_attempts)
             if batch is None:
                 session.commit()
-                return repo.get(batch_id)
-            attempt = batch.attempt_count
-            body = batch.body
-            if body is None:
-                session.commit()
-                return batch
+                detached = repo.get(batch_id)
+                if detached is not None:
+                    session.refresh(detached)
+                    session.expunge(detached)
+                return detached
+            attempt, body = batch.attempt_count, batch.body
             session.commit()
+        if body is None:
+            with self._session_factory() as session:
+                detached = session.get(NotificationBatch, batch_id)
+                if detached is not None:
+                    session.refresh(detached)
+                    session.expunge(detached)
+                return detached
         result = await gateway.send_message(TelegramSendRequest(body=body))
         with self._session_factory() as session:
             repo = NotificationBatchRepository(session)
@@ -182,67 +261,81 @@ class NotificationService:
                 NotificationBatchStatus.FAILED,
                 NotificationBatchStatus.UNKNOWN,
             }:
-                item_status = {
-                    NotificationBatchStatus.SENT: RunJobStatus.SUCCEEDED,
-                    NotificationBatchStatus.FAILED: RunJobStatus.FAILED,
-                    NotificationBatchStatus.UNKNOWN: RunJobStatus.FAILED,
-                }[final.status]
+                terminal = (
+                    RunJobStatus.SUCCEEDED
+                    if final.status is NotificationBatchStatus.SENT
+                    else RunJobStatus.FAILED
+                )
                 for item in NotificationItemRepository(session).list_for_batch(batch_id):
-                    _mark_run_job(session, final.run_id, item.job_id, item_status)
-                    row = session.scalar(
-                        select(RunJob).where(
-                            RunJob.run_id == final.run_id,
-                            RunJob.job_id == item.job_id,
-                            RunJob.stage == RunJobStage.NOTIFIED,
-                        )
+                    _mark_run_job(
+                        session,
+                        final.run_id,
+                        item.job_id,
+                        terminal,
+                        "delivery_unknown"
+                        if final.status is NotificationBatchStatus.UNKNOWN
+                        else None,
                     )
-                    if row is not None and final.status is NotificationBatchStatus.UNKNOWN:
-                        row.error_code = "delivery_unknown"
             session.commit()
+            if final is not None:
+                session.refresh(final)
+                session.expunge(final)
             return final
 
     async def process(
         self, run_id: str, *, recipient_key: str, gateway: TelegramGateway
-    ) -> NotificationBatch | None:
+    ) -> tuple[NotificationBatch, ...]:
         with self._session_factory() as session:
             NotificationBatchRepository(session).recover_stale(
                 older_than=timedelta(seconds=self._settings.worker_lease_duration_seconds)
             )
             session.commit()
-        batch = self.prepare(run_id, recipient_key=recipient_key)
-        if batch is None:
-            return None
-        return await self.deliver(batch.id, gateway)
+        prepared = self.prepare(run_id, recipient_key=recipient_key)
+        output: list[NotificationBatch] = []
+        for batch in prepared:
+            final = await self.deliver(batch.id, gateway)
+            if final is None:
+                continue
+            output.append(final)
+            if final.status in {
+                NotificationBatchStatus.RETRY_WAIT,
+                NotificationBatchStatus.SENDING,
+            }:
+                break
+        return tuple(output)
 
 
 def recipient_key_hash(recipient_key: str) -> str:
     return hashlib.sha256(recipient_key.encode("utf-8")).hexdigest()
 
 
-def _mark_run_job(session: Session, run_id: str, job_id: str, status: RunJobStatus) -> None:
+def _mark_run_job(
+    session: Session, run_id: str, job_id: str, status: RunJobStatus, error_code: str | None = None
+) -> None:
     row = session.scalar(
         select(RunJob).where(
             RunJob.run_id == run_id, RunJob.job_id == job_id, RunJob.stage == RunJobStage.NOTIFIED
         )
     )
     if row is None:
-        row = RunJob(run_id=run_id, job_id=job_id, stage=RunJobStage.NOTIFIED, status=status)
+        row = RunJob(
+            run_id=run_id,
+            job_id=job_id,
+            stage=RunJobStage.NOTIFIED,
+            status=status,
+            error_code=error_code,
+        )
         session.add(row)
-    elif row.status not in {RunJobStatus.SUCCEEDED, RunJobStatus.FAILED, RunJobStatus.SKIPPED}:
-        row.status = status
+    else:
+        row.status, row.error_code = status, error_code
 
 
 def _mark_run_jobs_skipped(session: Session, run_id: str, reason: str) -> None:
     for job_id in session.scalars(
-        select(RunJob.job_id).where(RunJob.run_id == run_id, RunJob.stage == RunJobStage.SCORED)
-    ).all():
-        _mark_run_job(session, run_id, job_id, RunJobStatus.SKIPPED)
-        row = session.scalar(
-            select(RunJob).where(
-                RunJob.run_id == run_id,
-                RunJob.job_id == job_id,
-                RunJob.stage == RunJobStage.NOTIFIED,
-            )
+        select(RunJob.job_id).where(
+            RunJob.run_id == run_id,
+            RunJob.stage == RunJobStage.SCORED,
+            RunJob.status == RunJobStatus.SUCCEEDED,
         )
-        if row is not None:
-            row.error_code = reason
+    ):
+        _mark_run_job(session, run_id, job_id, RunJobStatus.SKIPPED, reason)

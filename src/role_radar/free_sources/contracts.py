@@ -120,6 +120,9 @@ def sanitized_result(
     new_jobs: int = 0,
     duplicates: int = 0,
     prefiltered: int = 0,
+    profile_rejected: int = 0,
+    profile_reason_counts: dict[str, int] | None = None,
+    clarification_attempts: int = 0,
 ) -> dict[str, Any]:
     """Project only stable counters/codes to the run journal."""
     result: dict[str, Any] = {
@@ -133,6 +136,9 @@ def sanitized_result(
         "new_jobs": max(0, new_jobs),
         "duplicates": max(0, duplicates),
         "prefiltered": max(0, prefiltered),
+        "profile_rejected": max(0, profile_rejected),
+        "profile_reason_counts": dict(profile_reason_counts or {}),
+        "clarification_attempts": max(0, clarification_attempts),
     }
     if error_code is not None:
         result["error_code"] = error_code

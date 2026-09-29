@@ -9,7 +9,7 @@ from sqlalchemy import and_, case, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from role_radar.db.models import (
-    DeepEvaluationQueueItem,
+    CandidateProfile,
     Job,
     JobDeepEvaluation,
     JobScore,
@@ -17,6 +17,7 @@ from role_radar.db.models import (
     RunJob,
 )
 from role_radar.domain.enums import JobStatus, RunJobStage, RunJobStatus
+from role_radar.matching.product_eligibility import validate_product_eligibility
 from role_radar.notifications.contracts import DigestCandidate
 
 JobList = list[Job]
@@ -191,25 +192,40 @@ class JobRepository:
         )
         return score, deep
 
-    def list_digest_candidates(
+    def list_delivery_candidates(
         self, *, run_id: str, channel: str, recipient_key_hash: str
     ) -> DigestCandidateList:
-        """Materialize only exact F6 queue/evaluation rows for this run."""
-        from role_radar.db.models import NotificationItem
+        """Materialize every valid current-run eligible job not globally reserved."""
+        from role_radar.db.models import JobSearchRun, NotificationItem
+        from role_radar.domain.profile import canonical_profile_sha256
 
+        run = self._session.get(JobSearchRun, run_id)
+        profile = (
+            self._session.get(CandidateProfile, run.profile_id)
+            if run is not None and run.profile_id is not None
+            else None
+        )
+        if run is None or profile is None:
+            return []
+        binding = {
+            "profile_id": profile.id,
+            "row_version": profile.version,
+            "schema_version": profile.schema_version,
+            "canonical_profile_sha256": canonical_profile_sha256(profile.profile_json),
+        }
         stmt = (
-            select(Job, JobScore, JobDeepEvaluation)
+            select(Job, RunJob, JobScore, JobDeepEvaluation)
             .join(RunJob, RunJob.job_id == Job.id)
-            .join(DeepEvaluationQueueItem, DeepEvaluationQueueItem.job_id == Job.id)
-            .join(JobScore, JobScore.id == DeepEvaluationQueueItem.job_score_id)
-            .join(JobDeepEvaluation, JobDeepEvaluation.id == DeepEvaluationQueueItem.evaluation_id)
+            .join(JobScore, JobScore.id == RunJob.outcome_json["job_score_id"].as_string())
+            .outerjoin(
+                JobDeepEvaluation,
+                (JobDeepEvaluation.job_score_id == JobScore.id)
+                & (JobDeepEvaluation.status == "valid"),
+            )
             .where(
                 RunJob.run_id == run_id,
                 RunJob.stage == RunJobStage.SCORED,
                 RunJob.status == RunJobStatus.SUCCEEDED,
-                DeepEvaluationQueueItem.run_id == run_id,
-                JobDeepEvaluation.job_score_id == DeepEvaluationQueueItem.job_score_id,
-                JobDeepEvaluation.status == "valid",
                 ~select(NotificationItem.id)
                 .where(
                     NotificationItem.channel == channel,
@@ -218,32 +234,55 @@ class JobRepository:
                 )
                 .exists(),
             )
-            .order_by(Job.first_seen_at.desc(), Job.id.asc())
+            .order_by(JobDeepEvaluation.created_at.desc(), JobDeepEvaluation.id.asc())
         )
-        rows = self._session.execute(stmt).tuples().all()
-        return [
-            DigestCandidate(
-                job_id=job.id,
-                job_score_id=score.id,
-                deep_evaluation_id=deep.id,
-                title=job.title,
-                company=job.company,
-                location=job.location,
-                application_url=job.application_url or "",
-                final_score=deep.final_score or -1,
-                preliminary_score=score.preliminary_score,
-                first_seen_at=job.first_seen_at,
-                strengths=tuple(_json_texts(deep.strengths_json)),
-                gaps=tuple(_json_texts(deep.gaps_json)),
-                model_concerns=tuple(_json_texts(deep.model_concerns_json)),
-                uncertainties=tuple(_json_texts(deep.uncertainties_json)),
+        output: list[DigestCandidate] = []
+        seen: set[str] = set()
+        for job, row, score, deep in self._session.execute(stmt).tuples():
+            if job.id in seen or not isinstance(row.outcome_json, dict):
+                continue
+            decision = row.outcome_json.get("product_eligibility")
+            if not validate_product_eligibility(decision, profile_binding=binding):
+                continue
+            if not isinstance(decision, dict) or not decision.get("eligible"):
+                continue
+            if not score.eligible or score.hard_blocker_json or job.status not in (
+                JobStatus.NEW,
+                JobStatus.ACTIVE,
+            ):
+                continue
+            seen.add(job.id)
+            output.append(
+                DigestCandidate(
+                    job_id=job.id,
+                    job_score_id=score.id,
+                    deep_evaluation_id=deep.id if deep is not None else None,
+                    title=job.title,
+                    company=job.company,
+                    location=job.location,
+                    application_url=job.application_url or "",
+                    final_score=(
+                        deep.final_score
+                        if deep is not None and deep.final_score is not None
+                        else score.preliminary_score
+                    ),
+                    preliminary_score=score.preliminary_score,
+                    first_seen_at=job.first_seen_at,
+                    strengths=tuple(_json_texts(deep.strengths_json)) if deep else (),
+                    gaps=tuple(_json_texts(deep.gaps_json)) if deep else (),
+                    model_concerns=tuple(_json_texts(deep.model_concerns_json)) if deep else (),
+                    uncertainties=tuple(_json_texts(deep.uncertainties_json)) if deep else (),
+                    published_at=job.published_at,
+                    expires_at=job.expires_at,
+                    status=job.status.value,
+                    match_explanation=(
+                        "Role matched the active profile; listing location and work mode passed "
+                        "its Argentina eligibility rules. This is not a legal work-authorization "
+                        "guarantee; verify terms with the employer."
+                    ),
+                )
             )
-            for job, score, deep in rows
-            if score.eligible
-            and not score.hard_blocker_json
-            and job.status in (JobStatus.NEW, JobStatus.ACTIVE)
-            and deep.recommended_action == "apply"
-        ]
+        return output
 
     def list_with_effective_scores(
         self,

@@ -2,6 +2,8 @@
 
 import httpx
 
+from role_radar.db.models import JobSearchRun
+
 PROFILE = {
     "title": "backend engineer",
     "years_of_experience": 8,
@@ -53,3 +55,24 @@ async def test_same_key_different_intent_is_409(client: httpx.AsyncClient) -> No
         json={"reason": "two", "profile_id": profile_id},
     )
     assert conflict.status_code == 409
+
+
+async def test_get_run_allows_nested_operational_stats(
+    client: httpx.AsyncClient, db_session
+) -> None:
+    profile = await client.post("/profiles", json={"name": "A", "profile_json": PROFILE})
+    created = await client.post(
+        "/runs", json={"reason": "scheduled", "profile_id": profile.json()["id"]}
+    )
+    run = db_session.get(JobSearchRun, created.json()["id"])
+    assert run is not None
+    run.stats_json = {
+        "collected": 12,
+        "product_eligibility_reprocessing": {"policy_version": "v1", "attempted": 4},
+    }
+    db_session.commit()
+
+    response = await client.get(f"/runs/{run.id}")
+
+    assert response.status_code == 200
+    assert response.json()["stats"] == run.stats_json

@@ -26,9 +26,7 @@ from role_radar.services.feedback_service import (
 PHRASES = ["Backend Engineer"]
 
 
-def seed_run(
-    db_session: Session, approved: list[str] | tuple[str, ...] = PHRASES
-) -> str:
+def seed_run(db_session: Session, approved: list[str] | tuple[str, ...] = PHRASES) -> str:
     profile_id = str(uuid4())
     db_session.add(
         CandidateProfile(
@@ -48,7 +46,9 @@ def seed_run(
         profile_snapshot={
             "approved_phrases": list(approved),
             "profile_binding": {
-                "profile_id": profile_id, "row_version": 1, "schema_version": 1,
+                "profile_id": profile_id,
+                "row_version": 1,
+                "schema_version": 1,
                 "canonical_profile_sha256": "0" * 64,
             },
         },
@@ -96,8 +96,8 @@ def seed_job(db_session: Session, run_id: str, title: str, description: str) -> 
         status=RunJobStatus.SUCCEEDED,
         outcome={
             "job_score_id": "fixture",
-            "feedback_eligibility": {
-                "policy_version": "feedback-remote-eligibility-v1",
+            "product_eligibility": {
+                "policy_version": "product-eligibility-v1",
                 "profile_binding": {
                     "profile_id": profile.id,
                     "row_version": profile.version,
@@ -180,9 +180,12 @@ def test_render_redacts_external_references_without_mutating_candidate(
 
     assert placeholder in rendered
     assert description not in rendered
-    assert next(
-        item for item in collect_candidates(db_session, run_id) if item.job_id == job_id
-    ).description == description
+    assert (
+        next(
+            item for item in collect_candidates(db_session, run_id) if item.job_id == job_id
+        ).description
+        == description
+    )
 
 
 def test_submit_decide_and_resume(db_session: Session) -> None:

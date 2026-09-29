@@ -6,7 +6,9 @@ from html import escape
 
 from role_radar.notifications.contracts import DigestCandidate
 
-FORMATTER_VERSION = "telegram-digest-v1"
+FORMATTER_VERSION = "telegram-digest-v2"
+LEGACY_DIGEST_FORMATTER_VERSION = "telegram-digest-v1"
+ALERT_FORMATTER_VERSION = "telegram-match-alert-v1"
 TELEGRAM_MESSAGE_MAX_UNITS = 4096
 DISPLAY_TITLE_MAX = 180
 DISPLAY_COMPANY_MAX = 120
@@ -33,6 +35,7 @@ def format_digest(
     candidates: tuple[DigestCandidate, ...] | list[DigestCandidate],
     *,
     max_units: int = TELEGRAM_MESSAGE_MAX_UNITS,
+    heading: str = "Daily digest",
 ) -> FormattedDigest | None:
     source = tuple(candidates)
     if not source:
@@ -40,20 +43,55 @@ def format_digest(
     for level in range(4):
         for count in range(len(source), 0, -1):
             chosen = source[:count]
-            body = _render(chosen, level)
+            body = _render(chosen, level, heading=heading)
             if utf16_units(body) <= max_units:
                 return FormattedDigest(body, chosen, level)
     # A bounded minimal representation is still rendered from fields, never sliced HTML.
     for count in range(len(source), 0, -1):
         chosen = source[:count]
-        body = _render(chosen, 3, caps=True)
+        body = _render(chosen, 3, caps=True, heading=heading)
         if utf16_units(body) <= max_units:
             return FormattedDigest(body, chosen, 3)
     return None
 
 
-def _render(items: tuple[DigestCandidate, ...], level: int, *, caps: bool = False) -> str:
-    lines = ["<b>Daily digest</b>"]
+def format_digest_batches(
+    candidates: tuple[DigestCandidate, ...] | list[DigestCandidate],
+    *,
+    max_units: int = TELEGRAM_MESSAGE_MAX_UNITS,
+    max_items: int = 5,
+    heading: str = "Daily digest",
+) -> tuple[FormattedDigest, ...]:
+    """Render every candidate into ordered bounded Telegram messages."""
+    if max_items < 1:
+        raise ValueError("digest_max_items_invalid")
+    remaining = tuple(candidates)
+    batches: list[FormattedDigest] = []
+    while remaining:
+        limit = min(max_items, len(remaining))
+        rendered: FormattedDigest | None = None
+        for count in range(limit, 0, -1):
+            candidate = format_digest(
+                remaining[:count], max_units=max_units, heading=heading
+            )
+            if candidate is not None and len(candidate.candidates) == count:
+                rendered = candidate
+                break
+        if rendered is None:
+            raise ValueError("digest_candidate_unrenderable")
+        batches.append(rendered)
+        remaining = remaining[len(rendered.candidates) :]
+    return tuple(batches)
+
+
+def _render(
+    items: tuple[DigestCandidate, ...],
+    level: int,
+    *,
+    caps: bool = False,
+    heading: str = "Daily digest",
+) -> str:
+    lines = [f"<b>{escape(_text(heading, 80), quote=True)}</b>"]
     for index, item in enumerate(items, 1):
         title = _text(item.title, DISPLAY_TITLE_MAX if caps or level >= 3 else None)
         company = _text(item.company, DISPLAY_COMPANY_MAX if caps or level >= 3 else None)
@@ -64,6 +102,18 @@ def _render(items: tuple[DigestCandidate, ...], level: int, *, caps: bool = Fals
             lines.append(f"\n{escape(company, quote=True)}")
         if level < 2 and location:
             lines.append(f" · {escape(location, quote=True)}")
+        if heading == "New Role Radar matches":
+            publication = (
+                f"Published {item.published_at.date().isoformat()}"
+                if item.published_at is not None
+                else "Detected recently; publication date unavailable"
+            )
+            explanation = item.match_explanation or (
+                "Role fit and Argentina location/work mode passed the active profile's rules. "
+                "This is not a legal work-authorization guarantee; verify terms with the employer."
+            )
+            lines.append(f"\n{escape(publication, quote=True)}")
+            lines.append(f"\n{escape(_text(explanation, DISPLAY_DETAIL_MAX), quote=True)}")
         if level < 2:
             strengths = item.strengths[: (1 if level == 1 else 2)]
             if strengths:

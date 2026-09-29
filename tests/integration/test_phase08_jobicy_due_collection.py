@@ -1,4 +1,8 @@
+"""Jobicy due collection persists profile-compatible remote LATAM jobs."""
+
+import json
 from datetime import UTC, datetime
+from pathlib import Path
 
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
@@ -11,6 +15,7 @@ from role_radar.free_sources.terms import (
     JOBICY_TERMS_POLICY_VERSION,
     JobicyTermsAcceptance,
 )
+from role_radar.repositories.profiles import ProfileRepository
 from role_radar.repositories.runs import RunRepository
 from role_radar.services.pipeline_free_sources import PipelineFreeSourcesService
 from role_radar.services.source_service import SourceService
@@ -40,6 +45,13 @@ class FakeJobicyCollector:
 async def test_jobicy_reservation_writer_and_second_due_run(
     db_engine: Engine, db_session: Session
 ) -> None:
+    profile_data = json.loads(
+        (Path(__file__).parents[2] / "fixtures" / "profile_seed.json").read_text()
+    )
+    profile_data["profile_json"]["regions"] = ["latam", "spain", "europe"]
+    profile = ProfileRepository(db_session).create_v1(
+        name=profile_data["name"], profile_json=profile_data["profile_json"]
+    )
     source = SourceService(db_session).create(
         source_type=SourceType.JOBICY,
         name="Jobicy LATAM",
@@ -48,6 +60,7 @@ async def test_jobicy_reservation_writer_and_second_due_run(
     source.enabled = True
     run = RunRepository(db_session).create_run(
         "scheduled",
+        profile_id=profile.id,
         discovery_mode=DiscoveryMode.SCHEDULED_DUE,
         schedule_slot="2026-08-09T12:00:00Z",
     )

@@ -9,6 +9,7 @@ from role_radar.discovery.contracts import (
     UnknownCandidate,
 )
 from role_radar.discovery.planner import MAX_QUERIES_PER_CYCLE, QueryPlannerV1
+from role_radar.discovery.policy import MAX_NEW_SOURCES_PER_RUN
 from role_radar.discovery.query_keys import QueryKeyFactory
 from role_radar.discovery.url_classifier import classify_url
 from role_radar.domain.profile import CandidateProfileV1
@@ -105,3 +106,21 @@ def test_discovered_source_registration_is_worker_owned_and_capped(db_session: S
     duplicate = service.register_verified(candidate)
     assert duplicate.created is False
     assert duplicate.source_id == registration.source_id
+
+
+def test_discovered_source_registration_enforces_per_run_cap(db_session: Session) -> None:
+    service = DiscoveredSourceService(db_session)
+    registrations = [
+        service.register_verified(
+            GreenhouseOfficialCandidate(
+                f"https://boards.greenhouse.io/board-{index}", f"board-{index}"
+            ),
+            new_sources_used=index,
+        )
+        for index in range(MAX_NEW_SOURCES_PER_RUN + 1)
+    ]
+
+    assert sum(item.created for item in registrations) == MAX_NEW_SOURCES_PER_RUN
+    assert registrations[-1].source_id is None
+    assert registrations[-1].created is False
+    assert registrations[-1].blocked is True

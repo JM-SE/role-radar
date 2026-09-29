@@ -30,17 +30,18 @@ from role_radar.worker.pipeline import Pipeline
 def _db(tmp_path: Path) -> tuple[Engine, sessionmaker[Session], str, list[str]]:
     engine = create_engine(f"sqlite:///{tmp_path / 'reprocess.db'}")
     Base.metadata.create_all(engine)
-    data = json.loads(
-        (Path(__file__).parents[2] / "fixtures" / "profile_seed.json").read_text()
-    )
+    data = json.loads((Path(__file__).parents[2] / "fixtures" / "profile_seed.json").read_text())
     with Session(engine) as session:
         profile = ProfileRepository(session).create_v1(
             name="test", profile_json=data["profile_json"]
         )
         run = RunRepository(session).create_run("reprocess", profile_id=profile.id)
-        jobs = [JobRepository(session).create(
-            title=f"Job {i}", company="Acme", description="Build APIs", location="Remote"
-        ) for i in range(2)]
+        jobs = [
+            JobRepository(session).create(
+                title=f"Job {i}", company="Acme", description="Build APIs", location="Remote"
+            )
+            for i in range(2)
+        ]
         for i, job in enumerate(jobs):
             job.created_at = datetime.now(UTC) - timedelta(minutes=2 - i)
         ids = [job.id for job in jobs]
@@ -65,9 +66,7 @@ class _Extraction:
 async def _process(
     factory: sessionmaker[Session], run_id: str, extraction: _Extraction
 ) -> dict[str, Any]:
-    service = EligibilityReprocessingService(
-        factory, cast(PipelineExtractionService, extraction)
-    )
+    service = EligibilityReprocessingService(factory, cast(PipelineExtractionService, extraction))
     return await service.process(run_id)
 
 
@@ -111,7 +110,7 @@ def test_reprocessing_resumes_valid_checkpoints_and_records_extraction_failure(
     assert retry.prepared == []
 
 
-def test_current_and_new_jobs_share_feedback_eligibility_reasons(tmp_path: Path) -> None:
+def test_current_and_new_jobs_share_product_eligibility_reasons(tmp_path: Path) -> None:
     engine = create_engine(f"sqlite:///{tmp_path / 'parity.db'}")
     Base.metadata.create_all(engine)
     fixtures = Path(__file__).parents[2] / "fixtures"
@@ -126,7 +125,10 @@ def test_current_and_new_jobs_share_feedback_eligibility_reasons(tmp_path: Path)
             configuration={"board_token": "acme", "company": "Acme"},
         )
         current = JobRepository(session).create(
-            title="Backend Engineer", company="Acme", description="Build APIs", location="Remote"
+            title="Backend Engineer",
+            company="Acme",
+            description="Build APIs",
+            location="Remote Spain",
         )
         run = RunRepository(session).create_run("parity", profile_id=profile.id)
         session.commit()
@@ -138,15 +140,20 @@ def test_current_and_new_jobs_share_feedback_eligibility_reasons(tmp_path: Path)
         ) -> CollectionSuccess:
             return CollectionSuccess(
                 status="ok",
-                jobs=(RawJob(
-                    source="greenhouse", external_id="new-job",
-                    source_url="https://boards.greenhouse.io/acme/jobs/new-job",
-                    application_url="https://boards.greenhouse.io/acme/jobs/new-job",
-                    title="Platform Engineer",
-                    company="Other",
-                    description="Build APIs for platform",
-                    collected_at=datetime.now(UTC),
-                ),),
+                jobs=(
+                    RawJob(
+                        source="greenhouse",
+                        external_id="new-job",
+                        source_url="https://boards.greenhouse.io/acme/jobs/new-job",
+                        application_url="https://boards.greenhouse.io/acme/jobs/new-job",
+                        title="Platform Engineer",
+                        company="Other",
+                        location="Remote Spain",
+                        description="Build APIs for platform",
+                        structured_data={"remote_policy": "remote", "regions": ["spain"]},
+                        collected_at=datetime.now(UTC),
+                    ),
+                ),
                 metrics=CollectionMetrics(provider_items=1, accepted_items=1),
             )
 
@@ -162,37 +169,39 @@ def test_current_and_new_jobs_share_feedback_eligibility_reasons(tmp_path: Path)
         assert completed.status is JobSearchRunStatus.COMPLETED
         rows = list(session.scalars(select(RunJob).where(RunJob.run_id == run_id)))
         current_row = next(
-            row
-            for row in rows
-            if row.job_id == current_id and row.stage is RunJobStage.PREFILTERED
+            row for row in rows if row.job_id == current_id and row.stage is RunJobStage.PREFILTERED
         )
         current_outcome = current_row.outcome_json
         if current_outcome is None:
             raise AssertionError("current checkpoint has no outcome")
-        current_decision = current_outcome["decision"]
+        current_decision = current_outcome["product_eligibility"]
         new_decisions = [
-            row.outcome_json["feedback_eligibility"]
+            row.outcome_json["product_eligibility"]
             for row in rows
             if row.job_id != current_id
             and row.stage is RunJobStage.SCORED
             and row.status is RunJobStatus.SUCCEEDED
             and row.outcome_json
-            and "feedback_eligibility" in row.outcome_json
+            and "product_eligibility" in row.outcome_json
         ]
         assert len(new_decisions) == 1
         assert new_decisions[0]["profile_binding"] == current_decision["profile_binding"]
-        assert new_decisions[0]["eligible"] == current_decision["eligible"]
-        assert new_decisions[0]["reason_codes"] == current_decision["reason_codes"]
+        assert (
+                new_decisions[0]["policy_version"]
+                == current_decision["policy_version"]
+                == "product-eligibility-v2"
+            )
+        assert new_decisions[0]["eligible"] is True
         assert source_id in (completed.source_results_json or {})
 
 
-def test_feedback_reprocessing_stats_are_preserved_and_not_source_prefiltered() -> None:
+def test_product_reprocessing_stats_are_preserved_and_not_source_prefiltered() -> None:
     row = RunJob(
         run_id="run",
         job_id="job",
         stage=RunJobStage.PREFILTERED,
         status=RunJobStatus.SUCCEEDED,
-        outcome_json={"purpose": "feedback_eligibility_reprocess"},
+        outcome_json={"purpose": "product_eligibility_reprocess"},
     )
     manifest = {"complete": True, "pending": 0, "completed": 1}
     stats = recompute_stats({}, [row], {MANIFEST_KEY: manifest})

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from role_radar.acquisition.configuration import AcquisitionConfig
 from role_radar.acquisition.discovery_policy import DiscoveryPolicyFileError
 from role_radar.services.search_routing_service import SearchRoutingService
@@ -62,9 +64,10 @@ def test_complete_capabilities_compose_provider(db_session) -> None:
     assert isinstance(provider, SearchRoutingService)
 
 
-def test_policy_load_failure_degrades_to_none(monkeypatch) -> None:
+def test_policy_load_failure_raises_visibly(monkeypatch) -> None:
     def _missing(*args: object, **kwargs: object) -> object:
         raise DiscoveryPolicyFileError("discovery_policy_unavailable")
 
     monkeypatch.setattr("role_radar.worker.main.load_discovery_policy", _missing)
-    assert load_discovery_policy_v1() is None
+    with pytest.raises(DiscoveryPolicyFileError, match="discovery_policy_unavailable"):
+        load_discovery_policy_v1()

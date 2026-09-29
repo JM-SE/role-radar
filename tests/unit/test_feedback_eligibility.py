@@ -2,8 +2,8 @@ from typing import Any, cast
 
 from role_radar.domain.profile import CandidateProfileV1, canonical_profile_sha256
 from role_radar.matching.contracts import Ambiguity, JobFacts, ProfileBinding
-from role_radar.matching.feedback_eligibility import (
-    evaluate_feedback_eligibility,
+from role_radar.matching.product_eligibility import (
+    evaluate_product_eligibility as evaluate_feedback_eligibility,
 )
 
 
@@ -34,7 +34,10 @@ def binding(p: CandidateProfileV1) -> ProfileBinding:
 
 def facts(**changes: object) -> JobFacts:
     values: dict[str, object] = {
-        "extraction_id": "extraction-1", "remote_policy": "remote", "regions": ("europe",)
+        "title": "Backend Engineer",
+        "extraction_id": "extraction-1",
+        "remote_policy": "remote",
+        "regions": ("europe",),
     }
     values.update(changes)
     return JobFacts(**cast(dict[str, Any], values))
@@ -80,6 +83,7 @@ def test_conflicts_only_relevant_and_free_form_worldwide_is_not_explicit() -> No
     unrelated = (Ambiguity("signal_conflict", "title", "extraction"),)
     assert evaluate_feedback_eligibility(p, facts(), unrelated, binding(p)).eligible
     location = JobFacts(
+        title="Backend Engineer",
         extraction_id="extraction-1",
         remote_policy="remote",
         regions=("worldwide",),
@@ -92,10 +96,11 @@ def test_contract_is_ordered_and_hash_is_canonical() -> None:
     p = profile()
     b = binding(p)
     excluded = evaluate_feedback_eligibility(
-        p, facts(extraction_id=None, remote_policy=None, regions=()), (), b
+        p, facts(title=None, extraction_id=None, remote_policy=None, regions=()), (), b
     )
     assert excluded.reason_codes == (
         "extraction_incomplete",
+        "role_unknown",
         "remote_policy_unknown",
         "region_unknown",
     )

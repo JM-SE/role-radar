@@ -2,18 +2,61 @@
 
 from __future__ import annotations
 
+import re
 from math import floor
 
 from role_radar.domain.profile import CandidateProfileV1
 from role_radar.matching.contracts import Ambiguity, JobFacts, SignalResult
 from role_radar.matching.policy import (
     LEVEL_ORDER,
+    ROLE_ALIASES,
     SENIORITY_ORDER,
     ScoringPolicyV1,
     canonical_language,
     canonical_role,
     key,
 )
+
+_SENIORITY_PREFIXES = ("senior", "sr", "sr.", "staff", "lead", "principal", "junior", "jr", "jr.")
+_TITLE_SUFFIX_SCOPES = (
+    "latin america",
+    "latam",
+    "remote",
+    "argentina",
+    "work from home",
+    "contract",
+)
+
+
+def base_title(title: str | None) -> str | None:
+    """Strip ATS seniority prefixes and parenthetical/geo scope from job titles."""
+    if not title:
+        return title
+    head = re.sub(r"\([^()]*\)", " ", title).strip()
+    head = re.sub(r"\s+", " ", head).strip(" -|,") or title
+    lowered_head = head.casefold()
+    for marker in ("|", ","):
+        index = lowered_head.find(marker)
+        if index > 0:
+            head = head[:index].strip(" -|,") or head
+            lowered_head = head.casefold()
+    tokens = head.split()
+    while tokens and tokens[0].strip("().,#").isdigit():
+        tokens = tokens[1:]
+    while len(tokens) > 1 and tokens[0].strip(".,").lower() in _SENIORITY_PREFIXES:
+        tokens = tokens[1:]
+    base = " ".join(tokens).strip()
+    lowered = base.casefold()
+    for marker in ("|", ","):
+        index = lowered.find(marker)
+        if index > 0:
+            base = base[:index].strip(" -|,") or base
+            lowered = base.casefold()
+    for scope in _TITLE_SUFFIX_SCOPES:
+        if lowered.endswith(" " + scope):
+            base = base[: -len(scope)].strip(" -|,")
+            lowered = base.casefold()
+    return base or title
 
 
 def _signal(name: str, points: int, maximum: int, reason: str, evidence: str = "") -> SignalResult:
@@ -29,9 +72,34 @@ def role_match(
         return _signal("role_match", 0, maximum, "role_unknown"), (
             Ambiguity("role_unknown", "title", facts.title_provenance),
         )
-    title = canonical_role(facts.title)
     targets = {canonical_role(value) for value in profile.target_titles}
     families = {canonical_role(value) for value in profile.target_roles}
+    parts = re.split(r"[,|\u2013\u2014-]", facts.title, maxsplit=1)
+    if len(parts) == 2:
+        base_role = canonical_role(base_title(parts[0]) or parts[0])
+        qualifier_text = parts[1].strip()
+        qualifier_roles = {
+            canonical_role(part.strip())
+            for part in re.split(r"[,|\u2013\u2014-]", qualifier_text)
+            if part.strip()
+        }
+        known_role_labels = {canonical_role(label) for label in ROLE_ALIASES} | set(
+            ROLE_ALIASES.values()
+        )
+        recognized_qualifiers = qualifier_roles.intersection(known_role_labels)
+        if base_role in targets | families and recognized_qualifiers - (targets | families):
+            return _signal("role_match", 0, maximum, "role_mismatch", facts.title), ()
+        if base_role == "software" and qualifier_roles.intersection(targets | families):
+            matched_qualifier = next(iter(qualifier_roles.intersection(targets | families)))
+            return _signal(
+                "role_match",
+                floor(maximum * 15 / 20),
+                maximum,
+                "role_qualified_target",
+                matched_qualifier,
+            ), ()
+    normalized = base_title(facts.title) or facts.title
+    title = canonical_role(normalized)
     exploratory_titles = {
         canonical_role(value) for value in profile.soft_preferences.exploratory_target_titles
     }

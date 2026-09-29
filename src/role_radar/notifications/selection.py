@@ -1,33 +1,41 @@
-"""Digest selection rules. This module has no ORM or HTTP dependency."""
+"""Pure complete delivery selection rules."""
 
 from dataclasses import dataclass, replace
+from datetime import UTC, datetime, timedelta
 
 from role_radar.notifications.contracts import DigestCandidate
 from role_radar.notifications.url_policy import canonical_application_url
 
-DIGEST_MAX_ITEMS = 5
-MIN_FINAL_SCORE = 75
+FIRST_SEEN_MAX_AGE = timedelta(hours=24)
+PUBLISHED_MAX_AGE = timedelta(days=14)
 
 
 @dataclass(frozen=True, slots=True)
-class SelectionResult:
+class DeliverySelectionResult:
     selected: tuple[DigestCandidate, ...]
     exclusions: tuple[tuple[str, str], ...]
 
 
-def select_top_digest(
+def select_delivery_candidates(
     candidates: list[DigestCandidate] | tuple[DigestCandidate, ...],
-) -> SelectionResult:
+    *,
+    now: datetime | None = None,
+) -> DeliverySelectionResult:
+    """Select only actionable, fresh offers and order them deterministically."""
+    current = _as_utc(now or datetime.now(UTC))
+    if current is None:
+        raise ValueError("selection_clock_invalid")
     valid: list[DigestCandidate] = []
     exclusions: list[tuple[str, str]] = []
     for candidate in candidates:
-        if candidate.final_score < MIN_FINAL_SCORE:
-            exclusions.append((candidate.job_id, "final_score_below_threshold"))
-        elif not canonical_application_url(candidate.application_url):
+        freshness_error = freshness_exclusion(candidate, now=current)
+        if freshness_error is not None:
+            exclusions.append((candidate.job_id, freshness_error))
+            continue
+        canonical = canonical_application_url(candidate.application_url)
+        if canonical is None:
             exclusions.append((candidate.job_id, "invalid_application_url"))
         else:
-            canonical = canonical_application_url(candidate.application_url)
-            assert canonical is not None
             valid.append(replace(candidate, application_url=canonical))
     valid.sort(
         key=lambda item: (
@@ -37,9 +45,45 @@ def select_top_digest(
             item.job_id,
         )
     )
-    return SelectionResult(tuple(valid[:DIGEST_MAX_ITEMS]), tuple(exclusions))
+    return DeliverySelectionResult(tuple(valid), tuple(exclusions))
+
+
+def freshness_exclusion(candidate: DigestCandidate, *, now: datetime) -> str | None:
+    """Return a stable exclusion reason for timestamps/status that cannot alert."""
+    current = _as_utc(now)
+    first_seen = _as_utc(candidate.first_seen_at)
+    if current is None or first_seen is None:
+        return "first_seen_unknown"
+    if first_seen > current:
+        return "first_seen_in_future"
+    if current - first_seen > FIRST_SEEN_MAX_AGE:
+        return "not_recently_detected"
+    if candidate.status not in {"new", "active"}:
+        return "job_not_open"
+    expires_at = _as_utc(candidate.expires_at)
+    if candidate.expires_at is not None and expires_at is None:
+        return "expiry_timestamp_invalid"
+    if expires_at is not None and expires_at <= current:
+        return "job_expired"
+    published_at = _as_utc(candidate.published_at)
+    if candidate.published_at is not None and published_at is None:
+        return "publication_timestamp_invalid"
+    if published_at is not None:
+        if published_at > current:
+            return "publication_date_in_future"
+        if current - published_at > PUBLISHED_MAX_AGE:
+            return "publication_too_old"
+    return None
+
+
+def _as_utc(value: datetime | None) -> datetime | None:
+    if not isinstance(value, datetime):
+        return None
+    # SQLite drops tzinfo for SQLAlchemy DateTime(timezone=True); persisted Role
+    # Radar timestamps are UTC by contract, so restore UTC for those values.
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 
 def _timestamp(candidate: DigestCandidate) -> float:
-    value = candidate.first_seen_at
-    return value.timestamp() if hasattr(value, "timestamp") else 0.0
+    value = _as_utc(candidate.first_seen_at)
+    return value.timestamp() if value is not None else 0.0

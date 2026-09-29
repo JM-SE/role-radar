@@ -105,7 +105,9 @@ def seed_database(
         profile_snapshot={
             "approved_phrases": ["Backend Engineer", "COBOL"],
             "profile_binding": {
-                "profile_id": profile_id, "row_version": 1, "schema_version": 1,
+                "profile_id": profile_id,
+                "row_version": 1,
+                "schema_version": 1,
                 "canonical_profile_sha256": canonical_profile_sha256(PROFILE_PAYLOAD),
             },
         },
@@ -137,21 +139,31 @@ def seed_database(
             row, status=RunJobStatus.SUCCEEDED, outcome={"acquisition": "discovery"}
         )
         scored = RunJobRepository(session).claim_attempt(
-            run_id=run.id, job_id=job.id, stage=RunJobStage.SCORED,
-            max_attempts=3, now=datetime.now(UTC)
+            run_id=run.id,
+            job_id=job.id,
+            stage=RunJobStage.SCORED,
+            max_attempts=3,
+            now=datetime.now(UTC),
         )
         assert scored is not None
         RunJobRepository(session).finish(
-            scored, status=RunJobStatus.SUCCEEDED,
-            outcome={"feedback_eligibility": {
-                "policy_version": "feedback-remote-eligibility-v1",
-                "profile_binding": {
-                    "profile_id": profile_id, "row_version": 1, "schema_version": 1,
-                    "canonical_profile_sha256": canonical_profile_sha256(PROFILE_PAYLOAD),
-                }, "input_sha256": "1" * 64,
-                "eligible": True, "reason_codes": ["exact_region_match"],
-                "extraction_id": "fixture-extraction",
-            }}
+            scored,
+            status=RunJobStatus.SUCCEEDED,
+            outcome={
+                "product_eligibility": {
+                    "policy_version": "product-eligibility-v1",
+                    "profile_binding": {
+                        "profile_id": profile_id,
+                        "row_version": 1,
+                        "schema_version": 1,
+                        "canonical_profile_sha256": canonical_profile_sha256(PROFILE_PAYLOAD),
+                    },
+                    "input_sha256": "1" * 64,
+                    "eligible": True,
+                    "reason_codes": ["exact_region_match"],
+                    "extraction_id": "fixture-extraction",
+                }
+            },
         )
         job_ids.append(job.id)
     wanted_run_id = run.id
@@ -181,9 +193,7 @@ def run_cli(
     return code, json.loads(out)
 
 
-def test_status_next_decide_summary(
-    monkeypatch: Any, capsys: Any, tmp_path: Path
-) -> None:
+def test_status_next_decide_summary(monkeypatch: Any, capsys: Any, tmp_path: Path) -> None:
     database = tmp_path / "feedback.db"
     run_id, relevant, _legacy = seed_database(database)
     code, status = run_cli(monkeypatch, capsys, database, "status", "--run", run_id)
@@ -237,9 +247,7 @@ def test_status_next_decide_summary(
     assert summary["labels"]["apply"] == 1
 
 
-def test_next_redacts_visible_url(
-    monkeypatch: Any, capsys: Any, tmp_path: Path
-) -> None:
+def test_next_redacts_visible_url(monkeypatch: Any, capsys: Any, tmp_path: Path) -> None:
     database = tmp_path / "feedback.db"
     visible_url = "Backend Engineer details: https://jobs.example.test/apply"
     run_id, relevant, _legacy = seed_database(database, relevant_description=visible_url)
@@ -275,9 +283,7 @@ def test_next_maps_display_errors_without_exposing_description(
     assert description not in json.dumps(payload)
 
 
-def test_decide_invalid_reason_is_blocked(
-    monkeypatch: Any, capsys: Any, tmp_path: Path
-) -> None:
+def test_decide_invalid_reason_is_blocked(monkeypatch: Any, capsys: Any, tmp_path: Path) -> None:
     database = tmp_path / "feedback.db"
     run_id, relevant, _legacy = seed_database(database)
     code, payload = run_cli(
@@ -298,9 +304,7 @@ def test_decide_invalid_reason_is_blocked(
     assert payload["code"] == "feedback_decision_invalid"
 
 
-def test_propose_and_apply(
-    monkeypatch: Any, capsys: Any, tmp_path: Path
-) -> None:
+def test_propose_and_apply(monkeypatch: Any, capsys: Any, tmp_path: Path) -> None:
     database = tmp_path / "feedback.db"
     run_id, _relevant, legacy_jobs = seed_database(database, legacy_jobs=3)
     for legacy_job in legacy_jobs:
