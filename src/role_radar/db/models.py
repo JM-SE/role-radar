@@ -669,6 +669,8 @@ class JobSearchRun(Base):
     stats_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     source_snapshot_json: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
     source_results_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    canary_budget_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    canary_checkpoint_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     clarification_attempts: Mapped[int] = mapped_column(
         default=0, server_default="0", nullable=False
     )

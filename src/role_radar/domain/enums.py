@@ -24,6 +24,7 @@ class JobSearchRunStatus(StrEnum):
     SCORING = "scoring"
     DEEP_EVALUATING = "deep_evaluating"
     NOTIFYING = "notifying"
+    DEFERRED = "deferred"
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
