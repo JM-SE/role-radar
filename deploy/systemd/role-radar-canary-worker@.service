@@ -1,0 +1,26 @@
+[Unit]
+Description=role-radar bounded canary worker for run %i
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=ROLE_RADAR_USER
+WorkingDirectory=/ROLE_RADAR_APP_DIR
+EnvironmentFile=/etc/role-radar/role-radar.env
+LoadCredential=query-hmac:/etc/role-radar/credentials/query-hmac
+LoadCredential=brave-free:/etc/role-radar/credentials/brave-free
+LoadCredential=tavily-free:/etc/role-radar/credentials/tavily-free
+Environment=PATH=/ROLE_RADAR_APP_DIR/.venv/bin:/usr/bin
+SupplementaryGroups=role-radar
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/etc/role-radar/acquisition.toml /etc/role-radar/evidence/jobicy
+ReadWritePaths=/ROLE_RADAR_APP_DIR/data
+ExecStart=/usr/bin/env role-radar worker --run-id %i
+Restart=no
+
+[Install]
+WantedBy=multi-user.target

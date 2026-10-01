@@ -46,29 +46,40 @@ class NotificationBatchRepository:
                 next_attempt_at=None,
                 updated_at=current,
             )
+            .execution_options(synchronize_session=False)
         )
         if int(cast(Any, result).rowcount) != 1:
             return None
         self._session.flush()
+        self._session.expire_all()
         return self.get(batch_id)
 
-    def recover_stale(self, *, older_than: timedelta, now: datetime | None = None) -> int:
+    def recover_stale(
+        self,
+        *,
+        older_than: timedelta,
+        now: datetime | None = None,
+        run_id: str | None = None,
+    ) -> int:
         current = now or datetime.now(UTC)
-        stale_ids = select(NotificationBatch.id).where(
+        stale_filter = (
             NotificationBatch.status == NotificationBatchStatus.SENDING,
             NotificationBatch.sending_started_at <= current - older_than,
         )
+        stale_ids_query = select(NotificationBatch.id).where(*stale_filter)
+        if run_id is not None:
+            stale_ids_query = stale_ids_query.where(NotificationBatch.run_id == run_id)
+        stale_ids = stale_ids_query
         self._session.execute(
             update(NotificationItem)
             .where(NotificationItem.batch_id.in_(stale_ids))
             .values(status=NotificationItemStatus.UNKNOWN, outcome_code="stale_sending")
         )
+        stale_batches = update(NotificationBatch).where(*stale_filter)
+        if run_id is not None:
+            stale_batches = stale_batches.where(NotificationBatch.run_id == run_id)
         result = self._session.execute(
-            update(NotificationBatch)
-            .where(
-                NotificationBatch.status == NotificationBatchStatus.SENDING,
-                NotificationBatch.sending_started_at <= current - older_than,
-            )
+            stale_batches
             .values(
                 status=NotificationBatchStatus.UNKNOWN,
                 error_code="stale_sending",

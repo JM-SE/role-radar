@@ -16,6 +16,12 @@ from role_radar.domain.enums import (
     RunJobStage,
     RunJobStatus,
 )
+from role_radar.execution_budget import (
+    CANARY_BUDGET,
+    CANARY_LIMITS,
+    CanaryDeferred,
+    checkpoint_counts,
+)
 from role_radar.notifications.contracts import (
     Accepted,
     DefinitePreSendFailure,
@@ -56,6 +62,7 @@ class NotificationService:
                 raise LookupError("run not found")
             slot = schedule_slot or run.schedule_slot or "manual"
             mode = getattr(run.notification_mode, "value", run.notification_mode)
+            is_canary = run.canary_budget_json is not None
             formatter_version = (
                 ALERT_FORMATTER_VERSION
                 if mode == "match_alerts"
@@ -121,6 +128,22 @@ class NotificationService:
                     else "Daily digest"
                 ),
             )
+            if is_canary:
+                if run.canary_budget_json != CANARY_BUDGET:
+                    raise RuntimeError("canary_budget_missing_or_changed")
+                checkpoint = dict(run.canary_checkpoint_json or {})
+                counts = checkpoint_counts(checkpoint)
+                if counts.get("notification_batches", 0) >= CANARY_LIMITS[
+                    "notification_batches"
+                ]:
+                    raise CanaryDeferred("canary_budget_exhausted:notification_batches")
+                formatted = formatted[:1]
+                counts["notification_batches"] = counts.get("notification_batches", 0) + 1
+                checkpoint.update(version=1, counts=counts)
+                checkpoint.setdefault("stage", "notifications")
+                checkpoint.setdefault("cursor", 0)
+                checkpoint.setdefault("reservations", [])
+                run.canary_checkpoint_json = checkpoint
             prepared: list[NotificationBatch] = []
             try:
                 for ordinal, part in enumerate(formatted, 1):
@@ -178,7 +201,13 @@ class NotificationService:
     async def deliver(self, batch_id: str, gateway: TelegramGateway) -> NotificationBatch | None:
         with self._session_factory() as session:
             repo = NotificationBatchRepository(session)
-            batch = repo.claim_sending(batch_id, max_attempts=self._settings.telegram_max_attempts)
+            candidate = repo.get(batch_id)
+            batch_run = session.get(JobSearchRun, candidate.run_id) if candidate else None
+            is_canary = batch_run is not None and batch_run.canary_budget_json is not None
+            batch = repo.claim_sending(
+                batch_id,
+                max_attempts=1 if is_canary else self._settings.telegram_max_attempts,
+            )
             if batch is None:
                 session.commit()
                 detached = repo.get(batch_id)
@@ -286,8 +315,11 @@ class NotificationService:
         self, run_id: str, *, recipient_key: str, gateway: TelegramGateway
     ) -> tuple[NotificationBatch, ...]:
         with self._session_factory() as session:
+            run = session.get(JobSearchRun, run_id)
+            is_canary = run is not None and run.canary_budget_json is not None
             NotificationBatchRepository(session).recover_stale(
-                older_than=timedelta(seconds=self._settings.worker_lease_duration_seconds)
+                older_than=timedelta(seconds=self._settings.worker_lease_duration_seconds),
+                run_id=run_id if is_canary else None,
             )
             session.commit()
         prepared = self.prepare(run_id, recipient_key=recipient_key)
