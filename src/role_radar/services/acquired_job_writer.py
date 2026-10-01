@@ -11,6 +11,7 @@ from role_radar.dedup.service import DedupService
 from role_radar.domain.dto import RawJob
 from role_radar.domain.enums import RunJobStage, RunJobStatus
 from role_radar.domain.profile import CandidateProfileV1, canonical_profile_sha256
+from role_radar.execution_budget import CANARY_BUDGET, CANARY_LIMITS, checkpoint_counts
 from role_radar.matching.contracts import JobFacts, ProfileBinding, serialize_profile_intake
 from role_radar.matching.policy import ScoringPolicyV1
 from role_radar.matching.profile_intake import evaluate_profile_intake
@@ -141,6 +142,21 @@ class AcquiredJobWriter:
                 for reason in decision.reason_codes:
                     reason_counts[reason] = reason_counts.get(reason, 0) + 1
                 continue
+            run = self._session.get(JobSearchRun, run_id)
+            if run is not None and run.canary_budget_json is not None:
+                if run.canary_budget_json != CANARY_BUDGET:
+                    raise RuntimeError("canary_budget_missing_or_changed")
+                checkpoint = dict(run.canary_checkpoint_json or {})
+                counts = dict(checkpoint_counts(checkpoint))
+                if counts.get("accepted_items", 0) >= CANARY_LIMITS["accepted_items"]:
+                    break
+                counts["accepted_items"] = counts.get("accepted_items", 0) + 1
+                checkpoint["version"] = 1
+                checkpoint.setdefault("stage", "collection")
+                checkpoint.setdefault("cursor", 0)
+                checkpoint["counts"] = counts
+                checkpoint.setdefault("reservations", [])
+                run.canary_checkpoint_json = checkpoint
             normalized = normalized.model_copy(update={"application_url": decision.application_url})
             intake_evidence = dict(decision.intake_evidence or {})
             raw_payload = {**(raw_job.structured_data or {}), **intake_evidence}

@@ -28,6 +28,7 @@ from role_radar.collectors.registry import (
 from role_radar.config import Settings
 from role_radar.db.models import JobSearchRun, Source
 from role_radar.domain.enums import JobSearchRunStatus, SourceType
+from role_radar.execution_budget import CanaryAmbiguousAttempt, CanaryDeferred
 from role_radar.matching.transient_clarification import MAX_ATTEMPTS_PER_RUN
 from role_radar.services.acquired_job_writer import AcquiredJobWriter
 
@@ -135,6 +136,8 @@ class PipelineCollectionService:
                 raise TypeError("collector returned an invalid outcome")
             return CollectionResult(snapshot.source_id, outcome)
         except asyncio.CancelledError:
+            raise
+        except (CanaryAmbiguousAttempt, CanaryDeferred):
             raise
         except Exception:
             failure = CollectionFailure(

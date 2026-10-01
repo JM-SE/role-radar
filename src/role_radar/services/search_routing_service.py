@@ -53,6 +53,23 @@ class SearchRoutingService:
         self._config = config
         self._clock = clock or (lambda: datetime.now(UTC))
 
+    async def search_canary(self, request: SearchRequest) -> SearchResponse:
+        """Run only the canary's Brave Free operation; never route to a fallback."""
+        if self._brave is None or not self._config.brave_free.enabled:
+            return SearchResponse(
+                provider="brave",
+                tier=ProviderTier.FREE,
+                status="failed",
+                error_code="provider_unavailable",
+            )
+        return await self._run_one(
+            request,
+            ProviderName.BRAVE,
+            ProviderTier.FREE,
+            "canary_brave_only",
+            skip_memo=True,
+        )
+
     async def search(self, request: SearchRequest) -> SearchResponse:
         if request.provider_intent is ProviderIntent.SEMANTIC:
             return await self._run_one(
@@ -118,6 +135,8 @@ class SearchRoutingService:
         provider: ProviderName,
         tier: ProviderTier,
         reason: str,
+        *,
+        skip_memo: bool = False,
     ) -> SearchResponse:
         del reason  # Routing reason is represented by the operation suffix, not persisted content.
         provider_value: Literal["brave", "tavily"] = (
@@ -131,7 +150,7 @@ class SearchRoutingService:
                 status="failed",
                 error_code="provider_unavailable",
             )
-        memo = self._find_memo(request, provider_value, tier.value)
+        memo = None if skip_memo else self._find_memo(request, provider_value, tier.value)
         if memo is not None:
             return memo
         operation_key = f"{request.operation_key}:{provider.value}:{tier.value}"

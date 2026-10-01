@@ -114,6 +114,52 @@ def test_writer_uses_bounded_clarification_and_persists_only_admitted_row(tmp_pa
         assert list(session.scalars(select(RunJob)).all())
 
 
+def test_canary_writer_caps_accepted_items_across_the_common_boundary(tmp_path) -> None:
+    engine = create_engine(f"sqlite:///{tmp_path / 'canary-intake.db'}")
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        profile = ProfileRepository(session).create_v1(name="test", profile_json=_profile())
+        source = SourceRepository(session).create(
+            type=SourceType.GREENHOUSE,
+            name="Acme",
+            configuration={"board_token": "acme"},
+            enabled=True,
+        )
+        run = RunRepository(session).create_run("canary", profile_id=profile.id)
+        from role_radar.execution_budget import CANARY_BUDGET
+
+        run.canary_budget_json = dict(CANARY_BUDGET)
+        session.commit()
+        run_id, source_id = run.id, source.id
+
+    jobs = tuple(
+        RawJob(
+            source="greenhouse",
+            external_id=f"canary-{index}",
+            title="Senior Frontend Engineer",
+            company=f"Acme {index}",
+            location="Remote",
+            source_url=f"https://boards.greenhouse.io/acme/jobs/canary-{index}",
+            application_url=f"https://boards.greenhouse.io/acme/jobs/canary-{index}",
+            description="Fully remote position. Work remotely from Argentina.",
+            structured_data={"id": f"canary-{index}"},
+            collected_at=datetime.now(UTC),
+        )
+        for index in range(3)
+    )
+    with Session(engine) as session:
+        result = AcquiredJobWriter(session).write(
+            run_id=run_id, source_id=source_id, raw_jobs=jobs
+        )
+        session.commit()
+
+    assert result.accepted == 2
+    with Session(engine) as session:
+        persisted = session.get(JobSearchRun, run_id)
+        assert persisted is not None
+        assert persisted.canary_checkpoint_json["counts"]["accepted_items"] == 2
+
+
 def test_writer_does_not_clarify_known_role_or_region_incompatibility(tmp_path) -> None:
     engine = create_engine(f"sqlite:///{tmp_path / 'bounded-intake.db'}")
     Base.metadata.create_all(engine)

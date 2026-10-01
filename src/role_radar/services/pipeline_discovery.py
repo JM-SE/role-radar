@@ -54,6 +54,7 @@ from role_radar.domain.enums import (
     DiscoveryQueryStatus,
 )
 from role_radar.domain.profile import CandidateProfileV1, canonical_profile_sha256
+from role_radar.execution_budget import CanaryAmbiguousAttempt, CanaryDeferred
 from role_radar.matching.transient_clarification import MAX_ATTEMPTS_PER_RUN
 from role_radar.normalization.jobs import normalize_raw_job
 from role_radar.repositories.discovery import DiscoveryRepository
@@ -108,10 +109,13 @@ class PipelineDiscoveryService:
             if profile_row is None:
                 raise LookupError("profile not found")
             profile = CandidateProfileV1.model_validate(profile_row.profile_json)
+            is_canary = run.canary_budget_json is not None
             try:
                 queries, planner_version, policy_version, snapshot = (
                     self._profile_bound_v2_queries(profile_row, profile)
                 )
+                if is_canary:
+                    queries = queries[:1]
             except DiscoveryPlanError as exc:
                 self._record_config_failure(session, run_id, profile, exc.code)
                 raise
@@ -249,6 +253,9 @@ class PipelineDiscoveryService:
         session.commit()
 
     async def execute(self, plan: DiscoveryPlan) -> DiscoveryExecution:
+        with self._session_factory() as session:
+            run = session.get(JobSearchRun, plan.run_id)
+            is_canary = run is not None and run.canary_budget_json is not None
         if plan.reused:
             return DiscoveryExecution(plan, (), (), reused_job_ids=_reused_ids(plan))
         if not plan.identities:
@@ -271,8 +278,7 @@ class PipelineDiscoveryService:
             query = by_ordinal[identity.ordinal]
             self._checkpoint_query_started(plan.cycle_id, identity)
             try:
-                response = await self._provider.search(
-                    SearchRequest(
+                request = SearchRequest(
                         operation_key=f"{plan.cycle_id}:query:{identity.ordinal}",
                         query=query.canonical_query,
                         query_key=identity.query_key,
@@ -282,7 +288,16 @@ class PipelineDiscoveryService:
                         provider_intent=identity.provider_intent,
                         cycle_query_count=len(plan.queries),
                     )
+                search = getattr(self._provider, "search_canary", None) if is_canary else None
+                if is_canary and search is None:
+                    raise RuntimeError("canary_brave_only_route_unavailable")
+                response = await (
+                    search(request)
+                    if search is not None
+                    else self._provider.search(request)
                 )
+            except (CanaryAmbiguousAttempt, CanaryDeferred):
+                raise
             except Exception:
                 query_results.append(
                     QueryExecution(identity, DiscoveryQueryStatus.FAILED.value, 0, 0, 0, 0, 0)
@@ -293,9 +308,16 @@ class PipelineDiscoveryService:
             results = list(response.hits[: self._policy.max_results_per_query])
             known = unknown = rejected = 0
             verified_count = 0
+            canary_verified = False
             for result in results:
                 classified = classify_url(result.url)
                 if isinstance(classified, KnownOfficialCandidate):
+                    if is_canary and (
+                        canary_verified
+                        or getattr(classified.source_type, "value", classified.source_type)
+                        != "greenhouse"
+                    ):
+                        continue
                     known += 1
                     source_key = canonical_source_key(
                         classified.source_type, dict(classified.configuration)
@@ -303,6 +325,8 @@ class PipelineDiscoveryService:
                     if source_key in seen_keys:
                         continue
                     seen_keys.add(source_key)
+                    if is_canary:
+                        canary_verified = True
                     batch = await self._verify(classified)
                     if batch is not None:
                         verified.append(batch)
