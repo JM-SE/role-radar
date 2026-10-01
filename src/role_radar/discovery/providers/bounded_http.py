@@ -13,6 +13,7 @@ from typing import Any, cast
 import httpx
 
 from role_radar.discovery.contracts import SearchRequest
+from role_radar.execution_budget import reserve_network_attempt, settle_network_attempt
 
 MAX_SEARCH_BODY_BYTES = 1 * 1024 * 1024
 MAX_JSON_DEPTH = 16
@@ -75,11 +76,13 @@ class BoundedSearchHttpClient:
             raise RuntimeError("search HTTP client is not open")
         if method not in {"GET", "POST"}:
             raise SearchHttpError("method_not_allowed")
+        token = reserve_network_attempt()
         try:
             async with asyncio.timeout(request.deadline_seconds):
                 async with client.stream(
                     method, url, params=cast(Any, params or []), json=json, headers=headers
                 ) as response:
+                    settle_network_attempt(token)
                     if response.status_code < 300:
                         self._validate_content_type(response.headers.get("content-type", ""))
                     chunks: list[bytes] = []

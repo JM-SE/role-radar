@@ -17,6 +17,7 @@ from role_radar.collectors.policy import (
     CollectionRunBudget,
     HttpPolicy,
 )
+from role_radar.execution_budget import reserve_network_attempt, settle_network_attempt
 
 Clock = Callable[[], float]
 Sleeper = Callable[[float], Awaitable[None]]
@@ -156,13 +157,16 @@ class BoundedHttpClient:
                 wire_bytes=total.wire_bytes,
                 decoded_bytes=total.decoded_bytes,
             )
+            network_token = reserve_network_attempt()
             headers = {
                 "Accept": "application/json",
                 "Accept-Encoding": "identity, gzip",
                 "User-Agent": self._user_agent,
             }
             try:
-                result = await self._attempt(path, query, headers, deadline, total)
+                result = await self._attempt(
+                    path, query, headers, deadline, total, network_token=network_token
+                )
             except BoundedHttpError as exc:
                 total = exc.metrics
                 if not exc.retryable:
@@ -239,6 +243,8 @@ class BoundedHttpClient:
         headers: dict[str, str],
         deadline: float,
         metrics: TransferMetrics,
+        *,
+        network_token: str | None = None,
     ) -> "_AttemptResult":
         wire = metrics.wire_bytes
         decoded = metrics.decoded_bytes
@@ -248,6 +254,7 @@ class BoundedHttpClient:
             if client is None:
                 raise RuntimeError("bounded HTTP client is not open")
             async with client.stream("GET", path, params=list(query), headers=headers) as response:
+                settle_network_attempt(network_token)
                 if response.status_code >= 200 and response.status_code < 300:
                     self._validate_content_headers(response.headers, metrics)
                 decoder = (
