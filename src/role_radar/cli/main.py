@@ -354,6 +354,7 @@ def _parser() -> argparse.ArgumentParser:
     run_create.add_argument("--profile-id")
     run_create.add_argument("--idempotency-key")
     run_create.add_argument("--schedule-id")
+    run_create.add_argument("--canary", action="store_true")
     run_list = run_commands.add_parser("list")
     run_list.add_argument("--limit", type=int, default=50)
     run_list.add_argument("--offset", type=int, default=0)
@@ -375,7 +376,8 @@ def _parser() -> argparse.ArgumentParser:
     campaign_tick.add_argument("--active", action="store_true")
     campaign_status = campaign_commands.add_parser("status")
     campaign_status.add_argument("--active", action="store_true")
-    subparsers.add_parser("worker", help="procesa runs pending/recoverables")
+    worker = subparsers.add_parser("worker", help="procesa runs pending/recoverables")
+    worker.add_argument("--run-id", help="process exactly one persisted canary run")
     discovery = subparsers.add_parser("discovery", help="estado local de adquisición (read-only)")
     discovery_commands = discovery.add_subparsers(dest="discovery_command", required=True)
     discovery_commands.add_parser("status")
@@ -1298,7 +1300,7 @@ def _run_source(settings: SettingsType, args: argparse.Namespace) -> int:
 
 
 def _run_control(settings: SettingsType, args: argparse.Namespace) -> int:
-    from role_radar.domain.enums import DiscoveryMode
+    from role_radar.domain.enums import DiscoveryMode, NotificationMode
     from role_radar.scheduler import latest_slot
     from role_radar.services.run_service import RunConflict, RunNotFound, RunService
 
@@ -1309,6 +1311,13 @@ def _run_control(settings: SettingsType, args: argparse.Namespace) -> int:
             reason = args.reason
             key = args.idempotency_key
             profile_id = args.profile_id
+            if args.canary:
+                from role_radar.execution_budget import CANARY_BUDGET
+
+                if profile_id is None or key is not None or args.schedule_id is not None:
+                    raise ValueError("canary_requires_profile_and_no_idempotency_or_schedule")
+                reason = "explicit_canary"
+                key = None
             if reason == "scheduled":
                 profile_id = service.resolve_profile_id(profile_id)
                 slot = latest_slot(
@@ -1329,9 +1338,14 @@ def _run_control(settings: SettingsType, args: argparse.Namespace) -> int:
                 notification_mode="match_alerts" if reason == "scheduled" else "none",
                 schedule_slot=slot if reason == "scheduled" else None,
                 discovery_mode=(
-                    DiscoveryMode.SCHEDULED_DUE if reason == "scheduled" else DiscoveryMode.NONE
+                    DiscoveryMode.SCHEDULED_DUE
+                    if reason == "scheduled" or args.canary
+                    else DiscoveryMode.NONE
                 ),
             )
+            if args.canary:
+                run.canary_budget_json = dict(CANARY_BUDGET)
+                run.notification_mode = NotificationMode.MATCH_ALERTS
         elif args.run_command == "list":
             from role_radar.domain.enums import JobSearchRunStatus
 
@@ -1841,7 +1855,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "worker":
             from role_radar.worker.main import run_worker
 
-            run_worker(settings)
+            run_worker(settings, run_id=args.run_id)
             return 0
         if args.command == "discovery":
             return _run_discovery_readonly(settings, args.discovery_command)

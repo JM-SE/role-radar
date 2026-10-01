@@ -72,7 +72,7 @@ def load_discovery_policy_v1() -> Any:
     return loaded.policy
 
 
-def run_worker(settings: Settings | None = None) -> None:
+def run_worker(settings: Settings | None = None, *, run_id: str | None = None) -> None:
     current = settings or Settings()
     engine = get_engine(current.database_url)
     factory = get_session_factory(engine)
@@ -168,7 +168,10 @@ def run_worker(settings: Settings | None = None) -> None:
     signal.signal(signal.SIGTERM, request_stop)
     signal.signal(signal.SIGINT, request_stop)
     try:
-        asyncio.run(runner.run_forever(stop))
+        if run_id is None:
+            asyncio.run(runner.run_forever(stop))
+        else:
+            runner.run_once(run_id=run_id)
     finally:
         close = getattr(provider, "aclose", None)
         if close is not None:

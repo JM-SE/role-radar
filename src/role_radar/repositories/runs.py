@@ -1,7 +1,7 @@
 """Persistencia de intents, leases y transiciones de ``JobSearchRun``."""
 
 from datetime import UTC, datetime, timedelta
-from typing import Any, cast
+from typing import Any
 
 from sqlalchemy import and_, or_, select, update
 from sqlalchemy.orm import Session, selectinload
@@ -162,6 +162,69 @@ class RunRepository:
         )
         return result.rowcount == 1
 
+    def claim_run(
+        self,
+        run_id: str,
+        *,
+        worker_id: str,
+        lease_duration_seconds: float = 600.0,
+        now: datetime | None = None,
+        max_recoveries: int = 5,
+    ) -> JobSearchRun | None:
+        """Claim exactly one selected run; never mutate an unrelated stale run."""
+        current = now or datetime.now(UTC)
+        expiry = current + timedelta(seconds=lease_duration_seconds)
+        stale = or_(
+            JobSearchRun.lease_expires_at.is_(None),
+            JobSearchRun.lease_expires_at <= current,
+        )
+        candidate = self._session.scalar(
+            select(JobSearchRun).where(
+                JobSearchRun.id == run_id,
+                JobSearchRun.canary_budget_json.is_not(None),
+            )
+        )
+        if candidate is None:
+            return None
+        was_recovery = candidate.status in _RECOVERABLE or (
+            candidate.status is JobSearchRunStatus.DEFERRED
+        )
+        condition = and_(
+            JobSearchRun.id == run_id,
+            JobSearchRun.canary_budget_json.is_not(None),
+            stale,
+        )
+        if was_recovery:
+            condition = and_(
+                condition,
+                or_(
+                    JobSearchRun.status.in_(tuple(_RECOVERABLE)),
+                    JobSearchRun.status == JobSearchRunStatus.DEFERRED,
+                ),
+                JobSearchRun.recovery_count < max_recoveries,
+            )
+        else:
+            condition = and_(condition, JobSearchRun.status == JobSearchRunStatus.PENDING)
+        result = self._session.execute(
+            update(JobSearchRun)
+            .where(condition)
+            .values(
+                claimed_by=worker_id,
+                lease_expires_at=expiry,
+                heartbeat_at=current,
+                recovery_count=JobSearchRun.recovery_count + (1 if was_recovery else 0),
+                updated_at=current,
+            )
+            .returning(JobSearchRun.id)
+            .execution_options(synchronize_session=False)
+        )
+        if result.scalar_one_or_none() is None:
+            self._session.rollback()
+            return None
+        self._session.flush()
+        self._session.expire(candidate)
+        return self._session.get(JobSearchRun, run_id)
+
     def claim_next(
         self,
         *,
@@ -228,8 +291,9 @@ class RunRepository:
                 recovery_count=JobSearchRun.recovery_count + (1 if was_recovery else 0),
                 updated_at=current,
             )
+            .returning(JobSearchRun.id)
         )
-        if int(cast(Any, result).rowcount) != 1:
+        if result.scalar_one_or_none() is None:
             self._session.rollback()
             return None
         self._session.flush()
@@ -256,18 +320,20 @@ class RunRepository:
                 lease_expires_at=current + timedelta(seconds=lease_duration_seconds),
                 updated_at=current,
             )
+            .returning(JobSearchRun.id)
         )
         self._session.flush()
-        return int(cast(Any, result).rowcount) == 1
+        return result.scalar_one_or_none() is not None
 
     def release(self, run_id: str, *, worker_id: str) -> bool:
         result = self._session.execute(
             update(JobSearchRun)
             .where(JobSearchRun.id == run_id, JobSearchRun.claimed_by == worker_id)
             .values(claimed_by=None, lease_expires_at=None, heartbeat_at=None)
+            .returning(JobSearchRun.id)
         )
         self._session.flush()
-        return int(cast(Any, result).rowcount) == 1
+        return result.scalar_one_or_none() is not None
 
     def add_run_job(
         self,

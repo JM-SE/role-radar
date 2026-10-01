@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from role_radar.broker.protocols import LLMProvider
 from role_radar.config import Settings
 from role_radar.db.models import (
+    DiscoveryCycle,
     JobExtraction,
     JobSearchRun,
     NotificationBatch,
@@ -23,6 +24,15 @@ from role_radar.domain.enums import (
     RunJobStage,
     RunJobStatus,
     SourceType,
+)
+from role_radar.execution_budget import (
+    CANARY_BUDGET,
+    CanaryAmbiguousAttempt,
+    CanaryDeferred,
+    CanaryExecutionBudget,
+    activate_canary_budget,
+    reset_canary_budget,
+    validate_canary_checkpoint,
 )
 from role_radar.free_sources.terms import JobicyTermsAcceptance
 from role_radar.notifications.contracts import TelegramGateway
@@ -115,6 +125,8 @@ class Pipeline:
         self._notification_recipient = notification_recipient or "disabled"
 
     async def run(self, run_id: str) -> JobSearchRun:
+        budget_token = None
+        is_canary = False
         try:
             with self._session_factory() as session:
                 existing = session.get(JobSearchRun, run_id)
@@ -128,12 +140,26 @@ class Pipeline:
                     return existing
                 resume_deep = existing.status is JobSearchRunStatus.DEEP_EVALUATING
                 resume_notify = existing.status is JobSearchRunStatus.NOTIFYING
+                is_canary = existing.canary_budget_json is not None
+                if is_canary and existing.canary_budget_json != CANARY_BUDGET:
+                    raise CanaryAmbiguousAttempt("canary_budget_missing_or_changed")
+                canary_stage = (
+                    validate_canary_checkpoint(existing.canary_checkpoint_json)[0]
+                    if is_canary
+                    else "discovery"
+                )
+            if is_canary:
+                budget_token = activate_canary_budget(
+                    CanaryExecutionBudget(self._session_factory, run_id)
+                )
             if resume_notify:
                 await self._notifications.process(
                     run_id, recipient_key=self._notification_recipient
                 )
                 if self._notification_retry_wait(run_id):
                     return self._release_notification_run(run_id)
+                if is_canary:
+                    self._checkpoint_canary(run_id, stage="complete", cursor=0)
                 return self._complete(run_id)
             if resume_deep and self._deep is not None:
                 await self._deep.process(run_id)
@@ -144,31 +170,53 @@ class Pipeline:
                     )
                     if self._notification_retry_wait(run_id):
                         return self._release_notification_run(run_id)
+                if is_canary:
+                    self._checkpoint_canary(run_id, stage="complete", cursor=0)
                 return self._complete(run_id)
             manifest = await self._eligibility.process(run_id)
             if not manifest["complete"]:
                 raise RuntimeError("product_eligibility_reprocessing_pending")
-            snapshots = self._collection.prepare(
-                run_id, exclude_source_types=frozenset({SourceType.JOBICY})
+            snapshots = (
+                ()
+                if is_canary
+                else self._collection.prepare(
+                    run_id, exclude_source_types=frozenset({SourceType.JOBICY})
+                )
             )
-            self._collection.start_run_budget()
+            if not is_canary:
+                self._collection.start_run_budget()
             free_plan = None
-            try:
-                free_plan = self._free_sources.prepare(run_id)
-            except Exception:
-                # Free-source scheduling is an independent producer path.
-                free_plan = None
+            if not is_canary:
+                try:
+                    free_plan = self._free_sources.prepare(run_id)
+                except Exception:
+                    # Free-source scheduling is an independent producer path.
+                    free_plan = None
             discovery_finalization = None
             try:
-                discovery_plan = self._discovery.prepare(run_id)
+                discovery_plan = (
+                    self._discovery.prepare(run_id)
+                    if not is_canary or canary_stage == "discovery"
+                    else None
+                )
                 if discovery_plan is not None:
                     discovery_finalization = self._discovery.finalize(
                         await self._discovery.execute(discovery_plan)
                     )
+            except (CanaryAmbiguousAttempt, CanaryDeferred):
+                raise
             except Exception:
                 # Discovery is advisory; ATS collection continues on any
                 # provider, classifier, or discovery persistence failure.
                 discovery_finalization = None
+            if is_canary and canary_stage == "discovery":
+                if discovery_finalization is None or discovery_finalization.status == "degraded":
+                    raise CanaryDeferred("canary_discovery_incomplete")
+                with self._session_factory() as session:
+                    cycle = session.get(DiscoveryCycle, discovery_finalization.cycle_id)
+                    stats = cycle.stats_json if cycle is not None else {}
+                    if stats.get("known", 0) and not stats.get("verified_jobs", 0):
+                        raise CanaryDeferred("canary_greenhouse_verification_incomplete")
             if free_plan is not None:
                 for task in free_plan.tasks:
                     try:
@@ -178,14 +226,15 @@ class Pipeline:
                         # A Jobicy outage or persistence error must not remove
                         # ATS/search successes from the same collecting run.
                         continue
-            try:
-                mailbox_plan = self._mailbox.prepare(run_id)
-                mailbox_execution = await self._mailbox.execute(mailbox_plan)
-                self._mailbox.finalize(mailbox_execution)
-            except Exception:
-                # Mailbox is an independent, degradable producer.  A missing
-                # worker credential or IMAP outage must not suppress ATS/feed.
-                pass
+            if not is_canary:
+                try:
+                    mailbox_plan = self._mailbox.prepare(run_id)
+                    mailbox_execution = await self._mailbox.execute(mailbox_plan)
+                    self._mailbox.finalize(mailbox_execution)
+                except Exception:
+                    # Mailbox is an independent, degradable producer.  A missing
+                    # worker credential or IMAP outage must not suppress ATS/feed.
+                    pass
             for snapshot in snapshots:
                 result = await self._collection.execute(snapshot)
                 self._collection.finalize(run_id, result)
@@ -193,43 +242,97 @@ class Pipeline:
             with self._session_factory() as session:
                 run_after_collection = session.get(JobSearchRun, run_id)
                 outcomes = run_after_collection.source_results_json if run_after_collection else {}
-            if not (discovery_finalization and discovery_finalization.producer_success) and (
-                not snapshots
-                or not outcomes
-                or all(
-                    result.get("status") not in {"ok", "partial"} for result in outcomes.values()
+            if (
+                not is_canary
+                and not (discovery_finalization and discovery_finalization.producer_success)
+                and (
+                    not snapshots
+                    or not outcomes
+                    or all(
+                        result.get("status") not in {"ok", "partial"}
+                        for result in outcomes.values()
+                    )
                 )
             ):
                 return self._fail(run_id, "all_sources_failed")
 
-            self._transition(run_id, JobSearchRunStatus.NORMALIZING)
+            resume_after_extraction = is_canary and canary_stage in {
+                "scoring",
+                "deep_evaluation",
+                "notifications",
+                "complete",
+            }
+            resume_after_scoring = is_canary and canary_stage in {
+                "deep_evaluation",
+                "notifications",
+                "complete",
+            }
+            resume_after_deep = is_canary and canary_stage in {"notifications", "complete"}
+            resume_after_notifications = is_canary and canary_stage == "complete"
             job_ids = self._jobs_for_run(run_id)
-            self._transition(run_id, JobSearchRunStatus.EXTRACTING)
-            for job_id in job_ids:
-                try:
-                    await self._extract_one(run_id, job_id)
-                except RuntimeError as exc:
-                    if str(exc) == "request_reconstruction_mismatch":
+            if not resume_after_extraction:
+                if is_canary and canary_stage != "extraction":
+                    self._checkpoint_canary(run_id, stage="extraction", cursor=0)
+                self._transition(run_id, JobSearchRunStatus.NORMALIZING)
+                self._transition(run_id, JobSearchRunStatus.EXTRACTING)
+                start_cursor = 0
+                if is_canary and canary_stage == "extraction":
+                    with self._session_factory() as session:
+                        resumed = session.get(JobSearchRun, run_id)
+                        if resumed is None:
+                            raise CanaryAmbiguousAttempt("canary_run_missing")
+                        start_cursor = (resumed.canary_checkpoint_json or {}).get("cursor", 0)
+                    if (
+                        not isinstance(start_cursor, int)
+                        or isinstance(start_cursor, bool)
+                        or start_cursor < 0
+                        or start_cursor > len(job_ids)
+                    ):
+                        raise CanaryAmbiguousAttempt("canary_checkpoint_cursor_invalid")
+                for cursor, job_id in enumerate(job_ids[start_cursor:], start_cursor):
+                    if is_canary:
+                        self._checkpoint_canary(run_id, stage="extraction", cursor=cursor)
+                    try:
+                        await self._extract_one(run_id, job_id)
+                    except (CanaryAmbiguousAttempt, CanaryDeferred):
                         raise
-                    self._mark_extraction_failure(run_id, job_id, _safe_code(str(exc)))
-                except Exception as exc:
-                    self._mark_extraction_failure(run_id, job_id, _safe_code(str(exc)))
-            self._transition(run_id, JobSearchRunStatus.SCORING)
-            self._scoring.score(run_id, job_ids)
-            if self._deep is not None:
-                self._deep.prepare_queue(run_id, job_ids)
+                    except RuntimeError as exc:
+                        if str(exc) == "request_reconstruction_mismatch":
+                            raise
+                        self._mark_extraction_failure(run_id, job_id, _safe_code(str(exc)))
+                    except Exception as exc:
+                        self._mark_extraction_failure(run_id, job_id, _safe_code(str(exc)))
+            if not resume_after_scoring:
+                if is_canary and canary_stage != "scoring":
+                    self._checkpoint_canary(run_id, stage="scoring", cursor=0)
+                self._transition(run_id, JobSearchRunStatus.SCORING)
+                self._scoring.score(run_id, job_ids)
+            if self._deep is not None and not resume_after_deep:
+                if is_canary and canary_stage != "deep_evaluation":
+                    self._deep.prepare_queue(run_id, job_ids)
                 self._transition(run_id, JobSearchRunStatus.DEEP_EVALUATING)
+                if is_canary and canary_stage != "deep_evaluation":
+                    self._checkpoint_canary(run_id, stage="deep_evaluation", cursor=0)
                 await self._deep.process(run_id)
-            if self._is_notification_enabled(run_id):
+            if not resume_after_notifications and self._is_notification_enabled(run_id):
+                if is_canary and canary_stage != "notifications":
+                    self._checkpoint_canary(run_id, stage="notifications", cursor=0)
                 self._transition(run_id, JobSearchRunStatus.NOTIFYING)
                 await self._notifications.process(
                     run_id, recipient_key=self._notification_recipient
                 )
                 if self._notification_retry_wait(run_id):
                     return self._release_notification_run(run_id)
+            if is_canary:
+                self._checkpoint_canary(run_id, stage="complete", cursor=0)
             return self._complete(run_id)
+        except (CanaryDeferred, CanaryAmbiguousAttempt) as exc:
+            return self._defer_canary(run_id, _safe_code(str(exc)) or "canary_deferred")
         except Exception as exc:
             return self._fail(run_id, _safe_code(str(exc)) or "pipeline_failed")
+        finally:
+            if budget_token is not None:
+                reset_canary_budget(budget_token)
 
     async def _extract_one(self, run_id: str, job_id: str) -> None:
         with self._session_factory() as session:
@@ -315,6 +418,33 @@ class Pipeline:
                 ).unique()
             )
 
+    def _defer_canary(self, run_id: str, error_code: str) -> JobSearchRun:
+        with self._session_factory() as session:
+            run = session.get(JobSearchRun, run_id)
+            if run is None:
+                raise LookupError("run not found")
+            if run.canary_budget_json is None:
+                return self._fail(run_id, error_code)
+            run.status = JobSearchRunStatus.DEFERRED
+            run.error_code = error_code[:128]
+            run.claimed_by = None
+            run.lease_expires_at = None
+            run.heartbeat_at = None
+            session.commit()
+            return run
+
+    def _checkpoint_canary(self, run_id: str, *, stage: str, cursor: int) -> None:
+        with self._session_factory() as session:
+            run = session.get(JobSearchRun, run_id)
+            if run is None or run.canary_budget_json is None:
+                return
+            checkpoint = dict(run.canary_checkpoint_json or {})
+            checkpoint.update(version=1, stage=stage, cursor=cursor)
+            checkpoint.setdefault("counts", {})
+            checkpoint.setdefault("reservations", [])
+            run.canary_checkpoint_json = checkpoint
+            session.commit()
+
     def _transition(self, run_id: str, status: JobSearchRunStatus) -> None:
         with self._session_factory() as session:
             RunRepository(session).update_run_status(run_id, status)
@@ -325,6 +455,11 @@ class Pipeline:
             run = session.get(JobSearchRun, run_id)
             if run is None:
                 raise LookupError("run not found")
+            checkpoint = run.canary_checkpoint_json or {}
+            if run.canary_budget_json is not None and (
+                checkpoint.get("reservations") or checkpoint.get("logical_reservations")
+            ):
+                raise CanaryAmbiguousAttempt("canary_side_effect_unresolved")
             jobs = list(session.scalars(select(RunJob).where(RunJob.run_id == run_id)))
             eligibility = (run.stats_json or {}).get(MANIFEST_KEY)
             stats = recompute_stats(run.source_results_json, jobs)

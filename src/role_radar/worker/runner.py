@@ -28,13 +28,16 @@ class WorkerRunner:
         self._settings = settings
         self._worker_id = worker_id or settings.worker_id or f"{socket.gethostname()}-{os.getpid()}"
 
-    def run_once(self) -> bool:
-        """Convenience síncrona para tests/CLI fuera de un loop asyncio."""
-        return asyncio.run(self.run_once_async())
+    def run_once(self, *, run_id: str | None = None) -> bool:
+        """Process one normally claimed run or one explicitly selected run."""
+        return asyncio.run(self.run_once_async(run_id=run_id))
 
-    async def run_once_async(self) -> bool:
+    async def run_once_async(self, *, run_id: str | None = None) -> bool:
         with self._session_factory() as session:
-            run = RunRepository(session).claim_next(
+            repository = RunRepository(session)
+            claim = repository.claim_run if run_id is not None else repository.claim_next
+            run = claim(
+                **({"run_id": run_id} if run_id is not None else {}),
                 worker_id=self._worker_id,
                 lease_duration_seconds=self._settings.worker_lease_duration_seconds,
                 now=datetime.now(UTC),
