@@ -16,6 +16,13 @@ from role_radar.broker.protocols import (
     StructuredGenerationRequest,
     StructuredGenerationResult,
 )
+from role_radar.execution_budget import (
+    CanaryAmbiguousAttempt,
+    CanaryDeferred,
+    reserve_logical_call,
+    reserve_network_attempt,
+    settle_network_attempt,
+)
 from role_radar.extraction.schema import assert_broker_compatible
 
 _GENERATION_KEYS = {"max_tokens", "temperature", "top_p", "top_k", "min_p", "seed", "stop"}
@@ -140,13 +147,24 @@ class LLMBrokerClient(LLMProvider):
             "Prefer": f"wait={self._prefer_wait_seconds}",
             "Content-Type": "application/json",
         }
-        response = await self._submit(body, headers, request.operation_id)
-        if response.status_code == 200:
-            return self._parse_result(response, None)
-        if response.status_code not in (201, 202):
-            raise self._http_error(response)
-        task_id = self._parse_task_id(response)
-        return await self._poll(task_id)
+        logical_token = reserve_logical_call("broker_calls")
+        try:
+            response = await self._submit(body, headers, request.operation_id)
+            if response.status_code == 200:
+                result = self._parse_result(response, None)
+            elif response.status_code not in (201, 202):
+                raise self._http_error(response)
+            else:
+                task_id = self._parse_task_id(response)
+                result = await self._poll(task_id)
+        except (CanaryAmbiguousAttempt, CanaryDeferred):
+            raise
+        except Exception:
+            if logical_token is not None:
+                raise CanaryAmbiguousAttempt("canary_broker_call_unresolved") from None
+            raise
+        settle_network_attempt(logical_token)
+        return result
 
     def _validate_request(self, request: StructuredGenerationRequest) -> None:
         if request.capability != self._capability:
@@ -185,13 +203,22 @@ class LLMBrokerClient(LLMProvider):
         del operation_id
         last_error: ProviderError | None = None
         for attempt in range(self._submit_reconcile_attempts):
+            token = reserve_network_attempt("broker_attempts")
             try:
-                return await self._client.post(
+                response = await self._client.post(
                     f"{self._base_url}/v1/tasks", json=body, headers=headers
                 )
+                settle_network_attempt(token)
+                return response
             except httpx.TimeoutException:
+                if token is not None:
+                    # The next attempt reuses this operation's idempotency key;
+                    # the still-pending logical reservation blocks crash replay.
+                    settle_network_attempt(token)
                 last_error = ProviderError(kind="submit_unknown", code="timeout", retryable=True)
             except httpx.RequestError:
+                if token is not None:
+                    settle_network_attempt(token)
                 last_error = ProviderError(kind="submit_unknown", code="transport", retryable=True)
             if attempt + 1 < self._submit_reconcile_attempts:
                 await asyncio.sleep(min(0.05 * (attempt + 1), 1.0))
@@ -209,11 +236,15 @@ class LLMBrokerClient(LLMProvider):
         deadline = time.monotonic() + self._result_timeout_seconds
         url = f"{self._base_url}/v1/tasks/{task_id}/result"
         while True:
+            token = reserve_network_attempt("broker_attempts")
             try:
                 response = await self._client.get(
                     url, headers={"Authorization": f"Bearer {self._token}"}
                 )
+                settle_network_attempt(token)
             except (httpx.TimeoutException, httpx.RequestError):
+                if token is not None:
+                    raise CanaryAmbiguousAttempt("canary_broker_poll_ambiguous") from None
                 raise ProviderError(
                     kind="pending_timeout", code="poll_transport", provider_task_id=task_id
                 ) from None

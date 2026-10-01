@@ -25,6 +25,7 @@ from role_radar.deep_evaluation.contracts import DeepEvaluationCandidateV1
 from role_radar.deep_evaluation.policy import DeepEvaluationPolicyV1
 from role_radar.deep_evaluation.selector import select_candidates, selection_reason
 from role_radar.domain.enums import RunJobStage, RunJobStatus
+from role_radar.execution_budget import CanaryAmbiguousAttempt, CanaryDeferred
 from role_radar.repositories.deep_queue import DeepQueueRepository
 from role_radar.repositories.runs import RunRepository
 from role_radar.services.deep_evaluation_service import DeepEvaluationService
@@ -212,6 +213,8 @@ class PipelineDeepEvaluationService:
                     else RunJobStatus.FAILED
                 )
                 self._checkpoint(run_id, job_id, status, finalized.status.value)
+            except (CanaryAmbiguousAttempt, CanaryDeferred):
+                raise
             except Exception as exc:
                 self._checkpoint(run_id, job_id, RunJobStatus.FAILED, _safe(str(exc)))
 
