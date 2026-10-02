@@ -37,6 +37,7 @@ def _codes(result) -> set[str]:
 def test_both_manifests_are_compatible_with_the_dual_route_fixture() -> None:
     config = load_json(DUAL_ROUTE_CONFIG)
     for name, manifest in _manifests().items():
+        assert isinstance(manifest.get("generation"), dict), name
         result = check_desired_compat(manifest, config)
         assert result.status == COMPATIBLE, (name, result.findings)
         assert result.findings == ()
@@ -97,6 +98,19 @@ def test_capability_pointing_to_unknown_backend_fails() -> None:
     result = check_desired_compat(manifest, config)
     assert result.status == INCOMPATIBLE
     assert "unknown_backend" in _codes(result)
+
+
+def test_missing_or_null_generation_fails() -> None:
+    config = load_json(DUAL_ROUTE_CONFIG)
+    for generation in (None, "missing"):
+        manifest = load_json(EXTRACTION_MANIFEST)
+        if generation == "missing":
+            manifest.pop("generation")
+        else:
+            manifest["generation"] = generation
+        result = check_desired_compat(manifest, config)
+        assert result.status == INCOMPATIBLE
+        assert "generation_invalid" in _codes(result)
 
 
 def test_generation_above_allowed_range_fails() -> None:

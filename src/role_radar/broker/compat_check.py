@@ -101,6 +101,8 @@ def check_desired_compat(manifest: dict[str, Any], config: dict[str, Any]) -> Co
         findings.append(CompatFinding("consumer_deadline_not_greater"))
 
     generation = manifest.get("generation")
+    if generation is None:
+        findings.append(CompatFinding("generation_invalid"))
     if generation is not None:
         if not isinstance(generation, dict):
             findings.append(CompatFinding("generation_invalid"))
