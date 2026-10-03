@@ -29,9 +29,9 @@ token is stored in the protected Role Radar environment file. Native desired and
 effective checks pass for both required capabilities with zero findings.
 The protected configuration now selects Broker for both providers and the verified
 Broker URL; running processes have not been restarted or reloaded. Telegram remains
-disabled. A configured HTTP timeout is not yet propagated to the Broker client,
-so the live canary is blocked pending that correction. Inference and destination
-confirmation remain unverified. Keep those approvals and checks separate. Never show tokens, profile UUIDs,
+disabled. Before live-canary approval, verify the installed Broker client receives the
+configured HTTP timeout. Inference and destination confirmation remain unverified.
+Keep those approvals and checks separate. Never show tokens, profile UUIDs,
 client credential IDs, or digests.
 
 1. In BotFather, create an owned dedicated bot, or select a known existing bot

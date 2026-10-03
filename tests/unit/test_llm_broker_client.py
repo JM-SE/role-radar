@@ -110,6 +110,23 @@ async def test_unknown_submit_replays_same_body_and_key() -> None:
     assert len({item[1] for item in seen}) == 1
 
 
+@pytest.mark.parametrize("argument", ["http_client", "client"])
+@pytest.mark.asyncio
+async def test_injected_client_timeout_and_ownership_are_preserved(argument: str) -> None:
+    injected = httpx.AsyncClient(timeout=23)
+    client = LLMBrokerClient(
+        base_url="http://broker",
+        token="secret",
+        http_timeout_seconds=17,
+        **{argument: injected},
+    )
+    assert client._client is injected
+    assert injected.timeout.read == 23
+    await client.aclose()
+    assert not injected.is_closed
+    await injected.aclose()
+
+
 def test_idempotency_key_changes_by_attempt() -> None:
     first = derive_idempotency_key(
         job_id="j", input_hash="i", prompt_version="p", schema_version="s", corrective_attempt=0

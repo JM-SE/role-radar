@@ -44,6 +44,27 @@ def test_broker_mode_without_url_and_token_raises_sanitized() -> None:
         create_deep_llm_provider(settings)
 
 
+@pytest.mark.asyncio
+async def test_broker_factories_propagate_http_timeout_to_owned_clients() -> None:
+    settings = Settings(
+        llm_provider="broker",
+        deep_evaluation_provider="broker",
+        broker_url="http://localhost:9",
+        broker_token="dummy",
+        http_timeout_seconds=17,
+    )
+    extraction = create_llm_provider(settings)
+    deep = create_deep_llm_provider(settings)
+    assert isinstance(extraction, LLMBrokerClient)
+    assert isinstance(deep, LLMBrokerClient)
+    try:
+        assert extraction._client.timeout.read == 17
+        assert deep._client.timeout.read == 17
+    finally:
+        await extraction.aclose()
+        await deep.aclose()
+
+
 def test_broker_clients_carry_distinct_capabilities() -> None:
     settings = Settings(
         llm_provider="broker",

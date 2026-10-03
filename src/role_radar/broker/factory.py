@@ -35,6 +35,7 @@ def create_llm_provider(
         poll_interval_seconds=settings.broker_poll_interval_seconds,
         result_timeout_seconds=settings.broker_result_timeout_seconds,
         submit_reconcile_attempts=settings.broker_submit_reconcile_attempts,
+        http_timeout_seconds=settings.http_timeout_seconds,
         http_client=http_client,
     )
 
@@ -74,5 +75,6 @@ def create_deep_llm_provider(
         poll_interval_seconds=settings.broker_poll_interval_seconds,
         result_timeout_seconds=settings.deep_evaluation_timeout_seconds,
         submit_reconcile_attempts=settings.broker_submit_reconcile_attempts,
+        http_timeout_seconds=settings.http_timeout_seconds,
         http_client=http_client,
     )

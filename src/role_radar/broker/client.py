@@ -86,6 +86,7 @@ class LLMBrokerClient(LLMProvider):
         poll_interval_seconds: float = 1.0,
         result_timeout_seconds: float = 300.0,
         submit_reconcile_attempts: int = 3,
+        http_timeout_seconds: float = 30.0,
         http_client: httpx.AsyncClient | None = None,
         client: httpx.AsyncClient | None = None,
     ) -> None:
@@ -107,7 +108,7 @@ class LLMBrokerClient(LLMProvider):
         self._poll_interval_seconds = poll_interval_seconds
         self._result_timeout_seconds = result_timeout_seconds
         self._submit_reconcile_attempts = submit_reconcile_attempts
-        self._client = http_client or client or httpx.AsyncClient()
+        self._client = http_client or client or httpx.AsyncClient(timeout=http_timeout_seconds)
         self._owns_client = http_client is None and client is None
 
     async def __aenter__(self) -> "LLMBrokerClient":
