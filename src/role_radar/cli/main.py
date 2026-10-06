@@ -1345,6 +1345,14 @@ def _run_control(settings: SettingsType, args: argparse.Namespace) -> int:
             )
             if args.canary:
                 run.canary_budget_json = dict(CANARY_BUDGET)
+                run.canary_checkpoint_json = {
+                    "version": 1,
+                    "stage": "discovery",
+                    "cursor": 0,
+                    "counts": {},
+                    "reservations": [],
+                    "logical_reservations": [],
+                }
                 run.notification_mode = NotificationMode.MATCH_ALERTS
         elif args.run_command == "list":
             from role_radar.domain.enums import JobSearchRunStatus
