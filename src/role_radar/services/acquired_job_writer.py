@@ -141,6 +141,13 @@ class AcquiredJobWriter:
                 profile_rejected += 1
                 for reason in decision.reason_codes:
                     reason_counts[reason] = reason_counts.get(reason, 0) + 1
+                if (
+                    decision.application_url is None
+                    and "application_url_missing_or_invalid" not in decision.reason_codes
+                ):
+                    reason_counts["application_url_missing_or_invalid"] = (
+                        reason_counts.get("application_url_missing_or_invalid", 0) + 1
+                    )
                 continue
             run = self._session.get(JobSearchRun, run_id)
             if run is not None and run.canary_budget_json is not None:

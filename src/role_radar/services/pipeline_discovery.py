@@ -55,6 +55,7 @@ from role_radar.domain.enums import (
 )
 from role_radar.domain.profile import CandidateProfileV1, canonical_profile_sha256
 from role_radar.execution_budget import CanaryAmbiguousAttempt, CanaryDeferred
+from role_radar.matching.profile_intake import PROFILE_INTAKE_REASON_CODES
 from role_radar.matching.transient_clarification import MAX_ATTEMPTS_PER_RUN
 from role_radar.normalization.jobs import normalize_raw_job
 from role_radar.repositories.discovery import DiscoveryRepository
@@ -412,6 +413,8 @@ class PipelineDiscoveryService:
             writer = AcquiredJobWriter(session)
             source_service = DiscoveredSourceService(session)
             clarification_attempts_used = 0
+            writer_prefiltered = writer_profile_rejected = 0
+            profile_reason_counts: dict[str, int] = {}
             for batch in execution.verified_batches:
                 registration = source_service.register_verified(
                     batch.candidate, new_sources_used=created
@@ -434,6 +437,11 @@ class PipelineDiscoveryService:
                 )
                 clarification_attempts_used += written.clarification_attempts
                 verified_jobs += written.accepted
+                writer_prefiltered += written.prefiltered
+                writer_profile_rejected += written.profile_rejected
+                for reason, count in written.profile_reason_counts:
+                    if reason in PROFILE_INTAKE_REASON_CODES and type(count) is int and count >= 0:
+                        profile_reason_counts[reason] = profile_reason_counts.get(reason, 0) + count
             stats = {
                 "queries": len(execution.queries),
                 "candidates": sum(item.candidate_count for item in execution.queries),
@@ -443,6 +451,12 @@ class PipelineDiscoveryService:
                 "verified_sources": verified_sources,
                 "verified_jobs": verified_jobs,
                 "blocked": blocked,
+                "writer_prefiltered": writer_prefiltered,
+                "writer_profile_rejected": writer_profile_rejected,
+                **{
+                    f"profile_rejected_{reason}": count
+                    for reason, count in profile_reason_counts.items()
+                },
             }
             status = DiscoveryCycleStatus.COMPLETED
             if execution.error_code or blocked or not execution.queries:

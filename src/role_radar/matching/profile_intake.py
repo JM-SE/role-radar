@@ -50,6 +50,7 @@ _REASON_ORDER = (
     "worldwide",
     "description_evidence_conflict",
 )
+PROFILE_INTAKE_REASON_CODES = _REASON_ORDER
 _LOCATION_MODES = (
     ("remote", "remote"),
     ("hybrid", "hybrid"),
@@ -69,7 +70,7 @@ _LOCATION_REGIONS = (
 )
 _REMOTE_POLICIES = ("remote", "hybrid", "onsite")
 
-__all__ = ["POLICY_VERSION", "evaluate_profile_intake"]
+__all__ = ["POLICY_VERSION", "PROFILE_INTAKE_REASON_CODES", "evaluate_profile_intake"]
 
 
 def _collector_field(data: Mapping[str, object], name: str) -> Any | None:
