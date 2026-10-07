@@ -52,14 +52,22 @@ class EligibilityReprocessingService:
             raise RuntimeError("product_eligibility_manifest_mismatch")
         if cutoff is None:
             cutoff = datetime.now(UTC).isoformat()
-        with self._session_factory() as session:
-            total = len(
-                list(
-                    session.scalars(
-                        select(Job.id).where(Job.created_at <= datetime.fromisoformat(cutoff))
+        is_canary = run.canary_budget_json is not None
+        if is_canary:
+            if current and current.get("total") != 0:
+                raise RuntimeError("product_eligibility_manifest_mismatch")
+            total = 0
+        else:
+            with self._session_factory() as session:
+                total = len(
+                    list(
+                        session.scalars(
+                            select(Job.id).where(
+                                Job.created_at <= datetime.fromisoformat(cutoff)
+                            )
+                        )
                     )
                 )
-            )
         return {
             "policy_version": POLICY_VERSION,
             "profile_binding": binding,
@@ -135,6 +143,8 @@ class EligibilityReprocessingService:
             profile = MatchingService(session).resolve_profile(run.profile_id)
         manifest = self._manifest(run, profile)
         self._save_manifest(run_id, manifest)
+        if run.canary_budget_json is not None:
+            return self._recompute(run_id, manifest)
         with self._session_factory() as session:
             cutoff = datetime.fromisoformat(manifest["cutoff_utc"])
             jobs = list(
