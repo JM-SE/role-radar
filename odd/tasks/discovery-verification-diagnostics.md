@@ -17,7 +17,7 @@ The consumed attempt recorded known=1, verified_sources=0, blocked=0, verified_j
 
 ## Task checklist
 ### VD-01 — Persist board verification counters with offline regressions
-- Status: `in_progress` — independent verifier `mv2n44n8-1h-j6ln` verified the candidate; closing the work-unit commit.
+- Status: `done` — independent verification passed; work-unit commit `ec2fdac275d2a11799871cae65831c29b93a9866` includes code, regressions and task evidence.
 - Route: delegated explorer, then one bounded writer; multi-file write and preparation-reading triggers apply. Verification follows native ASSESS; uncertain/high assessment requires a separate verifier.
 - Implement three fixed counters for failure, empty collection, and invalid normalized fields in existing discovery statistics; include zero values on applicable successful fresh executions.
 - Keep diagnostic state local to each execution, prevent service reuse/concurrent execution leakage, and retain reused-cycle compatibility.
@@ -44,5 +44,9 @@ The consumed attempt recorded known=1, verified_sources=0, blocked=0, verified_j
 - Parent spot check reread the persistence guard and reran git diff --check successfully before committing.
 - Limitations: initial RED is writer-reported, not independently re-observed. Short tuples are handled in source but lack explicit regression coverage; a non-sized value such as None lies outside the typed tuple contract and would raise. This was assessed as low risk, not a material finding. Unrestricted suite, build, installation and live/E2E checks were deliberately skipped. No historical live-cause reconstruction or MVP success is claimed.
 
+## Commit evidence
+- Work unit: `ec2fdac275d2a11799871cae65831c29b93a9866` — `feat(discovery): persist public board verification counters`. Contains exactly two source files, two test files and this task document. The pre-existing `.gitignore` edit was excluded and preserved. No push or PR.
+- All required focused checks passed before commit. This closure annotation is documentation only; source/test bytes are unchanged from the independently verified candidate.
+
 ## Next step
-Close the verified offline work-unit commit and record its identity. The next operational step would be a separately authorized protected installation and installed verification; neither installation nor a new live canary is authorized by this task.
+VD-01 is complete offline. A separately authorized protected installation and installed verification is the next proposed operational step. Installation, provider calls and another live canary remain out of scope; a new canary requires its own exact bounded human grant. MVP/E2E/feedback acceptance remains pending.
