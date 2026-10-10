@@ -63,6 +63,12 @@ from role_radar.services.acquired_job_writer import AcquiredJobWriter
 from role_radar.services.discovered_source_service import DiscoveredSourceService
 from role_radar.sources.identity import canonical_source_key
 
+_BOARD_VERIFICATION_STATS = (
+    "board_verification_failed",
+    "board_verification_empty",
+    "board_verification_invalid_fields",
+)
+
 
 class PipelineDiscoveryService:
     def __init__(
@@ -273,6 +279,7 @@ class PipelineDiscoveryService:
         by_ordinal = {query.ordinal: query for query in plan.queries}
         query_results: list[QueryExecution] = []
         verified: list[VerifiedBatch] = []
+        board_verification_counts = [0, 0, 0]
         seen_keys: set[str] = set()
         first_error: str | None = None
         for identity in plan.identities:
@@ -328,7 +335,9 @@ class PipelineDiscoveryService:
                     seen_keys.add(source_key)
                     if is_canary:
                         canary_verified = True
-                    batch = await self._verify(classified)
+                    batch, rejection = await self._verify(classified)
+                    if rejection is not None:
+                        board_verification_counts[rejection] += 1
                     if batch is not None:
                         verified.append(batch)
                         verified_count += 1
@@ -356,10 +365,16 @@ class PipelineDiscoveryService:
             query_results.append(query_execution)
             self._checkpoint_query(plan.cycle_id, query_execution)
         return DiscoveryExecution(
-            plan, tuple(query_results), tuple(verified), error_code=first_error
+            plan,
+            tuple(query_results),
+            tuple(verified),
+            error_code=first_error,
+            board_verification_counts=tuple(board_verification_counts),
         )
 
-    async def _verify(self, candidate: KnownOfficialCandidate) -> VerifiedBatch | None:
+    async def _verify(
+        self, candidate: KnownOfficialCandidate
+    ) -> tuple[VerifiedBatch | None, int | None]:
         source_key = canonical_source_key(candidate.source_type, dict(candidate.configuration))
         snapshot = SourceSnapshot(
             source_id=f"discovery:{source_key}",
@@ -381,8 +396,10 @@ class PipelineDiscoveryService:
             if len(inspect.signature(collect).parameters) == 1
             else await collect(snapshot, runtime)
         )
-        if not isinstance(outcome, CollectionSuccess) or not outcome.jobs:
-            return None
+        if not isinstance(outcome, CollectionSuccess):
+            return None, 0
+        if not outcome.jobs:
+            return None, 1
         has_valid = any(
             (normalized := normalize_raw_job(raw)).title
             and normalized.description
@@ -390,10 +407,10 @@ class PipelineDiscoveryService:
             for raw in outcome.jobs
         )
         if not has_valid:
-            return None
+            return None, 2
         # Preserve the collector's exact tuple; the common writer performs the
         # official prefilter without a second collection or transformation.
-        return VerifiedBatch(candidate, snapshot, outcome, outcome.jobs)
+        return VerifiedBatch(candidate, snapshot, outcome, outcome.jobs), None
 
     def finalize(self, execution: DiscoveryExecution) -> DiscoveryFinalization:
         if execution.plan.reused:
@@ -451,6 +468,16 @@ class PipelineDiscoveryService:
                 "verified_sources": verified_sources,
                 "verified_jobs": verified_jobs,
                 "blocked": blocked,
+                **{
+                    key: (
+                        execution.board_verification_counts[index]
+                        if index < len(execution.board_verification_counts)
+                        and type(execution.board_verification_counts[index]) is int
+                        and execution.board_verification_counts[index] >= 0
+                        else 0
+                    )
+                    for index, key in enumerate(_BOARD_VERIFICATION_STATS)
+                },
                 "writer_prefiltered": writer_prefiltered,
                 "writer_profile_rejected": writer_profile_rejected,
                 **{

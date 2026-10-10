@@ -127,10 +127,40 @@ def test_finalize_persists_bounded_writer_diagnostics_across_zero_accept_writes(
         "verified_sources": 2,
         "verified_jobs": 0,
         "blocked": 0,
+        "board_verification_failed": 0,
+        "board_verification_empty": 0,
+        "board_verification_invalid_fields": 0,
         "writer_prefiltered": 3,
         "writer_profile_rejected": 3,
         "profile_rejected_role_mismatch": 3,
     }
+
+
+def test_finalize_sanitizes_board_verification_counts(db_session) -> None:
+    run = RunRepository(db_session).create_run("test")
+    run_id = run.id
+    cycle = DiscoveryRepository(db_session).create_cycle(
+        run_id=run_id,
+        profile_snapshot={},
+        planner_version="test",
+        planner_hash="test",
+        policy_version="test",
+    )
+    db_session.commit()
+    plan = DiscoveryPlan(run.id, cycle.id, {}, (), (), "test", "test", "test")
+    execution = DiscoveryExecution(
+        plan, (), (), board_verification_counts=("private-value", -1, True)  # type: ignore[arg-type]
+    )
+
+    PipelineDiscoveryService(lambda: db_session).finalize(execution)
+
+    stats = DiscoveryRepository(db_session).get_cycle_for_run(run_id).stats_json
+    assert [stats[key] for key in (
+        "board_verification_failed",
+        "board_verification_empty",
+        "board_verification_invalid_fields",
+    )] == [0, 0, 0]
+    assert "private-value" not in stats.values()
 
 
 def test_writer_adds_missing_application_url_reason_once(db_session, monkeypatch) -> None:

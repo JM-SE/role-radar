@@ -185,6 +185,7 @@ class DiscoveryExecution:
     verified_batches: tuple[VerifiedBatch, ...]
     error_code: str | None = None
     reused_job_ids: tuple[str, ...] = ()
+    board_verification_counts: tuple[int, int, int] = (0, 0, 0)
 
     @property
     def producer_success(self) -> bool:
