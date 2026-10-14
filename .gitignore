@@ -20,3 +20,5 @@ dist/
 
 # Índice de Codegraph (generado)
 .codegraph/
+# Local Pi runtime state
+.atl/
