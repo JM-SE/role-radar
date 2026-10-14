@@ -24,8 +24,17 @@ class IntegerEvidence(_ExtractionModel):
 
 
 class EvidenceItem(_ExtractionModel):
+    """List item with optional per-item state (models emit it; broker validates it).
+
+    The broker validates model output against this schema before RoleRadar sees
+    it, so any field the model plausibly emits must be declared here. `state`
+    defaults to specified (a listed item is asserted present); unknown honors
+    an explicit model abstention without failing the whole extraction.
+    """
+
+    state: ValueState = "specified"
     value: str = Field(min_length=1)
-    evidence: str = Field(min_length=1)
+    evidence: str | None = None
 
 
 class SalaryEvidence(_ExtractionModel):

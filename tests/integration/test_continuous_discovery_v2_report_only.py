@@ -116,13 +116,12 @@ def _policy(profile: CandidateProfileV1) -> dict[str, object]:
     }
 
 
-def test_gate_a_report_only_is_blocked_before_start_marker_or_transport() -> None:
+def test_report_only_requires_explicit_gate_c_packet_before_execution() -> None:
     result = run_continuous_discovery_v2(
         Namespace(continuous_discovery_v2_command="run-report-only")
     )
     assert result.exit_code == 2
-    assert result.payload["code"] == "discovery_v2_live_gate_blocked"
-
+    assert result.payload["code"] == "discovery_v2_authorization_required"
 
 def test_offline_prepare_publishes_only_plan_and_operation(tmp_path: Path) -> None:
     profile = _profile()

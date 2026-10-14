@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any, cast
 
 import pytest
 from sqlalchemy.orm import Session
@@ -11,9 +10,7 @@ from sqlalchemy.orm import Session
 from role_radar.acquisition.configuration import AcquisitionConfig
 from role_radar.collectors.outcomes import CollectionMetrics, CollectionSuccess
 from role_radar.config import Settings
-from role_radar.continuous_acquisition.providers import BoundedCollectorProvider
 from role_radar.continuous_acquisition.runtime import (
-    EXIT_OK,
     EXIT_PRECONDITION,
     LIVE_ACKNOWLEDGEMENT,
     RuntimeCompositionError,
@@ -23,8 +20,6 @@ from role_radar.continuous_acquisition.runtime import (
     run_discovery_once,
 )
 from role_radar.db.models import Source
-from role_radar.domain.enums import SourceType
-from role_radar.repositories.sources import SourceRepository
 
 AS_OF = datetime(2026, 8, 14, 12, tzinfo=UTC)
 
@@ -97,42 +92,18 @@ def test_legacy_discovery_runtime_is_zero_network_and_zero_write(
     assert db_session.query(Source).count() == 0
 
 
-def test_acquisition_runtime_accepts_zero_jobs_and_replays(
+def test_acquisition_runtime_requires_profile_first_worker(
     db_session: Session, settings: Settings
 ) -> None:
-    SourceRepository(db_session).create_row(
-        source_id="source-acme",
-        source_type=SourceType.GREENHOUSE,
-        name="Acme",
-        source_key="greenhouse:acme",
-        configuration={"board_token": "acme"},
-        configuration_version=1,
-        enabled=True,
-    )
-    collector = BoundedCollectorProvider(
-        collector_factory=cast(Any, lambda _snapshot, _context: _EmptyCollector())
-    )
-    first = run_acquisition_once(
-        db_session,
-        settings=settings,
-        now=AS_OF,
-        owner="runtime-test",
-        canary_id="zero-jobs",
-        collector=collector,
-    )
-    replay = run_acquisition_once(
-        db_session,
-        settings=settings,
-        now=AS_OF,
-        owner="runtime-test",
-        canary_id="zero-jobs",
-        collector=collector,
-    )
-
-    assert first.exit_code == EXIT_OK
-    assert first.payload["state"] == "completed_empty"
-    assert replay.exit_code == EXIT_OK
-    assert replay.payload["replay"] is True
+    with pytest.raises(RuntimeCompositionError) as blocked:
+        run_acquisition_once(
+            db_session,
+            settings=settings,
+            now=AS_OF,
+            owner="runtime-test",
+            canary_id="zero-jobs",
+        )
+    assert blocked.value.code == "profile_first_worker_required"
 
 
 class _EmptyCollector:

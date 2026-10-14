@@ -113,6 +113,7 @@ class RecommendedAction(StrEnum):
 class NotificationMode(StrEnum):
     NONE = "none"
     DAILY_DIGEST = "daily_digest"
+    MATCH_ALERTS = "match_alerts"
 
 
 class NotificationBatchStatus(StrEnum):
@@ -163,4 +164,7 @@ class DiscoveryErrorCode(StrEnum):
     VERIFICATION_FAILED = "verification_failed"
     CAP_EXCEEDED = "cap_exceeded"
     UNSUPPORTED_CANDIDATE = "unsupported_candidate"
+    POLICY_MISSING = "discovery_policy_missing"
+    POLICY_INVALID = "discovery_policy_invalid"
+    PROFILE_BINDING_MISMATCH = "discovery_profile_binding_mismatch"
     INTERNAL = "internal"

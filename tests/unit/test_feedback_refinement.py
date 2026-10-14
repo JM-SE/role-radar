@@ -93,11 +93,16 @@ def seed_run(db_session: Session) -> tuple[str, str]:
     )
     DiscoveryRepository(db_session).create_cycle(
         run_id=run.id,
-        profile_snapshot={"profile_binding": {
-            "profile_id": profile_id, "row_version": 1, "schema_version": 1,
-            "canonical_profile_sha256": "0" * 64,
-        }},
-        planner_version="discovery-planner-v2", planner_hash="0" * 64,
+        profile_snapshot={
+            "profile_binding": {
+                "profile_id": profile_id,
+                "row_version": 1,
+                "schema_version": 1,
+                "canonical_profile_sha256": "0" * 64,
+            }
+        },
+        planner_version="discovery-planner-v2",
+        planner_hash="0" * 64,
         policy_version="gate-a-v1",
     )
     db_session.flush()
@@ -126,21 +131,31 @@ def seed_job(db_session: Session, run_id: str, title: str, description: str) -> 
     run = db_session.get(JobSearchRun, run_id)
     assert run is not None
     scored = RunJobRepository(db_session).claim_attempt(
-        run_id=run_id, job_id=job.id, stage=RunJobStage.SCORED,
-        max_attempts=3, now=datetime.now(UTC)
+        run_id=run_id,
+        job_id=job.id,
+        stage=RunJobStage.SCORED,
+        max_attempts=3,
+        now=datetime.now(UTC),
     )
     assert scored is not None
     RunJobRepository(db_session).finish(
-        scored, status=RunJobStatus.SUCCEEDED,
-        outcome={"feedback_eligibility": {
-            "policy_version": "feedback-remote-eligibility-v1",
-            "profile_binding": {
-                "profile_id": run.profile_id, "row_version": 1,
-                "schema_version": 1, "canonical_profile_sha256": "0" * 64,
-            },
-            "input_sha256": "1" * 64, "eligible": True,
-            "reason_codes": ["exact_region_match"], "extraction_id": "fixture-extraction",
-        }},
+        scored,
+        status=RunJobStatus.SUCCEEDED,
+        outcome={
+            "product_eligibility": {
+                "policy_version": "product-eligibility-v1",
+                "profile_binding": {
+                    "profile_id": run.profile_id,
+                    "row_version": 1,
+                    "schema_version": 1,
+                    "canonical_profile_sha256": "0" * 64,
+                },
+                "input_sha256": "1" * 64,
+                "eligible": True,
+                "reason_codes": ["exact_region_match"],
+                "extraction_id": "fixture-extraction",
+            }
+        },
     )
     db_session.flush()
     return job.id
@@ -224,6 +239,34 @@ def test_apply_rejects_empty_unknown_and_primary() -> None:
         apply_refinement(policy, ["missing"], new_policy_version="gate-a-v2")
     with pytest.raises(ValueError):
         apply_refinement(policy, ["backend"], new_policy_version="gate-a-v2")
+    with pytest.raises(ValueError, match="refinement_version_unchanged"):
+        apply_refinement(policy, ["legacy"], new_policy_version="gate-a-v1")
+
+
+def test_propose_includes_maybe_and_reason_counts(db_session: Session) -> None:
+    run_id, profile_id = seed_run(db_session)
+    seed_decisions(db_session, run_id)
+    extra = seed_job(db_session, run_id, "Java Developer", "COBOL maintenance role extra")
+    submit_feedback(
+        db_session,
+        run_id=run_id,
+        job_id=extra,
+        label="maybe",
+        primary_reason="role_scope_unclear",
+    )
+    db_session.commit()
+    proposal = propose_refinement(
+        db_session, run_id, make_policy(profile_id, PROFILE_PAYLOAD, "gate-a-v1")
+    )
+    by_group = {entry["group_id"]: entry for entry in proposal["groups"]}
+    assert by_group["legacy"]["maybes"] == 1
+    assert by_group["legacy"]["maybe_job_ids"] == [extra]
+    assert proposal["removals"] == ["legacy"]
+    assert proposal["primary_reason_counts"]["skills_mismatch"] == 3
+    assert proposal["primary_reason_counts"]["role_scope_unclear"] == 1
+    assert proposal["policy_sha256"] == make_policy(
+        profile_id, PROFILE_PAYLOAD, "gate-a-v1"
+    ).sha256
 
 
 def test_emit_policy_toml_round_trips() -> None:

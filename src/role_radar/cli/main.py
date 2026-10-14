@@ -87,12 +87,14 @@ def _seed_boards(settings: SettingsType, fixtures_dir: Path) -> int:
         engine.dispose()
 
 
-async def _run_collect(settings: SettingsType, reason: str) -> tuple[str, str, dict[str, int]]:
+async def _run_collect(
+    settings: SettingsType, reason: str, profile_id: str | None = None
+) -> tuple[str, str, dict[str, int]]:
     from role_radar.services.collection_service import CollectionService
 
     engine, session = _open_session(settings)
     try:
-        run = await CollectionService(session).run_collect(reason=reason)
+        run = await CollectionService(session).run_collect(reason=reason, profile_id=profile_id)
         session.commit()
         return run.id, run.status.value, run.stats_json or {}
     except Exception:
@@ -287,6 +289,7 @@ def _parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
     collect = subparsers.add_parser("collect", help="colecta y persiste ofertas habilitadas")
     collect.add_argument("--reason", default="cli_collect")
+    collect.add_argument("--profile-id", default=None)
     subparsers.add_parser("seed-boards", help="carga boards Greenhouse curados")
     discover = subparsers.add_parser("discover-boards", help="propone boards sin activarlos")
     discover.add_argument("--query", default=DISCOVERY_QUERY)
@@ -364,6 +367,19 @@ def _parser() -> argparse.ArgumentParser:
     run_retry = run_commands.add_parser("retry")
     run_retry.add_argument("--run-id", required=True)
     run_retry.add_argument("--idempotency-key")
+    campaign = subparsers.add_parser("source-campaign", help="bounded source activation campaign")
+    campaign_commands = campaign.add_subparsers(dest="campaign_command", required=True)
+    campaign_create = campaign_commands.add_parser("create")
+    campaign_create.add_argument("--profile-id", required=True)
+    campaign_create.add_argument("--created-since", required=True)
+    campaign_create.add_argument("--source-type", action="append", required=True)
+    campaign_create.add_argument("--batch-size", type=int, default=20)
+    campaign_create.add_argument("--max-failure-streak", type=int, default=2)
+    campaign_create.add_argument("--max-no-signal-streak", type=int, default=3)
+    campaign_tick = campaign_commands.add_parser("tick")
+    campaign_tick.add_argument("--active", action="store_true")
+    campaign_status = campaign_commands.add_parser("status")
+    campaign_status.add_argument("--active", action="store_true")
     subparsers.add_parser("worker", help="procesa runs pending/recoverables")
     discovery = subparsers.add_parser("discovery", help="estado local de adquisición (read-only)")
     discovery_commands = discovery.add_subparsers(dest="discovery_command", required=True)
@@ -1315,7 +1331,7 @@ def _run_control(settings: SettingsType, args: argparse.Namespace) -> int:
                 reason=reason,
                 profile_id=profile_id,
                 idempotency_key=key,
-                notification_mode="daily_digest" if reason == "scheduled" else "none",
+                notification_mode="match_alerts" if reason == "scheduled" else "none",
                 schedule_slot=slot if reason == "scheduled" else None,
                 discovery_mode=(
                     DiscoveryMode.SCHEDULED_DUE if reason == "scheduled" else DiscoveryMode.NONE
@@ -1333,6 +1349,7 @@ def _run_control(settings: SettingsType, args: argparse.Namespace) -> int:
         elif args.run_command == "show":
             run = service.get(args.run_id)
         else:
+
             run = service.retry(args.run_id, idempotency_key=args.idempotency_key)
         session.commit()
         print(json.dumps({"id": run.id, "status": run.status.value}))
@@ -1340,6 +1357,46 @@ def _run_control(settings: SettingsType, args: argparse.Namespace) -> int:
     except (RunConflict, RunNotFound, ValueError) as exc:
         session.rollback()
         print(f"role-radar: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        session.close()
+        engine.dispose()
+
+
+def _run_source_campaign(settings: SettingsType, args: argparse.Namespace) -> int:
+    from role_radar.scheduler import latest_interval_slot
+    from role_radar.services.source_activation import SourceActivationCampaignService
+    engine, session = _open_session(settings)
+    try:
+        service = SourceActivationCampaignService(session)
+        if args.campaign_command == "create":
+            created_since = datetime.fromisoformat(args.created_since.replace("Z", "+00:00"))
+            result = service.create(
+                profile_id=args.profile_id,
+                created_since=created_since.astimezone(UTC),
+                source_types=args.source_type,
+                batch_size=args.batch_size,
+                max_failure_streak=args.max_failure_streak,
+                max_no_signal_streak=args.max_no_signal_streak,
+                expected_managed=276,
+            )
+        elif args.campaign_command == "tick":
+            result = service.tick(
+                schedule_slot=latest_interval_slot(
+                    datetime.now(UTC),
+                    schedule_id="source-campaign-6h",
+                    interval_hours=6,
+                    timezone_name=settings.schedule_timezone,
+                )
+            )
+        else:
+            result = service.status()
+        session.commit()
+        print(json.dumps(result, sort_keys=True))
+        return 0
+    except Exception as exc:
+        session.rollback()
+        print(f"role-radar: {getattr(exc, 'code', str(exc))}", file=sys.stderr)
         return 1
     finally:
         session.close()
@@ -1786,6 +1843,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.command == "run":
             return _run_control(settings, args)
+        if args.command == "source-campaign":
+            return _run_source_campaign(settings, args)
         if args.command == "worker":
             from role_radar.worker.main import run_worker
 
@@ -1819,8 +1878,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 _run_discover(settings, NullSearchProvider(), args.query, args.max_results)
             )
         if args.command == "collect":
-            run_id, status, stats = asyncio.run(_run_collect(settings, args.reason))
-            print(json.dumps({"run_id": run_id, "status": status, "stats": stats}))
+            _, status, _stats = asyncio.run(_run_collect(settings, args.reason, args.profile_id))
             return 0 if status == "completed" else 1
         if args.command == "extract":
             print(json.dumps(asyncio.run(_run_extract(settings, args.job_id))))

@@ -144,3 +144,35 @@ def test_brave_paid_cap_allows_exact_limit_and_rejects_one_micro_usd_over(
         service.reserve(AcquisitionOperation("paid-over", "brave", "paid", "cycle", "h", 1, 1))
         is None
     )
+
+
+def test_brave_free_quota_allows_limit_then_rejects_next_reservation(
+    db_engine: Engine,
+) -> None:
+    config = AcquisitionConfig(
+        config_version="test-free-v1",
+        brave_free=FreeQuota(
+            enabled=True,
+            units_limit=1,
+            version="quota-v1",
+            credential_handle="brave-test",
+        ),
+        tavily_free=FreeQuota(),
+    )
+    service = AcquisitionBudgetService(
+        lambda: Session(db_engine),
+        config,
+        clock=lambda: datetime(2026, 9, 28, 12, tzinfo=UTC),
+    )
+
+    reservation = service.reserve(
+        AcquisitionOperation("free-exact", "brave", "free", "cycle", "h", 0)
+    )
+    over_limit = service.reserve(
+        AcquisitionOperation("free-over", "brave", "free", "cycle", "h", 1)
+    )
+
+    assert reservation is not None
+    assert reservation.created is True
+    assert reservation.status == "reserved"
+    assert over_limit is None

@@ -3,6 +3,7 @@
   "api_range": ">=0.1.1 <0.2.0",
   "workload": "role-radar",
   "capability": "structured-extraction",
+  "generation": {},
   "response": {
     "kind": "json_schema",
     "schema_required": true

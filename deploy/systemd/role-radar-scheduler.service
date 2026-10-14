@@ -3,8 +3,8 @@ Description=Enqueue latest role-radar scheduled slot
 
 [Service]
 Type=oneshot
-User=ROLE_RADAR_USER
-WorkingDirectory=/ROLE_RADAR_APP_DIR
+User=role-radar
+WorkingDirectory=/opt/role-radar
 EnvironmentFile=/etc/role-radar/role-radar.env
-Environment=PATH=/ROLE_RADAR_APP_DIR/.venv/bin:/usr/bin
-ExecStart=/usr/bin/env role-radar run create --reason scheduled --schedule-id daily
+Environment=PATH=/opt/role-radar/.venv/bin:/usr/bin
+ExecStart=/usr/bin/env role-radar source-campaign tick --active

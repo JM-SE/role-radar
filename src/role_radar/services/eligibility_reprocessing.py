@@ -1,4 +1,4 @@
-"""Restart-safe feedback eligibility pass over the pre-acquisition corpus."""
+"""Restart-safe product eligibility pass over the pre-intake corpus."""
 
 from __future__ import annotations
 
@@ -12,16 +12,17 @@ from sqlalchemy.orm import Session
 from role_radar.db.models import Job, JobSearchRun, RunJob
 from role_radar.domain.enums import RunJobStage, RunJobStatus
 from role_radar.domain.profile import canonical_profile_sha256
-from role_radar.matching.feedback_eligibility import (
+from role_radar.matching.product_eligibility import (
     POLICY_VERSION,
-    serialize_feedback_eligibility,
+    serialize_product_eligibility,
+    validate_product_eligibility,
 )
 from role_radar.repositories.runs import RunRepository
 from role_radar.services.matching_service import MatchingService
 from role_radar.services.pipeline_extraction import PipelineExtractionService
 
-MANIFEST_KEY = "feedback_eligibility_reprocessing"
-PURPOSE = "feedback_eligibility_reprocess"
+MANIFEST_KEY = "product_eligibility_reprocessing"
+PURPOSE = "product_eligibility_reprocess"
 
 
 def _binding(profile: Any) -> dict[str, Any]:
@@ -48,7 +49,7 @@ class EligibilityReprocessingService:
             current.get("policy_version") != POLICY_VERSION
             or current.get("profile_binding") != binding
         ):
-            raise RuntimeError("feedback_eligibility_manifest_mismatch")
+            raise RuntimeError("product_eligibility_manifest_mismatch")
         if cutoff is None:
             cutoff = datetime.now(UTC).isoformat()
         with self._session_factory() as session:
@@ -94,11 +95,14 @@ class EligibilityReprocessingService:
             )
         valid = [r for r in rows if self._valid_checkpoint(r, manifest)]
         eligible = sum(
-            bool((r.outcome_json or {}).get("decision", {}).get("eligible")) for r in valid
+            bool((r.outcome_json or {}).get("product_eligibility", {}).get("eligible"))
+            for r in valid
         )
         reasons: dict[str, int] = {}
         for row in valid:
-            for reason in (row.outcome_json or {}).get("decision", {}).get("reason_codes", []):
+            for reason in (row.outcome_json or {}).get(
+                "product_eligibility", {}
+            ).get("reason_codes", []):
                 reasons[reason] = reasons.get(reason, 0) + 1
         manifest.update(
             completed=len(valid),
@@ -114,20 +118,20 @@ class EligibilityReprocessingService:
     @staticmethod
     def _valid_checkpoint(row: RunJob, manifest: dict[str, Any]) -> bool:
         outcome = row.outcome_json or {}
-        decision = outcome.get("decision") or {}
+        decision = outcome.get("product_eligibility")
         return (
             row.status is RunJobStatus.SUCCEEDED
             and outcome.get("purpose") == PURPOSE
-            and decision.get("policy_version") == manifest["policy_version"]
-            and decision.get("profile_binding") == manifest["profile_binding"]
-            and isinstance(decision.get("input_sha256"), str)
+            and validate_product_eligibility(
+                decision, profile_binding=manifest["profile_binding"]
+            )
         )
 
     async def process(self, run_id: str) -> dict[str, Any]:
         with self._session_factory() as session:
             run = session.get(JobSearchRun, run_id)
             if run is None or run.profile_id is None:
-                raise RuntimeError("feedback_eligibility_profile_missing")
+                raise RuntimeError("product_eligibility_profile_missing")
             profile = MatchingService(session).resolve_profile(run.profile_id)
         manifest = self._manifest(run, profile)
         self._save_manifest(run_id, manifest)
@@ -160,7 +164,7 @@ class EligibilityReprocessingService:
             except Exception:
                 pass
             with self._session_factory() as session:
-                score, decision = MatchingService(session).score_job_with_eligibility(
+                score, decision = MatchingService(session).score_job_with_product_eligibility(
                     job_id=job.id, profile_id=manifest["profile_binding"]["profile_id"]
                 )
                 RunRepository(session).update_run_job(
@@ -170,7 +174,7 @@ class EligibilityReprocessingService:
                     status=RunJobStatus.SUCCEEDED,
                     outcome_json={
                         "purpose": PURPOSE,
-                        "decision": serialize_feedback_eligibility(decision),
+                        "product_eligibility": serialize_product_eligibility(decision),
                         "job_score_id": score.id,
                     },
                 )

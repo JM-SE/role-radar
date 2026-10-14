@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -23,7 +23,7 @@ from role_radar.evaluation.blind_labeling.display import render_pilot_item
 from role_radar.evaluation.blind_labeling.display_policy import DISPLAY_VISIBLE_EMAIL_PATTERN
 from role_radar.evaluation.blind_labeling.interaction import compose_rendered_item
 from role_radar.evaluation.blind_labeling.validation import ValidationError, validate_decision
-from role_radar.matching.feedback_eligibility import validate_feedback_eligibility
+from role_radar.matching.product_eligibility import validate_product_eligibility
 from role_radar.repositories.discovery import DiscoveryRepository
 from role_radar.repositories.feedback import FeedbackRepository
 
@@ -78,19 +78,34 @@ def _is_discovery_row(row: RunJob) -> bool:
     )
 
 
-def collect_candidates(session: Session, run_id: str) -> tuple[FeedbackCandidate, ...]:
-    """Devuelve los candidatos de discovery del run en orden determinista."""
-
+def collect_candidates(
+    session: Session, run_id: str, *, scope: Literal["all", "current", "reprocessed"] = "all"
+) -> tuple[FeedbackCandidate, ...]:
+    """Return the exact run's eligible evidence pool for the selected scope."""
+    stages = {
+        "current": (RunJobStage.SCORED,),
+        "reprocessed": (RunJobStage.PREFILTERED,),
+        "all": (RunJobStage.SCORED, RunJobStage.PREFILTERED),
+    }
+    if scope not in stages:
+        raise ValueError("feedback_scope_invalid")
     rows = session.execute(
         select(RunJob, Job)
         .join(Job, Job.id == RunJob.job_id)
-        .where(RunJob.run_id == run_id)
-        .order_by(RunJob.job_id)
+        .where(
+            RunJob.run_id == run_id,
+            RunJob.stage.in_(stages[scope]),
+            RunJob.status == RunJobStatus.SUCCEEDED,
+        )
+        .order_by(RunJob.created_at, RunJob.job_id)
     ).all()
     candidates: list[FeedbackCandidate] = []
     seen: set[str] = set()
     for run_job, job in rows:
-        if not _is_discovery_row(run_job) or job.id in seen:
+        if job.id in seen:
+            continue
+        outcome = run_job.outcome_json or {}
+        if not isinstance(outcome.get("product_eligibility"), dict):
             continue
         seen.add(job.id)
         candidates.append(
@@ -121,65 +136,105 @@ def _renderable(item: FeedbackCandidate) -> bool:
 
 
 def _eligibility_for_run(
-    session: Session, run: JobSearchRun, candidates: tuple[FeedbackCandidate, ...], cycle: Any
+    session: Session,
+    run: JobSearchRun,
+    candidates: tuple[FeedbackCandidate, ...],
+    cycle: Any,
+    *,
+    scope: Literal["all", "current", "reprocessed"],
 ) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
-    """Join discovery rows to their immutable, same-run scoring checkpoint."""
-    manifest = (run.stats_json or {}).get("feedback_eligibility_reprocessing") or {}
-    binding = manifest.get("profile_binding") or (cycle.profile_snapshot_json or {}).get(
-        "profile_binding", {}
-    ) if cycle is not None else manifest.get("profile_binding", {})
+    """Validate exact-run product decisions against its frozen manifest."""
+    manifest = (run.stats_json or {}).get("product_eligibility_reprocessing") or {}
+    binding = manifest.get("profile_binding") or {}
+    stages = {
+        "current": (RunJobStage.SCORED,),
+        "reprocessed": (RunJobStage.PREFILTERED,),
+        "all": (RunJobStage.SCORED, RunJobStage.PREFILTERED),
+    }[scope]
     rows = {
         row.job_id: row
         for row in session.scalars(
-            select(RunJob).where(
+            select(RunJob)
+            .where(
                 RunJob.run_id == run.id,
-                RunJob.stage == RunJobStage.SCORED,
+                RunJob.stage.in_(stages),
                 RunJob.status == RunJobStatus.SUCCEEDED,
             )
+            .order_by(RunJob.stage)
         )
     }
     decisions: dict[str, dict[str, Any]] = {}
     counts: dict[str, Any] = {"eligible": 0, "excluded": 0, "reason_counts": {}}
     for candidate in candidates:
         row = rows.get(candidate.job_id)
-        decision = (row.outcome_json or {}).get("feedback_eligibility") if row else None
-        if row is not None and (
-            not isinstance(binding, dict)
-            or not {"profile_id", "row_version", "schema_version", "canonical_profile_sha256"}
-            <= binding.keys()
-        ):
-            raise RuntimeError("feedback_eligibility_binding_invalid")
-        valid = validate_feedback_eligibility(decision, profile_binding=binding or None)
-        if valid and isinstance(decision, dict) and decision.get("eligible") is True:
+        decision = (row.outcome_json or {}).get("product_eligibility") if row else None
+        valid = validate_product_eligibility(decision, profile_binding=binding or None)
+        if valid and isinstance(decision, dict):
             decisions[candidate.job_id] = decision
-            counts["eligible"] += 1
+            if decision.get("eligible") is True:
+                counts["eligible"] += 1
+            else:
+                counts["excluded"] += 1
+                for reason in decision.get("reason_codes", []):
+                    counts["reason_counts"][reason] = counts["reason_counts"].get(reason, 0) + 1
         else:
             counts["excluded"] += 1
-            reason = "missing_eligibility" if row is None else (
-                "malformed_eligibility"
-                if decision is None
-                or not validate_feedback_eligibility(
-                    decision, profile_binding=binding or None
-                )
-                else "stale_input"
-            )
-            reasons = counts["reason_counts"]
-            reasons[reason] = reasons.get(reason, 0) + 1
+            reason = "missing_eligibility" if row is None else "malformed_eligibility"
+            counts["reason_counts"][reason] = counts["reason_counts"].get(reason, 0) + 1
     counts["reason_counts"] = dict(sorted(counts["reason_counts"].items()))
     return decisions, counts
 
 
-def build_surface(session: Session, run_id: str) -> FeedbackSurface:
-    """Ensambla la superficie ordenada con relevancia recomputada del snapshot."""
-
+def build_surface(
+    session: Session, run_id: str, *, scope: Literal["all", "current", "reprocessed"] = "all"
+) -> FeedbackSurface:
+    """Assemble the selected immutable current/history feedback surface."""
     run = session.get(JobSearchRun, run_id)
     if run is None:
         raise LookupError("run not found")
     cycle = DiscoveryRepository(session).get_cycle_for_run(run_id)
     approved = _approved_phrases(session, run_id)
-    candidates = collect_candidates(session, run_id)
-    admitted, eligibility = _eligibility_for_run(session, run, candidates, cycle)
-    candidates = tuple(item for item in candidates if item.job_id in admitted)
+    candidates = collect_candidates(session, run_id, scope=scope)
+    admitted, eligibility = _eligibility_for_run(session, run, candidates, cycle, scope=scope)
+    if scope == "reprocessed":
+        scores = {
+            row.job_id: (row.outcome_json or {}).get("job_score_id")
+            for row in session.scalars(
+                select(RunJob).where(
+                    RunJob.run_id == run_id,
+                    RunJob.stage == RunJobStage.PREFILTERED,
+                    RunJob.status == RunJobStatus.SUCCEEDED,
+                )
+            )
+        }
+        jobs = {
+            job.id: job
+            for job in session.scalars(
+                select(Job).where(Job.id.in_([item.job_id for item in candidates]))
+            )
+        }
+        candidates = tuple(
+            item
+            for _, item in sorted(
+                (
+                    (
+                        scores.get(item.job_id) is None,
+                        scores.get(item.job_id),
+                        -(
+                            jobs[item.job_id].first_seen_at.timestamp()
+                            if jobs.get(item.job_id) and jobs[item.job_id].first_seen_at
+                            else 0.0
+                        ),
+                        item.job_id,
+                    ),
+                    item,
+                )
+                for item in candidates
+                if item.job_id in admitted
+            )
+        )
+    else:
+        candidates = tuple(item for item in candidates if item.job_id in admitted)
     renderable = [item for item in candidates if _renderable(item)]
     latest = FeedbackRepository(session).latest_for_run(run_id)
     if approved:
@@ -316,9 +371,14 @@ def submit_feedback(
     primary_reason: str,
     secondary_reasons: Sequence[str] = (),
     note: str | None = None,
+    reviewer: str | None = None,
     expected_revision: int | None = None,
 ) -> tuple[Any, bool]:
     """Valida con el contrato blind y anexa una revisión idempotente."""
+
+    # Single-user product: the interactive CLI has no login, so an omitted
+    # reviewer is the local operator rather than unknown provenance.
+    reviewer_identity = reviewer or "operator"
 
     try:
         parsed_label = Label(label)
@@ -332,10 +392,22 @@ def submit_feedback(
             note=note,
         )
     )
+    run = session.get(JobSearchRun, run_id)
+    if run is None:
+        raise LookupError("run not found")
     surface = build_surface(session, run_id)
     bands = {item.job_id: item.band for item in surface.items}
+    texts = {item.job_id: item.text_sha256 for item in surface.items}
     if job_id not in bands:
         raise LookupError("feedback job not in run")
+    binding = ((run.stats_json or {}).get("product_eligibility_reprocessing") or {}).get(
+        "profile_binding"
+    ) or {}
+    cycle = DiscoveryRepository(session).get_cycle_for_run(run_id)
+    snapshot = dict(cycle.profile_snapshot_json) if cycle is not None else {}
+    policy_hash = snapshot.get("policy_sha256")
+    if not isinstance(policy_hash, str):
+        policy_hash = None
     return FeedbackRepository(session).submit(
         run_id=run_id,
         job_id=job_id,
@@ -345,14 +417,28 @@ def submit_feedback(
         note=decision.note,
         relevance_band=bands[job_id],
         policy_version=surface.policy_version,
+        profile_id=binding.get("profile_id") if isinstance(binding, dict) else None,
+        row_version=binding.get("row_version") if isinstance(binding, dict) else None,
+        schema_version=binding.get("schema_version") if isinstance(binding, dict) else None,
+        canonical_profile_sha256=binding.get("canonical_profile_sha256")
+        if isinstance(binding, dict)
+        else None,
+        policy_hash=policy_hash,
+        relevance_version=surface.relevance_version,
+        text_sha256=texts[job_id],
+        reviewer=reviewer_identity,
         expected_revision=expected_revision,
     )
 
 
-def summarize(session: Session, run_id: str) -> dict[str, Any]:
-    """Resume decisiones y bandas sin exponer texto de ofertas."""
-
-    surface = build_surface(session, run_id)
+def summarize(
+    session: Session,
+    run_id: str,
+    *,
+    scope: Literal["all", "current", "reprocessed"] = "all",
+) -> dict[str, Any]:
+    """Summarize labels, reasons, and selected scope without job text."""
+    surface = build_surface(session, run_id, scope=scope)
     base = FeedbackRepository(session).summary(run_id)
     bands: dict[str, int] = {}
     for item in surface.items:
@@ -361,6 +447,7 @@ def summarize(session: Session, run_id: str) -> dict[str, Any]:
             bands[key] = bands.get(key, 0) + 1
     return {
         **base,
+        "scope": scope,
         "cycle_id": surface.cycle_id,
         "planner_version": surface.planner_version,
         "policy_version": surface.policy_version,

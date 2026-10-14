@@ -1,8 +1,8 @@
 [Unit]
-Description=Daily role-radar enqueue timer
+Description=Six-hourly role-radar campaign enqueue timer
 
 [Timer]
-OnCalendar=*-*-* 08:00:00 America/Argentina/Buenos_Aires
+OnCalendar=*-*-* 00,06,12,18:00:00 America/Argentina/Buenos_Aires
 Persistent=true
 Unit=role-radar-scheduler.service
 

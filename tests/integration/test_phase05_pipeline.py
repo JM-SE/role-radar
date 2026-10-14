@@ -77,7 +77,9 @@ def test_pipeline_fake_completes_and_replay_is_effectively_once(tmp_path: Path) 
                     application_url="https://boards.greenhouse.io/acme/jobs/123",
                     title="Backend Engineer",
                     company="Acme",
+                    location="Remote Spain",
                     description="Build and operate the core API platform at Acme.",
+                    structured_data={"remote_policy": "remote", "regions": ["spain"]},
                     collected_at=datetime.now(UTC),
                 )
             ]
@@ -96,7 +98,7 @@ def test_pipeline_fake_completes_and_replay_is_effectively_once(tmp_path: Path) 
         assert completed.status is JobSearchRunStatus.COMPLETED
         stats = completed.stats_json
         assert stats is not None
-        manifest = stats["feedback_eligibility_reprocessing"]
+        manifest = stats["product_eligibility_reprocessing"]
         assert manifest["complete"] is True
         assert manifest["pending"] == 0
         assert manifest["eligible"] + manifest["excluded"] == manifest["total"]
@@ -135,13 +137,20 @@ def test_restrictive_profile_preserves_broad_acquisition_contract(tmp_path: Path
                 calls.append(snapshot)
                 return CollectionSuccess(
                     status="ok",
-                    jobs=(RawJob(
-                        source="greenhouse", external_id="same-job",
-                        source_url="https://boards.greenhouse.io/acme/jobs/same-job",
-                        application_url="https://boards.greenhouse.io/acme/jobs/same-job",
-                        title="Backend Engineer", company="Acme", description="Build APIs",
-                        collected_at=datetime.now(UTC),
-                    ),),
+                    jobs=(
+                        RawJob(
+                            source="greenhouse",
+                            external_id="same-job",
+                            source_url="https://boards.greenhouse.io/acme/jobs/same-job",
+                            application_url="https://boards.greenhouse.io/acme/jobs/same-job",
+                            title="Backend Engineer",
+                            company="Acme",
+                            location="Remote Spain",
+                            description="Build APIs",
+                            structured_data={"remote_policy": "remote", "regions": ["spain"]},
+                            collected_at=datetime.now(UTC),
+                        ),
+                    ),
                     metrics=CollectionMetrics(provider_items=1, accepted_items=1),
                 )
 
@@ -187,11 +196,13 @@ def test_restrictive_profile_preserves_broad_acquisition_contract(tmp_path: Path
     assert restrictive["snapshot"] == broad["snapshot"]
     assert restrictive["calls"] == broad["calls"]
     assert restrictive["metrics"] == broad["metrics"]
-    assert restrictive["pool"] == broad["pool"] == 1
-    assert restrictive["acquired"] == broad["acquired"] == 3
-    assert len(restrictive["references"]) == len(broad["references"]) == 1
-    assert restrictive["references"][0][1] == restrictive["source_id"]
-
+    assert broad["pool"] == 1
+    assert broad["acquired"] == 3
+    assert len(broad["references"]) == 1
+    assert broad["references"][0][1] == broad["source_id"]
+    assert restrictive["pool"] == 0
+    assert restrictive["acquired"] == 0
+    assert restrictive["references"] == []
 
 
 def test_pipeline_blocks_acquisition_while_reprocessing_is_pending(tmp_path: Path) -> None:
@@ -219,5 +230,5 @@ def test_pipeline_blocks_acquisition_while_reprocessing_is_pending(tmp_path: Pat
     cast(Any, pipeline)._eligibility = PendingEligibility()
     cast(Any, pipeline._collection).prepare = lambda *_args, **_kwargs: calls.append("acquired")
     result = asyncio.run(pipeline.run(run_id))
-    assert result.error_code == "feedback_eligibility_reprocessing_pending"
+    assert result.error_code == "product_eligibility_reprocessing_pending"
     assert calls == []

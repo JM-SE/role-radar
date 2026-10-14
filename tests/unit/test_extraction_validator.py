@@ -23,6 +23,46 @@ def test_invalid_evidence_is_reported_without_returning_content() -> None:
     assert "seniority.evidence_not_found" in errors
 
 
+def test_folded_match_accepts_connector_paraphrase() -> None:
+    payload = JobExtractionPayload.model_validate(
+        {
+            "required_skills": [
+                {"value": "JavaScript/TypeScript", "evidence": "JavaScript/TypeScript & React"},
+            ],
+        }
+    )
+    description = (
+        "7+ Years of hands-on experience with modern Javascript/Typescript frontend "
+        "development and React (or equivalent component frameworks)"
+    )
+    assert validate_extraction(payload, description) == ()
+
+
+def test_folded_match_still_rejects_invented_quotes() -> None:
+    payload = JobExtractionPayload.model_validate(
+        {
+            "required_skills": [
+                {"value": "Go", "evidence": "5 years of Go and Kubernetes"},
+            ],
+        }
+    )
+    errors = validate_extraction(payload, "Python and Django role with on-call rotation.")
+    assert "required_skills[0].evidence_not_found" in errors
+
+
+def test_item_state_is_accepted_and_abstention_skipped() -> None:
+    payload = JobExtractionPayload.model_validate(
+        {
+            "required_skills": [
+                {"state": "specified", "value": "Python", "evidence": "Python and Django"},
+                {"state": "unknown", "value": "Go", "evidence": None},
+            ],
+        }
+    )
+    errors = validate_extraction(payload, "Python and Django role.")
+    assert errors == ()
+
+
 def test_duplicate_items_and_incoherent_salary_are_reported() -> None:
     payload = JobExtractionPayload.model_validate(
         {

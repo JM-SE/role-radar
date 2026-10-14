@@ -11,14 +11,33 @@ POLICY_VERSION = "policy-v1"
 ROLE_ALIASES: dict[str, str] = {
     "backend developer": "backend",
     "backend engineer": "backend",
+    "frontend developer": "frontend",
+    "frontend engineer": "frontend",
+    "react engineer": "frontend",
+    "react developer": "frontend",
+    "vue engineer": "frontend",
+    "vue developer": "frontend",
+    "angular engineer": "frontend",
+    "angular developer": "frontend",
+    "ui developer": "ui",
     "platform engineer": "platform",
     "software engineer": "software",
     "full stack engineer": "full_stack",
+    "full stack": "full_stack",
+    "fullstack": "full_stack",
     "fullstack engineer": "full_stack",
+    "full stack developer": "full_stack",
+    "fullstack developer": "full_stack",
     "sre": "site_reliability",
     "site reliability engineer": "site_reliability",
 }
-REGION_ALIASES: dict[str, str] = {"espana": "spain", "es": "spain", "eu": "europe"}
+REGION_ALIASES: dict[str, str] = {
+    "espana": "spain",
+    "es": "spain",
+    "eu": "europe",
+    "latin america": "latam",
+    "latín américa": "latam",
+}
 REMOTE_ALIASES: dict[str, str] = {
     "remote": "remote",
     "fully remote": "remote",
@@ -65,6 +84,14 @@ def canonical_role(value: str) -> str:
 
 def canonical_region(value: str) -> str:
     return REGION_ALIASES.get(key(value), key(value))
+
+
+def region_includes(scope: str, region: str) -> bool:
+    """Whether a supported broad offer scope explicitly covers a profile region."""
+    scope_key, region_key = canonical_region(scope), canonical_region(region)
+    return scope_key == region_key or scope_key == "worldwide" or (
+        scope_key == "latam" and region_key == "argentina"
+    )
 
 
 def canonical_remote(value: str) -> str:

@@ -1,10 +1,8 @@
-"""Offline composition root for profile-driven continuous discovery v2.
+"""Composition root for profile-driven continuous discovery v2.
 
-The only executable v2 entrypoints in Gate A are planning and report-only
-operation preparation.  The two network-capable modes intentionally return a
-stable block before touching credentials, a database, DNS, HTTP, or a provider
-adapter.  This module therefore has no dependency on the historical v1
-authorization/runtime helpers.
+Planning and report-only preparation remain offline.  The explicitly
+authorized report-only command delegates to the existing Gate C operator
+boundary; registration remains unavailable from this command.
 """
 
 from __future__ import annotations
@@ -420,6 +418,93 @@ def build_search_runtime(
     )
     return runtime
 
+def _execute_authorized_report_only(
+    args: object,
+    *,
+    live_runner: Callable[[object], object] | None = None,
+) -> RuntimeResult:
+    """Run one already-authorized Gate C report-only operation.
+
+    The dedicated v2 command accepts the same immutable packet and artifact
+    inputs as the reviewed ``r2-real-gate-c run`` boundary.  It does not
+    manufacture authorization, and it never exposes a registration path.
+    """
+
+    required = (
+        "packet",
+        "approval_reference",
+        "repo",
+        "history_roots",
+        "verdict",
+        "policy",
+        "acquisition_config",
+    )
+    missing = [
+        name
+        for name in required
+        if getattr(args, name, None) in (None, "", ())
+    ]
+    history_roots = getattr(args, "history_roots", None)
+    if missing or not isinstance(history_roots, (list, tuple)) or not history_roots:
+        return RuntimeResult(
+            {
+                "schema_version": RESULT_SCHEMA_VERSION,
+                "result": "blocked",
+                "code": "discovery_v2_authorization_required",
+            },
+            EXIT_BLOCKED,
+        )
+
+    if live_runner is not None:
+        value = live_runner(args)
+    else:
+        try:
+            from role_radar.config import Settings
+            from role_radar.evaluation.r2_real_gate_c_runner import (
+                open_runtime_inputs,
+                run_live_gate_c,
+            )
+
+            database_url = getattr(args, "database_url", None)
+            settings = Settings(database_url=database_url) if database_url else Settings()
+            engine, session, config, plan = open_runtime_inputs(
+                database_url=settings.database_url,
+                policy_path=Path(str(getattr(args, "policy"))),
+                acquisition_config_path=Path(str(getattr(args, "acquisition_config"))),
+            )
+            try:
+                value = run_live_gate_c(
+                    packet_path=Path(str(getattr(args, "packet"))),
+                    repo_path=Path(str(getattr(args, "repo"))),
+                    history_roots=tuple(Path(str(item)) for item in history_roots),
+                    verdict_path=Path(str(getattr(args, "verdict"))),
+                    approval_reference=str(getattr(args, "approval_reference")),
+                    config=config,
+                    plan=plan,
+                    session=session,
+                ).as_dict()
+            finally:
+                session.close()
+                engine.dispose()
+        except RuntimeCompositionError:
+            raise
+        except Exception as exc:
+            code = getattr(exc, "code", None)
+            raise RuntimeCompositionError(
+                code if isinstance(code, str) and code.startswith("r2_gate_c_")
+                else "discovery_v2_live_failed"
+            ) from exc
+
+    if isinstance(value, RuntimeResult):
+        return value
+    if not isinstance(value, Mapping):
+        raise RuntimeCompositionError("discovery_v2_live_result_invalid", exit_code=EXIT_INTERNAL)
+    payload = dict(value)
+    payload.setdefault("schema_version", RESULT_SCHEMA_VERSION)
+    return RuntimeResult(payload, EXIT_OK)
+
+
+
 
 def run_discovery_v2(
     *,
@@ -507,6 +592,7 @@ def run_continuous_discovery_v2(
     artifact_root: Path | None = None,
     clock: Callable[[], datetime] | datetime | None = None,
     nonce_source: Callable[[], bytes] | None = None,
+    authorized_live_runner: Callable[[object], object] | None = None,
 ) -> RuntimeResult:
     """Dispatch the dedicated command using only injected offline seams."""
 
@@ -523,7 +609,10 @@ def run_continuous_discovery_v2(
                 },
                 EXIT_BLOCKED,
             )
-        return run_discovery_v2(mode="report_only")
+        return _execute_authorized_report_only(
+            args,
+            live_runner=authorized_live_runner,
+        )
     if command == "run-register":
         if any(
             getattr(args, name, None) for name in ("acknowledgement", "manual_canary", "scheduled")

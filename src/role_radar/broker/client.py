@@ -40,6 +40,22 @@ _ERROR_CLASSES = {
 _FINISH_REASONS = {"stop", "length", "content_filter", "unknown"}
 
 
+def _schema_fingerprint(schema: Mapping[str, Any] | None) -> str:
+    """Bind the key to the exact contract the broker validates output against.
+
+    The broker rejects output against the submitted schema, so two submissions
+    with the same logical operation but different schemas are different work:
+    replaying an old key with a new schema yields idempotency_conflict instead
+    of a fresh task. Hashing the canonical schema bytes into the key keeps
+    retries identical (same schema) while schema changes get fresh tasks.
+    """
+
+    if not schema:
+        return ""
+    encoded = json.dumps(schema, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def derive_idempotency_key(
     *,
     job_id: str,
@@ -47,9 +63,17 @@ def derive_idempotency_key(
     prompt_version: str,
     schema_version: str,
     corrective_attempt: Literal[0, 1],
+    response_schema: Mapping[str, Any] | None = None,
 ) -> str:
     """Deriva la key normativa sin incluir secretos ni selección de modelo."""
-    values = (job_id, input_hash, prompt_version, schema_version, str(corrective_attempt))
+    values = (
+        job_id,
+        input_hash,
+        prompt_version,
+        schema_version,
+        str(corrective_attempt),
+        _schema_fingerprint(response_schema),
+    )
     encoded = "\x1f".join(f"{len(value)}:{value}" for value in values).encode("utf-8")
     return f"rr-extract-{hashlib.sha256(encoded).hexdigest()}"
 
@@ -100,7 +124,22 @@ class LLMBrokerClient(LLMProvider):
         self._poll_interval_seconds = poll_interval_seconds
         self._result_timeout_seconds = result_timeout_seconds
         self._submit_reconcile_attempts = submit_reconcile_attempts
-        self._client = http_client or client or httpx.AsyncClient()
+        # httpx defaults to 5s everywhere, shorter than a real instruct
+        # inference; bound connect/pool tightly but let read cover the
+        # result deadline instead of failing submit/poll with bare timeouts.
+        if http_client is not None:
+            self._client = http_client
+        elif client is not None:
+            self._client = client
+        else:
+            self._client = httpx.AsyncClient(
+                timeout=httpx.Timeout(
+                    connect=10.0,
+                    read=max(30.0, result_timeout_seconds),
+                    write=10.0,
+                    pool=10.0,
+                )
+            )
         self._owns_client = http_client is None and client is None
 
     async def __aenter__(self) -> "LLMBrokerClient":
@@ -133,6 +172,7 @@ class LLMBrokerClient(LLMProvider):
                 prompt_version=request.prompt_version,
                 schema_version=request.schema_version,
                 corrective_attempt=request.corrective_attempt,
+                response_schema=request.response_schema,
             )
         headers = {
             "Authorization": f"Bearer {self._token}",

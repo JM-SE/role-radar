@@ -22,7 +22,9 @@ class PipelineNotificationService:
         self._settings = settings
         self._gateway = gateway
 
-    async def process(self, run_id: str, *, recipient_key: str) -> NotificationBatch | None:
+    async def process(
+        self, run_id: str, *, recipient_key: str
+    ) -> tuple[NotificationBatch, ...]:
         return await self._service.process(
             run_id, recipient_key=recipient_key, gateway=self._gateway
         )

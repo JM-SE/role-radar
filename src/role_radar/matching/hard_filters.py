@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from role_radar.domain.profile import CandidateProfileV1
 from role_radar.matching.contracts import HardBlocker, JobFacts
-from role_radar.matching.policy import canonical_region, canonical_role, key
+from role_radar.matching.policy import canonical_region, canonical_role, key, region_includes
 
 
 def excluded_role(profile: CandidateProfileV1, facts: JobFacts) -> HardBlocker | None:
@@ -41,10 +41,31 @@ def onsite_incompatible_remote_only(
 
 
 def region_incompatible(profile: CandidateProfileV1, facts: JobFacts) -> HardBlocker | None:
-    if not facts.regions or not profile.regions or "worldwide" in facts.regions:
+    if not profile.regions:
         return None
     candidate = {canonical_region(value) for value in profile.regions}
-    if not candidate.intersection(facts.regions):
+    candidate_locations = candidate - {"worldwide"}
+    excluded = set(facts.excluded_regions)
+    if any(
+        region_includes(excluded_region, profile_region)
+        for excluded_region in excluded
+        for profile_region in candidate_locations
+    ):
+        return HardBlocker(
+            "region_incompatible",
+            "excluded_regions",
+            tuple(sorted(excluded)),
+            (facts.excluded_regions_provenance,),
+        )
+    if "worldwide" in facts.regions:
+        return None
+    if not facts.regions:
+        return None
+    if not any(
+        region_includes(job_scope, profile_region)
+        for job_scope in facts.regions
+        for profile_region in candidate_locations
+    ):
         return HardBlocker(
             "region_incompatible", "regions", facts.regions, (facts.regions_provenance,)
         )
@@ -54,13 +75,24 @@ def region_incompatible(profile: CandidateProfileV1, facts: JobFacts) -> HardBlo
 def work_authorization_unavailable(
     profile: CandidateProfileV1, facts: JobFacts
 ) -> HardBlocker | None:
-    if not facts.authorization_required and not facts.no_sponsorship:
+    if (
+        not facts.authorization_required
+        and not facts.no_sponsorship
+        and not facts.work_authorizations
+    ):
         return None
     required = set(facts.work_authorizations)
     constraints = profile.hard_constraints
     unavailable = set(constraints.unavailable_work_authorizations)
     available = set(constraints.available_work_authorizations)
-    if required and (
+    if not required:
+        return HardBlocker(
+            "authorization_unknown",
+            "work_authorization",
+            (),
+            (facts.authorization_provenance,),
+        )
+    if (
         required & unavailable or (available and not required.intersection(available))
     ):
         return HardBlocker(

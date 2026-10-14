@@ -48,13 +48,17 @@ def register_feedback_parser(subparsers: Any) -> argparse.ArgumentParser:
         default=None,
         help="Label at most N items this session.",
     )
+    review.add_argument("--scope", choices=("current", "reprocessed", "all"), default="all")
     status = commands.add_parser("status")
     status.add_argument("--run", required=True)
+    status.add_argument("--scope", choices=("current", "reprocessed", "all"), default="all")
     show = commands.add_parser("show")
     show.add_argument("--run", required=True)
     show.add_argument("--job", required=True)
+    show.add_argument("--scope", choices=("current", "reprocessed", "all"), default="all")
     next_item = commands.add_parser("next")
     next_item.add_argument("--run", required=True)
+    next_item.add_argument("--scope", choices=("current", "reprocessed", "all"), default="all")
     decide = commands.add_parser("decide")
     decide.add_argument("--run", required=True)
     decide.add_argument("--job", required=True)
@@ -65,6 +69,7 @@ def register_feedback_parser(subparsers: Any) -> argparse.ArgumentParser:
     decide.add_argument("--expected-revision", type=int)
     summary = commands.add_parser("summary")
     summary.add_argument("--run", required=True)
+    summary.add_argument("--scope", choices=("current", "reprocessed", "all"), default="all")
     propose = commands.add_parser("propose")
     propose.add_argument("--run", required=True)
     propose.add_argument("--policy", required=True)
@@ -100,6 +105,10 @@ def _load_policy_file(path: str) -> Any:
         test_discovery_policy_file_policy,
     )
 
+    # CLI and worker share the same strict TOML/hash contract; the only
+    # difference is the file-metadata policy: the worker enforces the
+    # root-owned production file, while this operator CLI accepts a
+    # current-user 0600 file (tests use tmp files).
     return load_discovery_policy(path, file_policy=test_discovery_policy_file_policy())
 
 
@@ -129,6 +138,7 @@ def _run_review(session: Any, args: Any) -> int:
             io,
             relabel=args.relabel,
             limit=args.limit,
+            scope=args.scope,
         )
     except LookupError:
         session.rollback()
@@ -150,6 +160,7 @@ def _run_review(session: Any, args: Any) -> int:
 def run_feedback(settings: Any, args: Any) -> int:
     """Dispatch one feedback subcommand and print canonical JSON."""
 
+    from role_radar.acquisition.discovery_policy import DiscoveryPolicyFileError
     from role_radar.db.models import JobSearchRun
     from role_radar.evaluation.blind_labeling.display_policy import DisplayError
     from role_radar.evaluation.blind_labeling.validation import ValidationError
@@ -174,7 +185,7 @@ def run_feedback(settings: Any, args: Any) -> int:
                 payload, code = _blocked("run_not_found")
                 print(_payload(payload))
                 return code
-            surface = build_surface(session, args.run)
+            surface = build_surface(session, args.run, scope=args.scope)
             print(
                 _payload(
                     {
@@ -194,8 +205,11 @@ def run_feedback(settings: Any, args: Any) -> int:
             )
             return 0
         if command in {"show", "next"}:
-            surface = build_surface(session, args.run)
-            candidates = {item.job_id: item for item in collect_candidates(session, args.run)}
+            surface = build_surface(session, args.run, scope=args.scope)
+            candidates = {
+                item.job_id: item
+                for item in collect_candidates(session, args.run, scope=args.scope)
+            }
             if command == "show":
                 wanted = args.job
             else:
@@ -274,7 +288,7 @@ def run_feedback(settings: Any, args: Any) -> int:
             )
             return 0
         if command == "summary":
-            report = summarize(session, args.run)
+            report = summarize(session, args.run, scope=args.scope)
             print(_payload({"schema_version": SCHEMA_VERSION, "result": "ok", **report}))
             return 0
         if command == "propose":
@@ -328,13 +342,18 @@ def run_feedback(settings: Any, args: Any) -> int:
         return code
     except RuntimeError as exc:
         session.rollback()
-        if str(exc).startswith("feedback_eligibility_"):
-            payload, code = _blocked("feedback_eligibility_blocked")
+        if str(exc).startswith("product_eligibility_"):
+            payload, code = _blocked("product_eligibility_blocked")
             print(_payload(payload))
             return code
         payload, code = _blocked("internal_error")
         print(_payload(payload))
         return 1
+    except DiscoveryPolicyFileError as exc:
+        session.rollback()
+        payload, code = _blocked("discovery_policy_unavailable")
+        print(_payload({**payload, "reason": exc.code}))
+        return code
     except LookupError:
         session.rollback()
         payload, code = _blocked("run_not_found")

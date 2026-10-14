@@ -14,7 +14,6 @@ from role_radar.discovery.contracts import (
 )
 from role_radar.discovery.policy import (
     DISCOVERY_POLICY_VERSION,
-    MAX_ACTIVE_DISCOVERY_SOURCES,
     MAX_NEW_SOURCES_PER_RUN,
 )
 from role_radar.domain.enums import SourceType
@@ -31,7 +30,7 @@ class DiscoveredSourceService:
         session: Session,
         *,
         max_new_per_run: int = MAX_NEW_SOURCES_PER_RUN,
-        max_active: int = MAX_ACTIVE_DISCOVERY_SOURCES,
+        max_active: int | None = None,
     ) -> None:
         self._sources = SourceRepository(session)
         self._session = session
@@ -49,7 +48,10 @@ class DiscoveredSourceService:
             return SourceRegistration(existing.id, key, False, True, blocked)
         if new_sources_used >= self._max_new_per_run:
             return SourceRegistration(None, key, False, False, True)
-        if self._sources.count_active_management_origin("discovery") >= self._max_active:
+        if (
+            self._max_active is not None
+            and self._sources.count_active_management_origin("discovery") >= self._max_active
+        ):
             return SourceRegistration(None, key, False, False, True)
         try:
             # The savepoint makes a unique-key race recoverable without

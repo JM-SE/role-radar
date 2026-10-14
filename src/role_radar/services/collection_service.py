@@ -74,8 +74,12 @@ class CollectionService:
             else None,
         )
 
-    async def run_collect(self, *, reason: str = "cli_collect") -> JobSearchRun:
-        run = self._runs.create_run(reason=reason, status=JobSearchRunStatus.PENDING)
+    async def run_collect(
+        self, *, reason: str = "cli_collect", profile_id: str | None = None
+    ) -> JobSearchRun:
+        run = self._runs.create_run(
+            reason=reason, status=JobSearchRunStatus.PENDING, profile_id=profile_id
+        )
         run_id = run.id
         self._session.flush()
         self._session.commit()
@@ -93,6 +97,7 @@ class CollectionService:
             "new_jobs": 0,
             "duplicates": 0,
             "prefiltered": 0,
+            "profile_rejected": 0,
             "failed": 0,
             "sources_ok": 0,
             "sources_failed": 0,
@@ -127,6 +132,7 @@ class CollectionService:
                 stats["new_jobs"] += int(outcome.get("new_jobs", 0))
                 stats["duplicates"] += int(outcome.get("duplicates", 0))
                 stats["prefiltered"] += int(outcome.get("prefiltered", 0))
+                stats["profile_rejected"] += int(outcome.get("profile_rejected", 0))
                 stats["failed"] += int(outcome.get("failed", 0))
 
         all_sources_failed = stats["sources_ok"] == 0

@@ -63,15 +63,12 @@ def compose_discovery_provider(
     )
 
 
-def load_discovery_policy_v1() -> Any | None:
-    """Load the operator-owned v2 discovery policy, or None when unavailable."""
+def load_discovery_policy_v1() -> Any:
+    """Load the operator-owned v2 discovery policy; file errors fail visibly."""
 
-    try:
-        loaded = load_discovery_policy(
-            file_policy=production_discovery_policy_file_policy(),
-        )
-    except DiscoveryPolicyFileError:
-        return None
+    loaded = load_discovery_policy(
+        file_policy=production_discovery_policy_file_policy(),
+    )
     return loaded.policy
 
 
@@ -85,7 +82,14 @@ def run_worker(settings: Settings | None = None) -> None:
     discovery_provider = None
     discovery_hmac: bytes | None = None
     acquisition_config = None
-    discovery_policy_v1 = load_discovery_policy_v1()
+    discovery_policy_v1: Any = None
+    try:
+        # Policy-file errors stay visible: prepare() raises a stable code and
+        # records a FAILED cycle instead of falling back to the generic v1
+        # planner. ATS/free/mailbox collection still proceeds.
+        discovery_policy_v1 = load_discovery_policy_v1()
+    except DiscoveryPolicyFileError:
+        discovery_policy_v1 = None
     mailbox_descriptor_resolver = None
     mailbox_credential_resolver = None
     mailbox_hmac_keys: dict[str, tuple[bytes, bytes]] = {}

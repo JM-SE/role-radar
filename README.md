@@ -2,15 +2,13 @@
 
 Stop skimming job boards. Get one daily digest worth opening.
 
-RoleRadar is a personal job-search pipeline for software engineering roles. It
-collects postings from structured sources, normalizes and deduplicates them,
-extracts structured facts with an LLM, scores every job deterministically
-against your candidate profile, and sends a short Telegram digest with only
-the opportunities that deserve your attention.
+RoleRadar is a profile-first personal job-search pipeline. It transiently
+fetches broad source responses, persists only postings with explicit compatible
+title, work-mode, region, hard-constraint, and safe-link evidence, then sends
+every newly eligible unseen job through Telegram.
 
 It is a single-user application: one server, one worker, one SQLite database.
-Quality over quantity — the goal is fewer, better applications, not more
-noise.
+Historical jobs remain a review-only calibration backlog.
 
 ## Why it exists
 
@@ -28,14 +26,12 @@ RoleRadar turns that into a persistent, observable pipeline:
   facts (seniority, remote policy, skills, languages, salary) with Pydantic
   validation and evidence — but the score is always computed by seven pure,
   debuggable code signals. The model never invents a compatibility number.
-- **Deep evaluation only where it pays.** High-scoring or ambiguous jobs go
-  to a second, reasoning model for strengths, gaps, and a recommended action.
-  Current defaults: score ≥ 75 or 55–74 with ambiguities goes deep (max 10 per
-  run), and the model's adjustment is clamped to ±15. The final score stays
-  deterministic: code computes it, and hard blockers always win.
-- **A digest, not a firehose.** A deterministic Telegram renderer picks the
-  top candidates daily, with why-it-fits and what-to-watch. Duplicates are
-  impossible by construction (content-hash dedup).
+- **Deep evaluation enriches; it does not gate.** At most ten jobs per run may
+  receive optional model reasoning. Every eligible job remains deliverable with
+  its preliminary score when no deep result exists.
+- **All eligible results, once.** Telegram messages are deterministic,
+  multipart batches of at most five items. Global recipient/job reservations
+  prevent duplicate delivery across restarts and later runs.
 
 ## How it works
 
@@ -48,25 +44,18 @@ free/mailbox               │           evidence    code-only  top/ambiguous di
                     SQLite (WAL, single writer)
 ```
 
-1. A **run** starts via scheduler, API, or CLI (`role-radar run create`).
-   `POST /runs` only records the intent (`202`); the worker does the work.
-2. **Collection** pulls enabled sources in parallel-producer fashion. Each
-   producer is degradable: discovery is advisory, free sources and mailbox
-   failures never suppress ATS results.
-3. **Normalization + dedup** clean URLs, company names, locations, and HTML,
-   then merge duplicates into one canonical job.
-4. **Extraction** sends trusted source fields + clean description to the
-   `structured-extraction` capability with a versioned prompt and JSON
-   schema. Invalid output gets exactly one corrective retry; persistent
-   failures become `needs_review`, never silent guesses.
-5. **Scoring** runs seven deterministic signals (role, location, seniority,
-   skills, employment, language, …) with per-signal reasons, plus hard
-   blockers no model can override (e.g. incompatible on-site location).
-6. **Deep evaluation** (optional second model, `deep-job-evaluation`) judges
-   only shortlisted or ambiguous jobs and returns fit score, decision, and
-   confidence.
-7. **Notify** renders the daily Telegram digest for top jobs and records
-   every send, so nothing is ever delivered twice.
+1. A **scheduled run** (`role-radar run create --reason scheduled`) is the
+   only launch path that enables discovery and Telegram. Manual/custom reasons
+   do neither.
+2. **Collection** fetches broadly but applies profile intake before
+   deduplication or persistence; source stats distinguish structural rejects
+   from profile rejections.
+3. **Extraction and scoring** establish immutable structured facts and
+   product eligibility for each admitted job.
+4. **Deep evaluation** is optional enrichment, capped at ten jobs.
+5. **Notify** reserves and delivers every eligible unseen current-run job in
+   ordered multipart Telegram batches. Historical reprocessed jobs are never
+   sent.
 
 The LLM is consumed through an external broker service (see
 [LLM Broker](https://github.com/JM-SE/llm-broker)): RoleRadar sends
@@ -99,10 +88,11 @@ In the systemd deployment the port is mandatory in the `EnvironmentFile`
 (`ROLE_RADAR_API_PORT`, operational example `8010`); the unit binds
 `uvicorn role_radar.main:app --host 127.0.0.1 --port ${ROLE_RADAR_API_PORT}`.
 
-Trigger a manual run and process it with the worker:
+Trigger a scheduled run and process it with the worker (scheduled runs are
+the only path that enables discovery plus Telegram):
 
 ```bash
-uv run role-radar run create --reason manual
+uv run role-radar run create --reason scheduled
 uv run role-radar worker
 uv run role-radar run list
 ```
@@ -118,21 +108,20 @@ Full verification: `make check` (ruff + mypy strict + pytest).
 ## Configuration
 
 All settings use the `ROLE_RADAR_` prefix (`src/role_radar/config.py`).
-The defaults are dev-friendly: SQLite in `./data/`, fake LLM providers, and
-notifications disabled.
+`ROLE_RADAR_DATABASE_URL` from the process environment is authoritative; the
+working-directory default is `sqlite:///./data/role-radar.db`. Defaults use
+fake LLM providers and disabled notifications.
 
 | Area | Key variables |
 |---|---|
-| Database | `ROLE_RADAR_DATABASE_URL` (default `sqlite:///./data/role-radar.db`) |
+| Database | `ROLE_RADAR_DATABASE_URL` |
 | LLM (fake default) | `ROLE_RADAR_LLM_PROVIDER=fake`, `ROLE_RADAR_DEEP_EVALUATION_PROVIDER=fake` |
 | LLM (real broker) | `ROLE_RADAR_BROKER_URL`, `ROLE_RADAR_BROKER_TOKEN`, `ROLE_RADAR_BROKER_WORKLOAD=role-radar` |
-| Telegram (Phase 7) | `ROLE_RADAR_TELEGRAM_BOT_TOKEN`, recipient/chat settings |
-| Collection | `ROLE_RADAR_HTTP_TIMEOUT_SECONDS`, `ROLE_RADAR_HTTP_USER_AGENT` |
+| Telegram | `ROLE_RADAR_TELEGRAM_BOT_TOKEN`, recipient/chat settings |
 
-Live discovery keys are never stored in `.env`: the real-discovery path
-resolves each secret from its own mode-0600 file under
-`$CREDENTIALS_DIRECTORY`. Never commit secrets; see `.env.example` for the
-documented scheme.
+`feedback review --scope reprocessed --limit 20` presents deterministic
+historical calibration evidence. Labels are evidence only: they never
+automatically alter profile intake, ranking, discovery, or delivery policy.
 
 ## API
 
@@ -165,11 +154,16 @@ make typecheck   # mypy strict
 make fmt         # ruff format + ruff check --fix
 make check       # lint + typecheck + test
 make seed-boards # load curated Greenhouse boards fixture
-make collect     # manual in-process collection
+make collect     # manual in-process collection (requires --profile-id)
 uv run role-radar run create --reason scheduled
 uv run role-radar run list
 uv run role-radar run show --run-id UUID
 uv run role-radar worker
+```
+
+```bash
+uv run role-radar feedback review --run RUN_ID --scope reprocessed --limit 20
+uv run role-radar feedback summary --run RUN_ID --scope reprocessed
 ```
 
 `role-radar --help` lists the full surface, including `source` catalog
@@ -241,9 +235,8 @@ harnesses under `src/role_radar/evaluation/`.
 
 ## Notes for operators
 
-- Single machine, single worker, single SQLite writer. The repositories layer
-  avoids SQLite-only features so a future PostgreSQL move stays possible.
 - Every run ends with a summary (`collected`, `new_jobs`, `duplicates`,
-  `extracted`, `deep_evaluated`, `notified`, `failed`) for observability.
+  `prefiltered`, `profile_rejected`, `extracted`, `deep_evaluated`,
+  `notified`, `failed`) for observability.
 - Logs are structured (`run_id`, `job_id`, `source`, `stage`, `status`) and
   never contain PII, tokens, credentials, or full model payloads.

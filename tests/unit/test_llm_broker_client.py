@@ -118,3 +118,27 @@ def test_idempotency_key_changes_by_attempt() -> None:
         job_id="j", input_hash="i", prompt_version="p", schema_version="s", corrective_attempt=1
     )
     assert first != second
+
+
+def test_idempotency_key_changes_by_schema() -> None:
+    base = derive_idempotency_key(
+        job_id="j", input_hash="i", prompt_version="p", schema_version="s", corrective_attempt=0
+    )
+    changed = derive_idempotency_key(
+        job_id="j",
+        input_hash="i",
+        prompt_version="p",
+        schema_version="s",
+        corrective_attempt=0,
+        response_schema={"type": "object", "properties": {"state": {"type": "string"}}},
+    )
+    assert base != changed
+    replay = derive_idempotency_key(
+        job_id="j",
+        input_hash="i",
+        prompt_version="p",
+        schema_version="s",
+        corrective_attempt=0,
+        response_schema={"type": "object", "properties": {"state": {"type": "string"}}},
+    )
+    assert replay == changed

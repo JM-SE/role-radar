@@ -127,47 +127,70 @@ def propose_refinement(
     coverage = _coverage_groups(payload)
     applies: dict[str, int] = {str(group_id): 0 for group_id in groups}
     rejects: dict[str, int] = {str(group_id): 0 for group_id in groups}
+    maybes: dict[str, int] = {str(group_id): 0 for group_id in groups}
+    apply_jobs: dict[str, list[str]] = {str(group_id): [] for group_id in groups}
+    reject_jobs: dict[str, list[str]] = {str(group_id): [] for group_id in groups}
+    maybe_jobs: dict[str, list[str]] = {str(group_id): [] for group_id in groups}
+    primary_counts: dict[str, int] = {}
+    secondary_counts: dict[str, int] = {}
     latest = FeedbackRepository(session).latest_for_run(run_id)
     candidates = {item.job_id: item for item in collect_candidates(session, run_id)}
     for job_id, row in latest.items():
         candidate = candidates.get(job_id)
         if candidate is None:
             continue
+        primary_counts[row.primary_reason] = primary_counts.get(row.primary_reason, 0) + 1
+        for reason in row.secondary_reasons_json or ():
+            secondary_counts[reason] = secondary_counts.get(reason, 0) + 1
         hits = _group_hits(groups, candidate.title, candidate.description)
         if row.label == "apply":
             for group_id in hits:
                 applies[group_id] += 1
+                apply_jobs[group_id].append(job_id)
         elif row.label == "reject":
             for group_id in hits:
                 rejects[group_id] += 1
+                reject_jobs[group_id].append(job_id)
+        elif row.label == "maybe":
+            for group_id in hits:
+                maybes[group_id] += 1
+                maybe_jobs[group_id].append(job_id)
     entries: list[dict[str, Any]] = []
     removals: list[str] = []
     for group_id in sorted(applies):
-        total = applies[group_id] + rejects[group_id]
-        precision = (applies[group_id] / total) if total else None
+        decided = applies[group_id] + rejects[group_id] + maybes[group_id]
+        judged = applies[group_id] + rejects[group_id]
+        precision = (applies[group_id] / judged) if judged else None
         primary = group_id not in coverage
         action = "keep"
-        if not primary and total >= min_decisions and applies[group_id] == 0:
+        if not primary and decided >= min_decisions and applies[group_id] == 0:
             action = "remove"
             removals.append(group_id)
         entries.append(
             {
                 "group_id": group_id,
                 "primary": primary,
-                "decisions": total,
+                "decisions": decided,
                 "applies": applies[group_id],
                 "rejects": rejects[group_id],
+                "maybes": maybes[group_id],
                 "precision": precision,
                 "action": action,
+                "apply_job_ids": sorted(apply_jobs[group_id]),
+                "reject_job_ids": sorted(reject_jobs[group_id]),
+                "maybe_job_ids": sorted(maybe_jobs[group_id]),
             }
         )
     validated = DiscoveryPolicyV1.model_validate(payload)
     return {
         "run_id": run_id,
         "policy_version": validated.policy_version,
+        "policy_sha256": validated.sha256,
         "min_decisions": min_decisions,
         "groups": entries,
         "removals": removals,
+        "primary_reason_counts": dict(sorted(primary_counts.items())),
+        "secondary_reason_counts": dict(sorted(secondary_counts.items())),
     }
 
 
@@ -246,6 +269,8 @@ def apply_refinement(
     primary_hit = condemned - coverage
     if primary_hit:
         raise ValueError("refinement_primary_group_protected")
+    if new_policy_version == payload.get("policy_version"):
+        raise ValueError("refinement_version_unchanged")
     for group_id in condemned:
         del groups[group_id]
     payload["groups"] = groups

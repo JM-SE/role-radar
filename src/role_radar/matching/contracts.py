@@ -13,7 +13,7 @@ from role_radar.matching.policy import (
     canonical_technology,
 )
 
-Provenance = Literal["ats", "extraction", "location", "unknown"]
+Provenance = Literal["ats", "extraction", "location", "transient", "unknown"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,7 +28,7 @@ class ProfileBinding:
 
 
 @dataclass(frozen=True, slots=True)
-class FeedbackEligibilityDecision:
+class ProductEligibilityDecision:
     policy_version: str
     profile_binding: ProfileBinding
     input_sha256: str
@@ -38,11 +38,38 @@ class FeedbackEligibilityDecision:
 
 
 @dataclass(frozen=True, slots=True)
+class ProfileIntakeDecision:
+    policy_version: str
+    profile_binding: ProfileBinding
+    input_sha256: str
+    eligible: bool
+    reason_codes: tuple[str, ...]
+    application_url: str | None
+    intake_evidence: dict[str, object] | None = None
+
+    def canonical_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
+def serialize_profile_intake(decision: ProfileIntakeDecision) -> dict[str, object]:
+    return {
+        "policy_version": decision.policy_version,
+        "profile_binding": decision.profile_binding.canonical_dict(),
+        "input_sha256": decision.input_sha256,
+        "eligible": decision.eligible,
+        "reason_codes": list(decision.reason_codes),
+        "application_url": decision.application_url,
+        "intake_evidence": dict(decision.intake_evidence or {}),
+    }
+
+
+@dataclass(frozen=True, slots=True)
 class JobFacts:
     job_id: str = ""
     title: str | None = None
     location: str | None = None
     regions: tuple[str, ...] = ()
+    excluded_regions: tuple[str, ...] = ()
     remote_policy: str | None = None
     required_skills: tuple[str, ...] = ()
     preferred_skills: tuple[str, ...] = ()
@@ -56,6 +83,7 @@ class JobFacts:
     title_provenance: Provenance = "unknown"
     location_provenance: Provenance = "unknown"
     regions_provenance: Provenance = "unknown"
+    excluded_regions_provenance: Provenance = "unknown"
     remote_provenance: Provenance = "unknown"
     required_skills_provenance: Provenance = "unknown"
     preferred_skills_provenance: Provenance = "unknown"
@@ -78,6 +106,11 @@ class JobFacts:
         )
         object.__setattr__(
             self, "regions", tuple(sorted({canonical_region(item) for item in self.regions}))
+        )
+        object.__setattr__(
+            self,
+            "excluded_regions",
+            tuple(sorted({canonical_region(item) for item in self.excluded_regions})),
         )
         if self.remote_policy:
             object.__setattr__(self, "remote_policy", canonical_remote(self.remote_policy))

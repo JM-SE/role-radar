@@ -78,4 +78,35 @@ def test_summary_counts_latest_labels_only(db_session) -> None:
         "run_id": run_id,
         "decided_jobs": 2,
         "labels": {"apply": 0, "maybe": 1, "reject": 1},
+        "primary_reason_counts": {"role_mismatch": 1, "role_scope_unclear": 1},
+        "secondary_reason_counts": {},
     }
+
+def test_provenance_change_breaks_replay(db_session) -> None:
+    run_id, job_id = seed_run_and_job(db_session)
+    repo = FeedbackRepository(db_session)
+    first, _ = repo.submit(
+        run_id=run_id,
+        job_id=job_id,
+        label="apply",
+        primary_reason="skills_match",
+        policy_version="gate-a-v1",
+    )
+    same, replayed = repo.submit(
+        run_id=run_id,
+        job_id=job_id,
+        label="apply",
+        primary_reason="skills_match",
+        policy_version="gate-a-v1",
+    )
+    assert replayed is False
+    assert same.id == first.id
+    changed, created = repo.submit(
+        run_id=run_id,
+        job_id=job_id,
+        label="apply",
+        primary_reason="skills_match",
+        policy_version="gate-a-v2",
+    )
+    assert created is True
+    assert changed.revision == 2

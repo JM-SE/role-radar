@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 from sqlalchemy.orm import Session
 
@@ -144,8 +145,9 @@ def run_review(
     *,
     relabel: bool = False,
     limit: int | None = None,
+    scope: Literal["all", "current", "reprocessed"] = "all",
 ) -> ReviewReport:
-    """Walk the run's feedback surface one item at a time.
+    """Walk the selected immutable feedback surface one item at a time.
 
     Already-decided items are skipped so an interrupted session resumes
     naturally, unless ``relabel`` revisits them for correction. Every
@@ -154,8 +156,8 @@ def run_review(
 
     if limit is not None and limit < 1:
         raise ValueError("limit must be a positive integer")
-    surface = build_surface(session, run_id)
-    candidates = {item.job_id: item for item in collect_candidates(session, run_id)}
+    surface = build_surface(session, run_id, scope=scope)
+    candidates = {item.job_id: item for item in collect_candidates(session, run_id, scope=scope)}
     queue = [item for item in surface.items if relabel or item.decision is None]
     if limit is not None:
         queue = queue[:limit]

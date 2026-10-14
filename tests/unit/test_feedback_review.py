@@ -74,12 +74,14 @@ def seed_session(session: Session) -> str:
     DiscoveryRepository(session).create_cycle(
         run_id=run.id,
         profile_snapshot={
-                "approved_phrases": ["Backend Engineer", "COBOL"],
-                "profile_binding": {
-                    "profile_id": profile_id, "row_version": 1, "schema_version": 1,
-                    "canonical_profile_sha256": "0" * 64,
-                },
+            "approved_phrases": ["Backend Engineer", "COBOL"],
+            "profile_binding": {
+                "profile_id": profile_id,
+                "row_version": 1,
+                "schema_version": 1,
+                "canonical_profile_sha256": "0" * 64,
             },
+        },
         planner_version="discovery-planner-v2",
         planner_hash="0" * 64,
         policy_version="gate-a-v1",
@@ -105,22 +107,31 @@ def seed_session(session: Session) -> str:
     session.commit()
     for job in session.query(Job):
         scored = RunJobRepository(session).claim_attempt(
-            run_id=run.id, job_id=job.id, stage=RunJobStage.SCORED,
-            max_attempts=3, now=datetime.now(UTC)
+            run_id=run.id,
+            job_id=job.id,
+            stage=RunJobStage.SCORED,
+            max_attempts=3,
+            now=datetime.now(UTC),
         )
         assert scored is not None
         RunJobRepository(session).finish(
-            scored, status=RunJobStatus.SUCCEEDED,
-            outcome={"feedback_eligibility": {
-                "policy_version": "feedback-remote-eligibility-v1",
-                "profile_binding": {
-                    "profile_id": profile_id, "row_version": 1,
-                    "schema_version": 1, "canonical_profile_sha256": "0" * 64,
-                },
-                "input_sha256": "1" * 64, "eligible": True,
-                "reason_codes": ["exact_region_match"],
-                "extraction_id": "fixture-extraction",
-            }},
+            scored,
+            status=RunJobStatus.SUCCEEDED,
+            outcome={
+                "product_eligibility": {
+                    "policy_version": "product-eligibility-v1",
+                    "profile_binding": {
+                        "profile_id": profile_id,
+                        "row_version": 1,
+                        "schema_version": 1,
+                        "canonical_profile_sha256": "0" * 64,
+                    },
+                    "input_sha256": "1" * 64,
+                    "eligible": True,
+                    "reason_codes": ["exact_region_match"],
+                    "extraction_id": "fixture-extraction",
+                }
+            },
         )
     session.commit()
     return run.id
