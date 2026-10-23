@@ -95,3 +95,51 @@ private payloads. A PASS means only that these 20 declared source leaves match
 their expected public bytes and compatible metadata at read time. It does not
 prove all imports, database/profile/policy state, T1a/T1c, backup readiness,
 full canary readiness, immutable code, or successful delivery.
+
+## SQLite database-history gate (T1c1)
+
+This gate is a separate read-only check, not overall canary readiness and not
+profile/policy binding (T1c2), backup/run creation (T2), or supervision (T3).
+From the installed application directory, use the installed interpreter:
+
+```sh
+.venv/bin/python -B scripts/bounded_canary_database.py
+```
+
+The default target is the application's documented
+`sqlite:///./data/role-radar.db`, resolved relative to the current working
+directory. `--database-url` accepts relative and absolute SQLite file URLs;
+supply the option at most once. Repeated options fail before any database open.
+Other schemes, URI options/credentials, missing files, and detected symlinks
+fail closed. The connection uses SQLite `mode=ro`, `query_only`, a read
+transaction, a one-second busy timeout, and a SQL progress deadline that begins
+before connection setup. The tool checks SQLite's file header without opening a
+SQLite connection and requires existing regular `-wal` and `-shm` files when
+the database is in WAL mode; an absent WAL resource or any rollback-journal
+file fails before SQLite can create/recover sidecars. It does not import the
+application or ORM, load dotenv/settings, create directories, migrate, or write
+to the main database. Reading an active WAL can update `-shm` coordination
+bytes; this is an explicit possible filesystem side effect, not a claim of
+whole-filesystem nonmutation. Main-file identity checks reduce path-rebinding
+risk, but the file-based SQLite URI cannot eliminate every concurrent
+replacement race. The tool never uses `immutable=1`, which could hide current
+WAL data.
+
+The gate requires exactly one Alembic version row at
+`aa04_bounded_canary_execution`, the revision introduced by
+`alembic/versions/aa04_bounded_canary_execution.py`, and the inspected run and
+notification tables/metadata columns. It runs SQLite integrity and foreign-key
+checks, then reads only run identity/status/ownership/timing/recovery metadata
+and notification outbox identity/status metadata. Active, pending, claimed, or
+leased runs fail; a `deferred` run with ownership cleared is retained as
+historical rather than presumed to be active. Unresolved or unknown notification
+batch/item states fail closed; sent/failed terminal states are accepted based on
+the official enums and repository lifecycle. No UUIDs, profile IDs, message
+bodies, reasons, error text, policy, or payload values are printed.
+
+Public output is a fixed PASS line or a fixed failure code. The internal
+`snapshot_history()` API is metadata-only and exists for a later before/after
+comparison; a pass here does not prove preservation without that comparison.
+A pass also does not establish whole-filesystem nonmutation, profile/policy
+binding, backup, fresh run creation, source provenance, service isolation, or
+permission hardening. It does not inspect profile or job payload tables.
