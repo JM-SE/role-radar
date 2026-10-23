@@ -49,3 +49,49 @@ duplicate, unknown, or timed-out systemd proof fails closed. Do not interpret a
 PASS as approval of the profile, policy, source/provenance, DB history, backup,
 run creation, worker start, provider activity, or delivery. The four consumed
 runs remain outside this gate and must not be retried or altered.
+
+## Installed-source provenance gate (T1b)
+
+This second gate checks **only 20 declared canary-critical source paths**. It is
+not a reconstruction of the older 18-file installation manifest, an exhaustive
+transitive-import inventory, an overall readiness decision, or authorization to
+operate a canary. The expected bytes are pinned from the `a2d4d1ec15cdf620a99848660de07027d82ce821`
+source tree, with only `src/role_radar/discovery/contracts.py` and
+`src/role_radar/services/pipeline_discovery.py` pinned to their exact
+`ec2fdac275d2a11799871cae65831c29b93a9866` blobs.
+
+The declared paths are:
+
+- `src/role_radar/cli/main.py`, `worker/main.py`, `worker/runner.py`,
+  `worker/pipeline.py`, `worker/checkpoints.py`, `execution_budget.py`,
+  `repositories/runs.py`, `services/eligibility_reprocessing.py`,
+  `acquisition/discovery_policy.py`, `discovery/policy.py`, `domain/profile.py`,
+  `matching/profile_intake.py`, `services/acquired_job_writer.py`,
+  `services/pipeline_discovery.py`, `discovery/contracts.py`,
+  `broker/client.py`, `broker/compat_check.py`,
+  `broker/consumer-compat/v1/structured-extraction.json`, and `config.py`;
+- `scripts/canary_supervisor.py`.
+
+Run it from `/opt/role-radar` using the installed interpreter:
+
+```sh
+.venv/bin/python -B scripts/bounded_canary_provenance.py
+```
+
+The gate opens only paths beneath the fixed `/opt/role-radar` root. It follows
+no symlinks, anchors directory traversal and file reads to descriptors, checks
+stable directory and file identities before and after bounded reads, and hashes
+the same descriptor whose metadata is checked. Files must be root-owned regular
+files with one link and mode `0644` or `0664`; the two board-diagnostic leaves
+retain their evidence-backed exact modes (`contracts.py` `0664`,
+`pipeline_discovery.py` `0644`). No parent-owner/root-immutability claim is
+made: existing operator/runtime parent trust is accepted. Missing/unreadable
+sources, incompatible metadata, changed identities, or hash drift fail closed.
+The gate does not import installed modules or read Git history at runtime.
+
+Public output contains only the fixed PASS line or a fixed failure code; it
+never prints source contents, hashes, raw exceptions, profiles, credentials, or
+private payloads. A PASS means only that these 20 declared source leaves match
+their expected public bytes and compatible metadata at read time. It does not
+prove all imports, database/profile/policy state, T1a/T1c, backup readiness,
+full canary readiness, immutable code, or successful delivery.
