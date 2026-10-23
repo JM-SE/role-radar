@@ -143,3 +143,28 @@ comparison; a pass here does not prove preservation without that comparison.
 A pass also does not establish whole-filesystem nonmutation, profile/policy
 binding, backup, fresh run creation, source provenance, service isolation, or
 permission hardening. It does not inspect profile or job payload tables.
+
+## Official policy/profile binding gate (T1c2)
+
+This separate read-only gate binds the official discovery policy to its exact
+active profile row. Invoke from the installed application directory:
+
+```sh
+.venv/bin/python -B scripts/bounded_canary_binding.py
+```
+
+`--database-url` accepts the SQLite file URLs described above, and
+`--policy-path` defaults to `/etc/role-radar/discovery-policy.toml`. The policy
+is opened through the official bounded loader and production file metadata
+policy. The gate validates the policy's full `ProfileBindingV1` against the
+exact row selected by its bound profile ID, then calls the runtime's official
+profile-row validator, including active status, row/schema versions and
+canonical profile payload fingerprint. Transient profile JSON is used only for
+canonicalization; it is never returned or printed. A policy hash by itself is
+not active-profile authorization.
+
+Output is a fixed public pass/failure code only. A pass proves only policy to
+active-profile binding at inspection time; it is not overall readiness,
+backup, run creation, worker start, supervision, Telegram state, or delivery.
+The gate does not load application settings/dotenv, boot the ORM, mutate the
+database, or access production data during offline reconstruction.
