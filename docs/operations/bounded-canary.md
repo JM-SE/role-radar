@@ -169,6 +169,86 @@ backup, run creation, worker start, supervision, Telegram state, or delivery.
 The gate does not load application settings/dotenv, boot the ORM, mutate the
 database, or access production data during offline reconstruction.
 
+## Protected backup unit (T2a)
+
+This offline-reconstructed unit composes the isolation, installed-source,
+SQLite-history and official policy/profile-binding gates, then creates only a
+protected backup. It does not create a canary run, start a worker, reset
+consumed authority, authorize providers, or establish overall readiness. The
+isolation gate receives a generated future UUID solely as its exact-instance
+probe; no `run create` or worker CLI is called.
+
+From `/opt/role-radar`, invoke with the installed interpreter:
+
+```sh
+.venv/bin/python -B -m scripts.bounded_canary_backup
+```
+
+The default SQLite URL is `sqlite:///./data/role-radar.db`, resolved from the
+current working directory. `--database-url` may be supplied once to select a
+SQLite file URL; it must be the same correct explicit target accepted by the
+read-only database gate. There is no default-CWD guessing or URL abbreviation.
+Help and rejected arguments perform no gate reads or backup mutations. All four
+fresh gates run before backup mutations and are rechecked at the mutation
+boundary. The systemd gate is only an isolation prerequisite, not start
+authorization.
+
+The operator must be effective UID 0 before any gate or private-file read.
+The existing output root `/opt/role-radar/data/backups` must be a nonsymlink
+`root:root 0755` directory. Its trusted ancestor ownership is not strengthened;
+the nonsymlink directory chain and device/inode identities are held and
+revalidated against descriptors through each operation. A planned random
+recovery path and intent are recorded in memory before the first `mkdir`. A
+unique child is exclusively created, changed only while new to `root:root
+0700`, and validated before content is written. A collision is untouched.
+Every new regular artifact is opened relative to the held child descriptor
+with no-follow/exclusive flags, changed only while new to `root:root 0600`,
+and verified single-link before writes, after writes and at completion. The
+fixed environment source must be `root:root 0600`; the official policy loader
+requires `root:role-radar 0640`. Both contents are descriptor-read, bounded,
+identity-checked and rechecked through completion; their original parent-chain
+identities are carried across gates and final checks. Only private copies are
+retained. Neither contents nor raw errors are printed. A fixed free-space proof
+based on the DB/WAL and config sizes plus a safety margin runs before backup
+mutations; unavailable capacity proof fails closed. Before fresh gates, the
+selected database file and its directory ancestors are anchored. Each gate and
+the online-backup connection must identify that same source through completion;
+a rebound leaf or parent fails closed, including a replacement with matching
+history. The SQLite file is
+copied with Python's SQLite online backup API from the read-only consistent
+source view, not by copying the live main file/WAL pair. Its destination is
+opened through the held file descriptor with an in-memory journal; if that
+anchored procfs interface is unavailable, backup fails closed. Descriptor and
+child-relative path identities are checked before and after copying and at
+completion. The copy is integrity/FK/revision checked
+and its metadata-only run/outbox history snapshot must equal its copied
+snapshot. The exact metadata-only snapshot is retained in protected
+`history.json` for T2b comparison; it excludes profile IDs, payload columns and
+message contents, but still contains private run/outbox identifiers and must
+remain protected. Source rows, payloads, counters and WAL are not intentionally
+modified. SQLite may update `-shm` coordination bytes while reading a live WAL;
+no whole-filesystem immutability claim is made.
+
+The protected `intent.json` is flushed before artifact copying. Successful
+completion is reported only after the protected files, final gate/config/history
+checks, result record and directories are synced and revalidated. Failure
+retains the recovery child and writes a fixed-schema `partial.json` only when
+that child is safely verified; artifact states are `not_created`, `attempted`
+or `created`. Failure before or during child creation reports `not_created`,
+`collision` or `unknown` creation state and the planned recovery path. Artifacts
+are never automatically removed, replaced, retried or rolled back. Failure to
+persist partial evidence remains an operational risk. Public output uses fixed
+gate/error codes and the recovery location, never profile/run identifiers,
+database rows, payloads, credentials, policy contents, hashes, exception text,
+or overall readiness claims.
+
+The accepted trusted-ancestor boundary remains in force; this unit does not
+change existing parent permissions or impose root ownership on every ancestor.
+Passing T2a
+proves only this backup unit's checks and artifacts. T2b single-run creation
+and T3 supervision remain separate, unimplemented tasks; do not proceed to
+host operation based on this pass alone.
+
 ## Protected artifact writer boundary (T2a1)
 
 `scripts/bounded_canary_artifacts.py` is the independently testable protected
