@@ -168,3 +168,22 @@ active-profile binding at inspection time; it is not overall readiness,
 backup, run creation, worker start, supervision, Telegram state, or delivery.
 The gate does not load application settings/dotenv, boot the ORM, mutate the
 database, or access production data during offline reconstruction.
+
+## Protected artifact writer boundary (T2a1)
+
+`scripts/bounded_canary_artifacts.py` is the independently testable protected
+file boundary used by the backup orchestrator. Its descriptor-relative create
+and write operations require exclusive no-follow regular files, apply owner and
+mode before content, and revalidate the complete descriptor and named-entry
+metadata immediately before the first private byte. The proof includes owner,
+group, file type, mode, link count and descriptor/path identity; destination
+SQLite pages use the same verifier immediately before online backup begins.
+A changed proof fails closed and leaves the attempted artifact in place without
+writing its payload. The caller retains responsibility for the trusted parent
+chain, recovery evidence and fixed public error mapping.
+
+T2a1 establishes only this reusable artifact-writer boundary and its synthetic
+tests. The SQLite/config orchestration still has known source-database identity
+and config-ancestor identity gaps, and the documented direct-script entrypoint
+is not yet repaired. T2a2 must address those separately; neither unit is an
+overall backup-readiness or host-operation claim.
