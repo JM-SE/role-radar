@@ -159,6 +159,7 @@ def test_online_wal_backup_is_private_consistent_and_does_not_change_source(tmp_
         ("discovery-policy.toml", 0o600, 1), ("history.json", 0o600, 1),
         ("intent.json", 0o600, 1), ("result.json", 0o600, 1),
         ("role-radar.db", 0o600, 1), ("role-radar.env", 0o600, 1),
+        ("source-proof.json", 0o600, 1),
     ]
     assert (recovery / "role-radar.env").read_bytes() == env.read_bytes()
     assert (recovery / "discovery-policy.toml").read_bytes() == policy.read_bytes()
@@ -253,6 +254,7 @@ def test_gate_composition_uses_actual_gate_helpers_in_order_before_mutation(monk
         "history": {"runs": (), "batches": (), "items": ()},
         "probe_run_id": calls[0][1], "policy_bytes": b"fixed", "policy_sha256": "fixed",
         "database_target": (Path("fixture.db"), (1, 2, 3, 4, 5, 6, 7)),
+        "bound_profile_id": None,
     }
     assert calls[0][0] == "isolation" and len(calls[0][1]) == 36
     assert calls[0][2] == "fake"
@@ -1068,3 +1070,124 @@ def test_help_and_invalid_arguments_do_not_run_gates(monkeypatch, capsys):
         assert rejected.out == ""
         assert rejected.err == "PROTECTED_BACKUP: FAIL (arguments_invalid)\n"
         assert calls == []
+
+
+def test_backup_retains_versioned_original_source_proof(tmp_path, monkeypatch):
+    _backups, env, policy, db, writer = _fixture(tmp_path, monkeypatch)
+    before_changes = writer.total_changes
+    recovery = adapter.create_backup(f"sqlite:///{db}")
+    proof_path = recovery / "source-proof.json"
+    assert proof_path.is_file()
+    info = proof_path.stat(follow_symlinks=False)
+    assert stat.S_IMODE(info.st_mode) == 0o600 and info.st_nlink == 1
+    proof = json.loads(proof_path.read_text())
+    assert proof["schema_version"] == 2
+    assert proof["source"]["database"]["path"] == str(db.resolve())
+    assert len(proof["source"]["database"]["identity"]) == 7
+    assert proof["source"]["database"]["ownership"] == [
+        os.getuid(), os.getgid(), 1,
+    ]
+    assert proof["source"]["database"]["parent_identities"]
+    assert proof["source"]["environment"]["path"] == str(env.resolve())
+    assert proof["source"]["environment"]["sha256"] == hashlib.sha256(env.read_bytes()).hexdigest()
+    assert proof["source"]["policy"]["path"] == str(policy.resolve())
+    assert proof["backup"]["history_sha256"] == hashlib.sha256(
+        (recovery / "history.json").read_bytes()
+    ).hexdigest()
+    assert proof["backup"]["database_sha256"] == hashlib.sha256(
+        (recovery / "role-radar.db").read_bytes()
+    ).hexdigest()
+    assert writer.total_changes == before_changes
+    writer.close()
+
+
+def test_source_proof_directory_is_synced_before_result_creation(tmp_path, monkeypatch):
+    _backups, _env, _policy, db, writer = _fixture(tmp_path, monkeypatch)
+    events = []
+    real_fsync = os.fsync
+    real_write = adapter._write_new_at
+
+    def record_sync(fd):
+        if stat.S_ISDIR(os.fstat(fd).st_mode):
+            events.append(("directory-sync", os.readlink(f"/proc/self/fd/{fd}")))
+        return real_fsync(fd)
+
+    def record_write(root_fds, root_ids, root_fd, child_fd, child_name, name, data):
+        events.append(("write", name))
+        return real_write(root_fds, root_ids, root_fd, child_fd, child_name, name, data)
+
+    monkeypatch.setattr(adapter.os, "fsync", record_sync)
+    monkeypatch.setattr(adapter, "_write_new_at", record_write)
+    recovery = adapter.create_backup(f"sqlite:///{db}")
+    proof_write = events.index(("write", "source-proof.json"))
+    result_write = events.index(("write", "result.json"))
+    durable_proof = next(
+        i for i in range(proof_write + 1, result_write)
+        if events[i] == ("directory-sync", str(recovery))
+    )
+    assert proof_write < durable_proof < result_write
+    writer.close()
+
+
+def test_source_proof_directory_sync_failure_leaves_partial_without_result(
+    tmp_path, monkeypatch, capsys
+):
+    backups, _env, _policy, db, writer = _fixture(tmp_path, monkeypatch)
+    monkeypatch.setattr(adapter.secrets, "token_hex", lambda _n: "9" * 32)
+    real_fsync = os.fsync
+    real_write = adapter._write_new_at
+    proof_written = False
+    failed = False
+    recovery_path = None
+
+    def observe_write(root_fds, root_ids, root_fd, child_fd, child_name, name, data):
+        nonlocal proof_written, recovery_path
+        result = real_write(root_fds, root_ids, root_fd, child_fd, child_name, name, data)
+        if name == "source-proof.json":
+            proof_written = True
+            recovery_path = backups / child_name
+        return result
+
+    def fail_proof_directory_sync(fd):
+        nonlocal failed
+        if (proof_written and not failed and stat.S_ISDIR(os.fstat(fd).st_mode)
+                and os.readlink(f"/proc/self/fd/{fd}") == str(recovery_path)):
+            failed = True
+            raise OSError("synthetic directory sync failure")
+        return real_fsync(fd)
+
+    monkeypatch.setattr(adapter, "_write_new_at", observe_write)
+    monkeypatch.setattr(adapter.os, "fsync", fail_proof_directory_sync)
+    assert adapter.main(["--database-url", f"sqlite:///{db}"]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == (
+        "PROTECTED_BACKUP: FAIL (backup_failed; creation=created; "
+        f"recovery={recovery_path})\n"
+    )
+    partial = json.loads((recovery_path / "partial.json").read_text())
+    assert partial["source_proof"] == "created" and partial["result"] == "not_created"
+    assert (recovery_path / "source-proof.json").is_file()
+    assert not (recovery_path / "result.json").exists()
+    assert failed
+    writer.close()
+
+
+def test_source_proof_write_failure_is_partial_and_never_complete(tmp_path, monkeypatch):
+    backups, _env, _policy, db, writer = _fixture(tmp_path, monkeypatch)
+    original = adapter._write_new_at
+
+    def fail_proof(*args):
+        if args[-2] == "source-proof.json":
+            raise adapter.BackupError("artifact_write_failed")
+        return original(*args)
+
+    monkeypatch.setattr(adapter, "_write_new_at", fail_proof)
+    with pytest.raises(adapter.BackupError, match="artifact_write_failed"):
+        adapter.create_backup(f"sqlite:///{db}")
+    recovery = next(backups.iterdir())
+    partial = json.loads((recovery / "partial.json").read_text())
+    assert partial["source_proof"] == "attempted"
+    assert partial["result"] == "not_created"
+    assert not (recovery / "result.json").exists()
+    writer.close()

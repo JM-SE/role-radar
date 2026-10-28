@@ -225,7 +225,10 @@ and its metadata-only run/outbox history snapshot must equal its copied
 snapshot. The exact metadata-only snapshot is retained in protected
 `history.json` for T2b comparison; it excludes profile IDs, payload columns and
 message contents, but still contains private run/outbox identifiers and must
-remain protected. Source rows, payloads, counters and WAL are not intentionally
+remain protected. Version-2 `source-proof.json` privately binds the original
+database identity, owner/group/link count and parent chain, plus environment
+and policy identities/bytes, to the backup copies. T2b requires this proof
+rather than inferring source identity from a backup created during retry. Source rows, payloads, counters and WAL are not intentionally
 modified. SQLite may update `-shm` coordination bytes while reading a live WAL;
 no whole-filesystem immutability claim is made.
 
@@ -263,7 +266,6 @@ writing its payload. The caller retains responsibility for the trusted parent
 chain, recovery evidence and fixed public error mapping.
 
 T2a1 establishes only this reusable artifact-writer boundary and its synthetic
-tests. The SQLite/config orchestration still has known source-database identity
-and config-ancestor identity gaps, and the documented direct-script entrypoint
-is not yet repaired. T2a2 must address those separately; neither unit is an
-overall backup-readiness or host-operation claim.
+tests. T2a2 composes it with the SQLite/config orchestration, retaining original
+source and ancestor identities and repairing the module entrypoint. Neither
+unit is an overall backup-readiness or host-operation claim.

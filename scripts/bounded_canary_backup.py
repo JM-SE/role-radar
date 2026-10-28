@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import secrets
@@ -27,6 +28,7 @@ DB_URL = "sqlite:///./data/role-radar.db"
 DEADLINE_SECONDS = 20.0
 CHUNK_PAGES = 128
 MAX_CONFIG_BYTES = 2_000_000
+SOURCE_PROOF_VERSION = 2
 ROOT_MODE = 0o755
 CHILD_MODE = 0o700
 PRIVATE_MODE = 0o600
@@ -296,7 +298,7 @@ def _fresh_gates(database_url: str, systemd_runner=None) -> dict:
         loaded = binding._load_policy(str(POLICY_PATH))
         connection = binding._connect_database(database_url)
         try:
-            binding.inspect_binding(connection, loaded.policy)
+            bound_profile_id = binding.inspect_binding(connection, loaded.policy)
             database._verify_target_stable(connection)
             if (connection.target_path, connection.target_identity) != database_target:
                 raise BackupError("database_target_changed")
@@ -309,7 +311,8 @@ def _fresh_gates(database_url: str, systemd_runner=None) -> dict:
         return {"history": history, "probe_run_id": run_id,
                 "policy_bytes": current.raw_bytes,
                 "policy_sha256": current.policy_sha256,
-                "database_target": database_target}
+                "database_target": database_target,
+                "bound_profile_id": bound_profile_id}
     except BackupError:
         raise
     except Exception as exc:
@@ -415,6 +418,72 @@ def _verify_source_config(
     if (actual != expected_data or identity != expected_identity
             or chain != expected_chain):
         raise BackupError("config_changed")
+
+
+def _private_artifact_digest(child_fd, name: str) -> tuple[str, tuple[int, ...]]:
+    fd = None
+    try:
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0),
+                     dir_fd=child_fd)
+        info = os.fstat(fd)
+        named = os.stat(name, dir_fd=child_fd, follow_symlinks=False)
+        _require_owner(info, 0, 0, "artifact_metadata_invalid")
+        if (not stat.S_ISREG(info.st_mode) or _identity(info) != _identity(named)
+                or stat.S_IMODE(info.st_mode) != PRIVATE_MODE or info.st_nlink != 1):
+            raise BackupError("artifact_metadata_invalid")
+        digest = hashlib.sha256()
+        while True:
+            chunk = os.read(fd, 65536)
+            if not chunk:
+                break
+            digest.update(chunk)
+        after = os.fstat(fd)
+        named_after = os.stat(name, dir_fd=child_fd, follow_symlinks=False)
+        if _identity(info) != _identity(after) or _identity(after) != _identity(named_after):
+            raise BackupError("artifact_changed")
+        return digest.hexdigest(), _identity(after)
+    except BackupError:
+        raise
+    except Exception:
+        raise BackupError("artifact_unavailable") from None
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+
+def _source_proof(database_target, env_identity, env_chain, policy_identity, policy_chain,
+                  child_fd) -> dict:
+    database_hash, database_copy_identity = _private_artifact_digest(child_fd, "role-radar.db")
+    history_hash, _ = _private_artifact_digest(child_fd, "history.json")
+    env_hash, _ = _private_artifact_digest(child_fd, "role-radar.env")
+    policy_hash, _ = _private_artifact_digest(child_fd, "discovery-policy.toml")
+    database_stat = os.fstat(database_target["source_fd"])
+    return {
+        "schema_version": SOURCE_PROOF_VERSION,
+        "source": {
+            "database": {
+                "path": str(database_target["path"]),
+                "identity": list(database_target["identity"]),
+                "ownership": [database_stat.st_uid, database_stat.st_gid, database_stat.st_nlink],
+                "parent_identities": [list(item) for item in database_target["parent_ids"]],
+            },
+            "environment": {
+                "path": str(ENV_PATH), "identity": list(env_identity),
+                "parent_identities": [list(item) for item in env_chain],
+                "sha256": env_hash,
+            },
+            "policy": {
+                "path": str(POLICY_PATH), "identity": list(policy_identity),
+                "parent_identities": [list(item) for item in policy_chain],
+                "sha256": policy_hash,
+            },
+        },
+        "backup": {
+            "database_sha256": database_hash, "database_identity": list(database_copy_identity),
+            "history_sha256": history_hash, "environment_sha256": env_hash,
+            "policy_sha256": policy_hash,
+        },
+    }
 
 
 def _sync_child(root_fds, root_ids, root_fd, child_fd, child_name) -> None:
@@ -678,6 +747,15 @@ def _create_backup(database_url: str, *, systemd_runner=None) -> Path:
             "history.json", (json.dumps(history, sort_keys=True) + "\n").encode()
         )
         completed.add("history.json")
+        proof = _source_proof(database_target, env_identity, env_chain,
+                              policy_identity, policy_chain, child_fd)
+        attempted.add("source-proof.json")
+        artifact_identities["source-proof.json"] = _write_new_at(
+            root_fds, root_ids, root_fd, child_fd, child_name,
+            "source-proof.json", (json.dumps(proof, sort_keys=True) + "\n").encode()
+        )
+        completed.add("source-proof.json")
+        _sync_child(root_fds, root_ids, root_fd, child_fd, child_name)
 
         _verify_source_config(ENV_PATH, env_bytes, env_identity, env_chain,
                               mode=0o600, gid=env_gid)
@@ -721,6 +799,7 @@ def _create_backup(database_url: str, *, systemd_runner=None) -> Path:
                 "policy": _artifact_state("discovery-policy.toml", attempted, completed),
                 "database": _artifact_state("role-radar.db", attempted, completed),
                 "history": _artifact_state("history.json", attempted, completed),
+                "source_proof": _artifact_state("source-proof.json", attempted, completed),
                 "result": _artifact_state("result.json", attempted, completed),
                 "creation": "created",
             }
@@ -737,6 +816,7 @@ def _create_backup(database_url: str, *, systemd_runner=None) -> Path:
                 "policy": _artifact_state("discovery-policy.toml", attempted, completed),
                 "database": _artifact_state("role-radar.db", attempted, completed),
                 "history": _artifact_state("history.json", attempted, completed),
+                "source_proof": _artifact_state("source-proof.json", attempted, completed),
                 "result": _artifact_state("result.json", attempted, completed),
                 "creation": "created",
             }
