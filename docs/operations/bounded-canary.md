@@ -419,3 +419,34 @@ This transaction neither invokes Telegram nor proves credential/destination
 validity or authorizes sending.
 T3b2 timer cleanup, T3c supervision, and integrated T4 verification remain
 separate and pending.
+
+### Fixed producer-timer cleanup (T3b2)
+
+After a successful canary creation, invoke the offline-reconstructed cleanup
+from `/opt/role-radar` with the installed interpreter:
+
+```sh
+.venv/bin/python -B -m scripts.bounded_canary_timers --backup /opt/role-radar/data/backups/canary-<32-lowercase-hex-digits>
+```
+
+This operation validates protected T2b creation evidence and binds its private
+receipts to that exact backup identity, profile and run. It does not require
+the run to remain pending and does not assert that a stopped worker released
+its lease. Before dispatch, it snapshots the three fixed timers and the
+Broker/model/API runtime baseline, then durably writes the exclusive private
+`timer-cleanup-intent.json`. One bounded `systemctl disable --now` dispatch names
+only `role-radar-scheduler.timer`, `role-radar-continuous-discovery.timer` and
+`role-radar-continuous-acquisition.timer`; no other services are disabled or
+stopped. A post-dispatch snapshot must show each timer loaded, inactive, dead
+and disabled, and the unrelated runtime baseline must exactly match its
+before-snapshot.
+
+`timer-cleanup-outcome.json` records `completed`, `incomplete` or `uncertain`,
+the bound intent digest and observed post-state when available. Both receipts
+are exclusive root-owned mode-0600 files anchored beneath the protected
+creation backup. Existing receipt names block all subsequent dispatches,
+including after timeout or incomplete outcome; inspect protected evidence and
+make a separate recovery decision rather than retrying. Command stderr is
+captured and never exposed. A successful receipt proves only the observed
+fixed timer state and preserved runtime baseline at that point; it is not a
+worker-stop, ownership-release, overall-readiness or live-canary claim.

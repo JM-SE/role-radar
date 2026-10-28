@@ -119,7 +119,8 @@ def _open_backup_files(path: Path, *, reject_attempt: bool):
         }
         if (names - required - {"create-attempt.json", "creation-outcome.json",
                                 "provider-intent.json", "provider-outcome.json",
-                                "provider-restore-intent.json", "provider-restore-outcome.json"}
+                                "provider-restore-intent.json", "provider-restore-outcome.json",
+                                "timer-cleanup-intent.json", "timer-cleanup-outcome.json"}
                 or not required <= names):
             raise CreationError("backup_incomplete", recovery=str(path))
         if reject_attempt and "create-attempt.json" in names:

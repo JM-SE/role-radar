@@ -844,3 +844,22 @@ def test_documented_create_module_help_needs_no_pythonpath(tmp_path):
     assert "--backup" in result.stdout and result.stderr == ""
     assert "never start a worker" in result.stdout
     assert all(not any(directory.iterdir()) for directory in (home, temp, cache))
+
+
+def test_creation_reader_whitelists_only_fixed_timer_receipt_slots(tmp_path, monkeypatch):
+    recovery, _db, writer, _gates = _ready_backup(tmp_path, monkeypatch)
+    monkeypatch.setattr(adapter.os, "geteuid", lambda: 0)
+    _simulate_runuser(monkeypatch, binding_tests.PROFILE_ID, [])
+    assert adapter.main(["--backup", str(recovery)]) == 0
+    for name in ("timer-cleanup-intent.json", "timer-cleanup-outcome.json"):
+        receipt = recovery / name
+        receipt.write_bytes(b"not proof")
+        receipt.chmod(0o600)
+    with adapter._open_creation_evidence(recovery) as evidence:
+        assert evidence["run_id"]
+        assert not {"timer-cleanup-intent.json", "timer-cleanup-outcome.json"} \
+            & evidence["artifact_identities"].keys()
+    (recovery / "arbitrary-receipt.json").write_bytes(b"not allowed")
+    with pytest.raises(adapter.CreationError), adapter._open_creation_evidence(recovery):
+        pytest.fail("arbitrary receipt name was accepted")
+    writer.close()
