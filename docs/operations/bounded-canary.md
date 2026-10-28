@@ -346,3 +346,76 @@ rejected. Successful evidence consumption does not make creation replayable:
 the ordinary creation entry point continues to reject any existing attempt
 before gates or child dispatch. Exact supervision and current-state checks are
 separate T3 work; no start, stop, timer or provider operation is included.
+
+### Pure Telegram provider-byte boundary (T3b1 prerequisite)
+
+`prepare_telegram_provider_bytes(original)` is a pure byte transformation, not
+an activation or filesystem API. It requires exactly one
+`ROLE_RADAR_TELEGRAM_PROVIDER=disabled` assignment and returns bytes with only
+that value changed to `http`; it never reads a path, loads settings, checks
+credentials, calls a provider or emits output. Every other byte, including
+comments, unrelated assignments and LF/CRLF/final-newline style, is preserved.
+
+The accepted input is intentionally narrower than a general dotenv or shell
+parser: blank lines; comments beginning with optional spaces/tabs and `#`; and
+single-line ASCII assignments with an identifier key and an unquoted value
+containing only letters, digits, `_./:@%+=,-`, with optional surrounding
+horizontal whitespace. Quotes, backslashes, expansions, continuations, embedded
+whitespace, malformed lines, non-ASCII assignment syntax and ambiguous
+multiline forms fail with the fixed `provider_config_invalid` code. An
+unsupported or initially enabled provider setting is rejected, never
+normalized. A later anchored transaction must independently validate stored
+T2b creation evidence and fresh pending-run/systemd/source/policy state before
+any mutation; this helper accepts no ready-context boolean and proves none of
+those facts. It does not check token/chat-ID presence. The eventual one-send
+budget is not permission to activate Telegram now.
+
+### Protected provider prepare and conditional restore (T3b1)
+
+The offline transaction entry point is:
+
+```sh
+.venv/bin/python -B -m scripts.bounded_canary_telegram prepare --backup /opt/role-radar/data/backups/canary-<32-lowercase-hex-digits>
+.venv/bin/python -B -m scripts.bounded_canary_telegram restore --backup /opt/role-radar/data/backups/canary-<32-lowercase-hex-digits>
+```
+
+`prepare` requires successful protected T2b creation evidence, revalidates the
+exact pending run, fixed budget/checkpoint, prior-history/outbox invariance,
+T1 isolation and source-provenance gates, official policy/profile binding, and
+the original environment bytes/identity/ancestors. The generic DB history gate
+intentionally rejects pending runs; this transaction applies its database
+integrity/schema/outbox checks while separately admitting only the evidence-bound
+pending canary. No stored receipt or caller-supplied readiness value substitutes
+for these current checks.
+
+The provider setting is the only changed value. A root-owned 0600 temporary
+file is created in the environment file's held parent, protected before payload
+bytes, synced and identity-checked. The fixed private `provider-intent.json`
+receipt is durably created before the final gate/source recheck and atomic
+same-parent replacement. `provider-outcome.json` records the resulting inode
+identity only after replacement. Existing intent/outcome files are collisions:
+there is no retry or automatic rollback. A crash or failed outcome persistence
+can therefore leave an uncertain preparation requiring operator investigation.
+The backup directory and all original T2b artifacts remain protected and
+unchanged.
+
+`restore` is a separate conditional operation. It requires matching successful
+creation evidence, the fixed prepare intent/outcome, exact prepared bytes and
+identity, original protected backup bytes, fresh gates and the original
+ancestor chain. It atomically replaces the provider file only if the current
+file still exactly matches the prepared identity and digest. A human edit,
+replacement, or metadata drift is preserved and rejected; there is no blind
+overwrite, automatic cleanup, or retry. Restore remains available after the
+exact canary run has completed, failed, deferred, or stopped while retaining its
+lease: it checks the run's identity, profile, budget, and modes, but does not
+require `pending`, run pre-start isolation admission again, demand a stopped
+state, or clear/assert lease ownership. It permits the run's legitimate database
+and WAL changes while retaining the original database identity and policy
+identity/bytes checks. It never changes run status or lease state. A fixed
+restore-intent collision
+prevents repeating an uncertain restore; `provider-restore-outcome.json` is
+written only after the restored target and parent have been synced and checked.
+This transaction neither invokes Telegram nor proves credential/destination
+validity or authorizes sending.
+T3b2 timer cleanup, T3c supervision, and integrated T4 verification remain
+separate and pending.
