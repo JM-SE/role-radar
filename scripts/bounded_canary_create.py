@@ -12,7 +12,7 @@ import stat
 import subprocess
 import sys
 import uuid
-from contextlib import suppress
+from contextlib import contextmanager, suppress
 from pathlib import Path
 
 from scripts import bounded_canary_artifacts as artifacts
@@ -102,7 +102,7 @@ def _validate_retained_backup(child_fd, identities, digests):
             raise CreationError("backup_changed")
 
 
-def _open_backup(path: Path):
+def _open_backup_files(path: Path, *, reject_attempt: bool):
     if not path.is_absolute() or path.parent != BACKUP_ROOT or not BACKUP_NAME.fullmatch(path.name):
         raise CreationError("backup_path_invalid")
     root_fds = root_ids = child_fd = None
@@ -120,7 +120,7 @@ def _open_backup(path: Path):
         if (names - required - {"create-attempt.json", "creation-outcome.json"}
                 or not required <= names):
             raise CreationError("backup_incomplete", recovery=str(path))
-        if "create-attempt.json" in names:
+        if reject_attempt and "create-attempt.json" in names:
             raise CreationError("creation_attempt_exists", recovery=str(path))
         info = os.fstat(child_fd)
         backup_identity = (info.st_dev, info.st_ino, info.st_uid, info.st_gid,
@@ -177,6 +177,87 @@ def _open_backup(path: Path):
         if root_fds:
             backup._close_all(root_fds)
         raise
+
+
+def _open_backup(path: Path):
+    return _open_backup_files(path, reject_attempt=True)
+
+
+@contextmanager
+def _open_creation_evidence(path: Path):
+    """Yield private, descriptor-anchored evidence for one successful create."""
+    try:
+        opened = _open_backup_files(path, reject_attempt=False)
+    except CreationError:
+        raise
+    except Exception:
+        raise CreationError("creation_evidence_invalid") from None
+    (root_fds, root_ids, root_fd, child_fd, backup_identity, files,
+     identities, digests, proof) = opened
+    try:
+        try:
+            attempt_data, attempt_identity, attempt_digest = _read_at(
+                child_fd, "create-attempt.json"
+            )
+            outcome_data, outcome_identity, outcome_digest = _read_at(
+                child_fd, "creation-outcome.json"
+            )
+            attempt, outcome = _json(attempt_data), _json(outcome_data)
+        except Exception:
+            raise CreationError("creation_evidence_invalid") from None
+        if (type(attempt) is not dict
+                or set(attempt) != {
+                    "schema_version", "state", "backup", "backup_identity", "profile_id"
+                }
+                or type(attempt.get("schema_version")) is not int
+                or attempt["schema_version"] != 1 or attempt.get("state") != "attempted"
+                or attempt.get("backup") != str(path)
+                or not _int_list(attempt.get("backup_identity"), len(backup_identity))
+                or attempt["backup_identity"] != list(backup_identity)
+                or type(attempt.get("profile_id")) is not str
+                or type(outcome) is not dict
+                or set(outcome) != {"schema_version", "state", "run_id", "profile_id"}
+                or type(outcome.get("schema_version")) is not int
+                or outcome["schema_version"] != 1 or outcome.get("state") != "created"
+                or outcome.get("profile_id") != attempt.get("profile_id")):
+            raise CreationError("creation_evidence_invalid")
+        for value in (attempt["profile_id"], outcome.get("run_id")):
+            if type(value) is not str or str(uuid.UUID(value)) != value:
+                raise CreationError("creation_evidence_invalid")
+        _validate_backup_anchors(
+            root_fds, root_ids, root_fd, child_fd, backup_identity, path.name
+        )
+        _validate_retained_backup(child_fd, identities, digests)
+        for name, identity, digest in (
+            ("create-attempt.json", attempt_identity, attempt_digest),
+            ("creation-outcome.json", outcome_identity, outcome_digest),
+        ):
+            _data, current_identity, current_digest = _read_at(
+                child_fd, name, hash_only=True
+            )
+            if current_identity != identity or current_digest != digest:
+                raise CreationError("creation_evidence_invalid")
+        yield {
+            "backup_path": path, "backup_identity": backup_identity,
+            "profile_id": attempt["profile_id"], "run_id": outcome["run_id"],
+            "history": _json(files["history.json"]), "source_proof": proof,
+            "artifact_identities": {**identities,
+                                    "create-attempt.json": attempt_identity,
+                                    "creation-outcome.json": outcome_identity},
+            "artifact_digests": {**digests, "create-attempt.json": attempt_digest,
+                                  "creation-outcome.json": outcome_digest},
+            "root_fds": root_fds, "root_ids": root_ids, "root_fd": root_fd,
+            "child_fd": child_fd,
+        }
+    except CreationError:
+        raise
+    except Exception:
+        raise CreationError("creation_evidence_invalid") from None
+    finally:
+        try:
+            os.close(child_fd)
+        finally:
+            backup._close_all(root_fds)
 
 
 def _int_list(value, length: int) -> bool:

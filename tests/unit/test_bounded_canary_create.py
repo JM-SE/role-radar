@@ -4,6 +4,7 @@ import contextlib
 import io
 import json
 import os
+import shutil
 import socket
 import sqlite3
 import stat
@@ -384,6 +385,163 @@ def test_policy_replacement_after_intent_is_uncertain_before_child(
     assert outcome["state"] == "uncertain"
     assert binding_tests.PROFILE_ID not in captured.out + captured.err
     writer.close()
+
+
+def test_read_creation_evidence_is_private_read_only_and_preserves_create_guard(
+    tmp_path, monkeypatch, capsys
+):
+    recovery, _db, writer, _gates = _ready_backup(tmp_path, monkeypatch)
+    monkeypatch.setattr(adapter.os, "geteuid", lambda: 0)
+    calls = []
+    _simulate_runuser(monkeypatch, binding_tests.PROFILE_ID, calls)
+    assert adapter.main(["--backup", str(recovery)]) == 0
+    assert capsys.readouterr().out == f"CANARY_CREATION: PASS (recovery={recovery})\n"
+    files_before = {p.name: (p.stat().st_mode, p.stat().st_nlink, p.stat().st_size,
+                             p.stat().st_mtime_ns, p.read_bytes())
+                    for p in recovery.iterdir()}
+    directory_mtime = recovery.stat().st_mtime_ns
+    with adapter._open_creation_evidence(recovery) as evidence:
+        assert evidence["profile_id"] == binding_tests.PROFILE_ID
+        assert evidence["run_id"] == json.loads(
+            (recovery / "creation-outcome.json").read_text()
+        )["run_id"]
+        assert evidence["history"]["runs"]
+        assert evidence["child_fd"] >= 0
+        assert len(evidence["artifact_identities"]) == 9
+    assert capsys.readouterr().out == ""
+    assert capsys.readouterr().err == ""
+    assert recovery.stat().st_mtime_ns == directory_mtime
+    assert files_before == {
+        p.name: (p.stat().st_mode, p.stat().st_nlink, p.stat().st_size,
+                 p.stat().st_mtime_ns, p.read_bytes()) for p in recovery.iterdir()
+    }
+    assert adapter.main(["--backup", str(recovery)]) == 1
+    result = capsys.readouterr()
+    assert result.out == ""
+    assert result.err == f"CANARY_CREATION: FAIL (creation_attempt_exists; recovery={recovery})\n"
+    assert len(calls) == 1
+    writer.close()
+
+
+@pytest.mark.parametrize("mutation", ["missing-attempt", "missing-outcome", "uncertain",
+                                       "profile-mismatch", "run-invalid", "bool-version",
+                                       "attempt-profile-invalid", "backup-identity-mismatch"])
+def test_read_creation_evidence_rejects_uncertain_or_mismatched_receipts(
+    tmp_path, monkeypatch, capsys, mutation
+):
+    recovery, _db, writer, _gates = _ready_backup(tmp_path, monkeypatch)
+    monkeypatch.setattr(adapter.os, "geteuid", lambda: 0)
+    calls = []
+    _simulate_runuser(monkeypatch, binding_tests.PROFILE_ID, calls)
+    assert adapter.main(["--backup", str(recovery)]) == 0
+    target = recovery / ("create-attempt.json" if mutation in {
+        "missing-attempt", "attempt-profile-invalid", "backup-identity-mismatch"
+    } else "creation-outcome.json")
+    if mutation.startswith("missing-"):
+        original_open = adapter.os.open
+        def absent(name, flags, *args, **kwargs):
+            if name == target.name and kwargs.get("dir_fd") is not None:
+                raise FileNotFoundError(name)
+            return original_open(name, flags, *args, **kwargs)
+        monkeypatch.setattr(adapter.os, "open", absent)
+    else:
+        record = json.loads(target.read_text())
+        if mutation == "uncertain":
+            record.update(state="uncertain", code="child_result_invalid")
+        elif mutation == "profile-mismatch":
+            record["profile_id"] = "00000000-0000-4000-8000-000000000099"
+        elif mutation == "run-invalid":
+            record["run_id"] = "not-a-uuid"
+        elif mutation == "attempt-profile-invalid":
+            record["profile_id"] = "not-a-uuid"
+        elif mutation == "backup-identity-mismatch":
+            record["backup_identity"][1] += 1
+        else:
+            record["schema_version"] = True
+        target.write_text(json.dumps(record, sort_keys=True) + "\n")
+    before = {p.name: p.read_bytes() for p in recovery.iterdir()}
+    with pytest.raises(adapter.CreationError) as error, adapter._open_creation_evidence(recovery):
+        pytest.fail("invalid creation evidence was accepted")
+    assert error.value.code == "creation_evidence_invalid"
+    assert {p.name: p.read_bytes() for p in recovery.iterdir()} == before
+    assert len(calls) == 1
+    writer.close()
+
+
+def test_read_creation_evidence_rejects_copied_backup_path(tmp_path, monkeypatch):
+    recovery, _db, writer, _gates = _ready_backup(tmp_path, monkeypatch)
+    monkeypatch.setattr(adapter.os, "geteuid", lambda: 0)
+    _simulate_runuser(monkeypatch, binding_tests.PROFILE_ID, [])
+    assert adapter.main(["--backup", str(recovery)]) == 0
+    copied = recovery.parent / ("canary-" + "f" * 32)
+    shutil.copytree(recovery, copied, copy_function=shutil.copy2)
+    with pytest.raises(adapter.CreationError), adapter._open_creation_evidence(copied):
+        pytest.fail("copied backup was accepted")
+    linked = recovery.parent / ("canary-" + "e" * 32)
+    os.symlink(recovery, linked)
+    with pytest.raises(adapter.CreationError) as error, adapter._open_creation_evidence(linked):
+        pytest.fail("symlinked backup was accepted")
+    assert error.value.code == "creation_evidence_invalid"
+    writer.close()
+
+
+@pytest.mark.parametrize("mutation", ["proof-bytes", "result-schema-bool", "result-count-bool"])
+def test_read_creation_evidence_rejects_copied_proof_or_strict_result_drift(
+    tmp_path, monkeypatch, mutation
+):
+    recovery, _db, writer, _gates = _ready_backup(tmp_path, monkeypatch)
+    monkeypatch.setattr(adapter.os, "geteuid", lambda: 0)
+    _simulate_runuser(monkeypatch, binding_tests.PROFILE_ID, [])
+    assert adapter.main(["--backup", str(recovery)]) == 0
+    if mutation == "proof-bytes":
+        target = recovery / "history.json"
+        target.write_bytes(target.read_bytes() + b" ")
+    else:
+        target = recovery / "result.json"
+        result = json.loads(target.read_text())
+        if mutation == "result-schema-bool":
+            result["schema_version"] = True
+        else:
+            first = next(iter(result["record_counts"]))
+            result["record_counts"][first] = bool(result["record_counts"][first])
+        target.write_text(json.dumps(result, sort_keys=True) + "\n")
+    with pytest.raises(adapter.CreationError), adapter._open_creation_evidence(recovery):
+        pytest.fail("drifted proof/result was accepted")
+    writer.close()
+
+
+def test_read_creation_evidence_rejects_artifact_metadata_drift_and_closes_fds(
+    tmp_path, monkeypatch
+):
+    recovery, _db, writer, _gates = _ready_backup(tmp_path, monkeypatch)
+    monkeypatch.setattr(adapter.os, "geteuid", lambda: 0)
+    _simulate_runuser(monkeypatch, binding_tests.PROFILE_ID, [])
+    assert adapter.main(["--backup", str(recovery)]) == 0
+    (recovery / "history.json").chmod(0o640)
+    opened = []
+    original_open_chain = backup._open_chain
+    original_close_all = backup._close_all
+    def track_open(*args, **kwargs):
+        result = original_open_chain(*args, **kwargs)
+        opened.extend(result[0])
+        return result
+    def track_close(fds):
+        original_close_all(fds)
+        assert all(_fd_closed(fd) for fd in opened)
+    monkeypatch.setattr(backup, "_open_chain", track_open)
+    monkeypatch.setattr(backup, "_close_all", track_close)
+    with pytest.raises(adapter.CreationError), adapter._open_creation_evidence(recovery):
+        pytest.fail("drifted artifact was accepted")
+    assert opened and all(_fd_closed(fd) for fd in opened)
+    writer.close()
+
+
+def _fd_closed(fd):
+    try:
+        os.fstat(fd)
+        return False
+    except OSError:
+        return True
 
 
 def test_same_backup_rerun_collides_before_gate_or_second_child(tmp_path, monkeypatch, capsys):

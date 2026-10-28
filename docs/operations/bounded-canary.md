@@ -325,3 +325,24 @@ This is an offline-reconstructed creation boundary, not authorization to run it
 on a host. T2b alone does not prove systemd supervision, provider budgets during
 execution, Telegram cleanup/delivery or overall MVP readiness; T3/T4 remain
 separate.
+
+### Read-only successful-creation evidence (T3a)
+
+The private `scripts.bounded_canary_create._open_creation_evidence(path)`
+context manager is a narrow internal reader for a successfully created T2b
+backup. It reuses the same anchored backup, strict result/history, version-2
+source-proof, copied-artifact identity and digest validation as creation, then
+requires exact protected attempt and `created` outcome records bound to the
+same canonical profile UUID, backup path and backup-directory identity. It
+returns private run/profile identities, verified retained history/proof and
+held descriptor context only inside the context manager; all owned descriptors
+close on exit or rejection. It performs no writes, timestamp updates, SQLite
+opens or public output.
+
+This reader does not claim host/run readiness, inspect current provider
+settings, enforce that the run remains pending, or re-check live source
+configuration. Uncertain, absent, malformed, mismatched or drifted evidence is
+rejected. Successful evidence consumption does not make creation replayable:
+the ordinary creation entry point continues to reject any existing attempt
+before gates or child dispatch. Exact supervision and current-state checks are
+separate T3 work; no start, stop, timer or provider operation is included.
