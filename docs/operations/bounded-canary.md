@@ -247,10 +247,9 @@ or overall readiness claims.
 
 The accepted trusted-ancestor boundary remains in force; this unit does not
 change existing parent permissions or impose root ownership on every ancestor.
-Passing T2a
-proves only this backup unit's checks and artifacts. T2b single-run creation
-and T3 supervision remain separate, unimplemented tasks; do not proceed to
-host operation based on this pass alone.
+Passing T2a proves only this backup unit's checks and artifacts. T2b single-run
+creation is a separate step described below; T3 supervision remains
+unimplemented. Do not proceed to host operation based on a T2a or T2b pass alone.
 
 ## Protected artifact writer boundary (T2a1)
 
@@ -269,3 +268,60 @@ T2a1 establishes only this reusable artifact-writer boundary and its synthetic
 tests. T2a2 composes it with the SQLite/config orchestration, retaining original
 source and ancestor identities and repairing the module entrypoint. Neither
 unit is an overall backup-readiness or host-operation claim.
+
+## Single canary run creation (T2b)
+
+T2b accepts one exact, absolute recovery-child path produced by a completed
+T2a backup. From `/opt/role-radar`, invoke the installed interpreter:
+
+```sh
+.venv/bin/python -B -m scripts.bounded_canary_create --backup /opt/role-radar/data/backups/canary-<32-lowercase-hex-digits>
+```
+
+This operation requires effective UID 0, validates the fixed protected backup
+root, child and all required private artifacts, and verifies the source-proof
+against the currently bound database, environment and policy. It revalidates
+the completed T2a result and the source-proof digests for the retained SQLite
+copy and metadata-only history, including that the history row counts match the
+result. T2a had already checked the copy against that history before recording
+completion. Fresh isolation, installed-source, database-history and official
+policy/profile-binding gates must pass again. Source identity and configuration
+bytes are checked again immediately before the durable attempt record. A
+missing, changed, malformed or previously attempted backup fails closed and
+is not repaired, replaced or retried.
+
+Only after those checks does the adapter durably create `create-attempt.json`
+inside the protected recovery child, then rechecks the original database/config
+proof and every retained backup artifact immediately before dispatch. A drift
+leaves the attempt and an uncertainty outcome and dispatches no child. It then
+invokes exactly one clean
+`runuser -u role-radar` child for `role-radar run create --canary --profile-id
+<bound-profile-id>`, with only the fixed executable PATH, locale, app-root home
+and proven database URL in the application environment. The root adapter does
+not start a worker, import provider code, access credentials or authorize
+provider consent. The existing application CLI creates the ordinary persisted
+run, including its fixed canary budget and initial discovery checkpoint.
+
+A zero exit plus the exact private JSON creation receipt is not sufficient by
+itself: T2b reopens the held read-only database view and verifies exactly one
+new pending run with the bound profile, exact canary budget/checkpoint, no
+claim/lease/start, unchanged old run metadata/history and unchanged notification
+outbox. Before writing a created outcome, it rechecks the original database's
+device/inode/type/mode/owner/group/link count and parent chain, allowing only
+SQLite payload/size/timestamp changes, then revalidates source config and all
+retained backup artifacts. Any drift after dispatch is terminal uncertainty;
+an already committed run is not rolled back or retried. On success it durably
+writes `creation-outcome.json` as created and prints only
+`CANARY_CREATION: PASS` with the recovery location. After the
+attempt record, any timeout, nonzero exit, malformed or incomplete receipt, or
+failed before/after comparison is terminally uncertain: the adapter records a
+fixed uncertainty outcome and reports the recovery location. Child stdout/stderr
+are captured before the 4 KiB length check, so that threshold rejects oversized
+output but is not a hard memory-use bound. Do not run T2b again against that child or infer that no run was created. Inspect protected
+evidence before any separately authorized recovery decision; no automatic
+retry, database restore, worker start, supervision or delivery is included.
+
+This is an offline-reconstructed creation boundary, not authorization to run it
+on a host. T2b alone does not prove systemd supervision, provider budgets during
+execution, Telegram cleanup/delivery or overall MVP readiness; T3/T4 remain
+separate.
