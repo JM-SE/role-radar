@@ -384,6 +384,72 @@ class Job(Base):
     deep_queue_items: Mapped[list[DeepEvaluationQueueItem]] = relationship(back_populates="job")
 
 
+class LocationUnconfirmed(Base):
+    """Review-only intake observations with unresolved geography."""
+
+    __tablename__ = "location_unconfirmed"
+    __table_args__ = (
+        CheckConstraint("profile_version > 0", name="ck_location_unconfirmed_profile_version"),
+        CheckConstraint(
+            "profile_schema_version > 0",
+            name="ck_location_unconfirmed_profile_schema_version",
+        ),
+        CheckConstraint(
+            "length(profile_hash) = 64", name="ck_location_unconfirmed_profile_hash_length"
+        ),
+        CheckConstraint(
+            "length(trim(external_id)) > 0", name="ck_location_unconfirmed_external_id"
+        ),
+        CheckConstraint("length(trim(title)) > 0", name="ck_location_unconfirmed_title"),
+        CheckConstraint("length(trim(company)) > 0", name="ck_location_unconfirmed_company"),
+        CheckConstraint(
+            "length(trim(application_url)) > 0",
+            name="ck_location_unconfirmed_application_url",
+        ),
+        CheckConstraint(
+            "reason_code = 'region_unknown'", name="ck_location_unconfirmed_reason_code"
+        ),
+        UniqueConstraint(
+            "profile_id",
+            "source_id",
+            "external_id",
+            name="uq_location_unconfirmed_profile_source_external",
+        ),
+        Index(
+            "ix_location_unconfirmed_profile_binding_last_seen",
+            "profile_id",
+            "profile_version",
+            "profile_schema_version",
+            "profile_hash",
+            "last_seen_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    profile_id: Mapped[str] = mapped_column(
+        ForeignKey("candidate_profiles.id", ondelete="CASCADE"), nullable=False
+    )
+    profile_version: Mapped[int] = mapped_column(nullable=False)
+    profile_schema_version: Mapped[int] = mapped_column(nullable=False)
+    profile_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_id: Mapped[str] = mapped_column(
+        ForeignKey("sources.id", ondelete="RESTRICT"), nullable=False
+    )
+    external_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    company: Mapped[str] = mapped_column(String(255), nullable=False)
+    location: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    source_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    application_url: Mapped[str] = mapped_column(String(2048), nullable=False)
+    reason_code: Mapped[str] = mapped_column(String(32), nullable=False)
+    first_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+
+
 class JobExtraction(Base):
     """Resultado durable de una extracción, sin prompts ni output inválido."""
 

@@ -31,6 +31,67 @@ def _database() -> sqlite3.Connection:
     return connection
 
 
+LOCATION_UNCONFIRMED_DDL = """
+CREATE TABLE location_unconfirmed (
+    id VARCHAR(36) NOT NULL PRIMARY KEY,
+    profile_id VARCHAR(36) NOT NULL,
+    profile_version INTEGER NOT NULL CONSTRAINT ck_location_unconfirmed_profile_version
+        CHECK (profile_version > 0),
+    profile_schema_version INTEGER NOT NULL
+        CONSTRAINT ck_location_unconfirmed_profile_schema_version
+        CHECK (profile_schema_version > 0),
+    profile_hash VARCHAR(64) NOT NULL CONSTRAINT ck_location_unconfirmed_profile_hash_length
+        CHECK (length(profile_hash) = 64),
+    source_id VARCHAR(36) NOT NULL,
+    external_id VARCHAR(255) NOT NULL CONSTRAINT ck_location_unconfirmed_external_id
+        CHECK (length(trim(external_id)) > 0),
+    title VARCHAR(255) NOT NULL CONSTRAINT ck_location_unconfirmed_title
+        CHECK (length(trim(title)) > 0),
+    company VARCHAR(255) NOT NULL CONSTRAINT ck_location_unconfirmed_company
+        CHECK (length(trim(company)) > 0),
+    location VARCHAR(255),
+    source_url VARCHAR(2048),
+    application_url VARCHAR(2048) NOT NULL
+        CONSTRAINT ck_location_unconfirmed_application_url
+        CHECK (length(trim(application_url)) > 0),
+    reason_code VARCHAR(32) NOT NULL CONSTRAINT ck_location_unconfirmed_reason_code
+        CHECK (reason_code = 'region_unknown'),
+    first_seen_at DATETIME NOT NULL,
+    last_seen_at DATETIME NOT NULL,
+    CONSTRAINT uq_location_unconfirmed_profile_source_external
+        UNIQUE (profile_id, source_id, external_id),
+    CONSTRAINT fk_location_unconfirmed_profile
+        FOREIGN KEY (profile_id) REFERENCES candidate_profiles (id) ON DELETE CASCADE,
+    CONSTRAINT fk_location_unconfirmed_source
+        FOREIGN KEY (source_id) REFERENCES sources (id) ON DELETE RESTRICT
+)
+"""
+LOCATION_UNCONFIRMED_INDEX = (
+    "CREATE INDEX ix_location_unconfirmed_profile_binding_last_seen "
+    "ON location_unconfirmed "
+    "(profile_id, profile_version, profile_schema_version, profile_hash, last_seen_at)"
+)
+
+
+def _database_aa05(
+    table_ddl: str = LOCATION_UNCONFIRMED_DDL, *, include_index: bool = True
+) -> sqlite3.Connection:
+    connection = _database()
+    connection.execute(
+        "UPDATE alembic_version SET version_num='aa05_location_unconfirmed'"
+    )
+    connection.executescript(
+        """
+        CREATE TABLE candidate_profiles (id VARCHAR(36) PRIMARY KEY);
+        CREATE TABLE sources (id VARCHAR(36) PRIMARY KEY);
+        """
+    )
+    connection.executescript(table_ddl)
+    if include_index:
+        connection.execute(LOCATION_UNCONFIRMED_INDEX)
+    return connection
+
+
 def _invoke(
     monkeypatch, connection: sqlite3.Connection, database_url: str = "sqlite:///./data/test.db"
 ) -> tuple[int, str, str]:
@@ -214,6 +275,141 @@ def test_missing_aa04_budget_column_fails_closed(monkeypatch) -> None:
     connection.execute("ALTER TABLE job_search_runs DROP COLUMN canary_budget_json")
     result = _invoke(monkeypatch, connection)
     assert result == (1, "", "DATABASE_HISTORY_GATE: FAIL (schema_invalid)\n")
+    connection.close()
+
+
+def test_aa05_review_schema_passes_read_only_gate(monkeypatch) -> None:
+    connection = _database_aa05()
+    before = connection.total_changes
+    result = _invoke(monkeypatch, connection)
+    assert result == (
+        0,
+        "DATABASE_HISTORY_GATE: PASS (gate only; not overall readiness)\n",
+        "",
+    )
+    assert connection.total_changes == before
+    assert connection.execute("PRAGMA query_only").fetchone() == (1,)
+    connection.close()
+
+
+_REVIEW_REASON_CHECK = (
+    "    reason_code VARCHAR(32) NOT NULL "
+    "CONSTRAINT ck_location_unconfirmed_reason_code\n"
+    "        CHECK (reason_code = 'region_unknown'),\n"
+)
+_REVIEW_REASON_CHECK_ALLOW_ELIGIBLE = (
+    "    reason_code VARCHAR(32) NOT NULL "
+    "CONSTRAINT ck_location_unconfirmed_reason_code\n"
+    "        CHECK (reason_code IN ('region_unknown', 'eligible')),\n"
+)
+_PROFILE_FOREIGN_KEY = (
+    "    CONSTRAINT fk_location_unconfirmed_profile\n"
+    "        FOREIGN KEY (profile_id) REFERENCES candidate_profiles (id) ON DELETE CASCADE,\n"
+)
+
+
+def test_aa05_gate_rejects_partial_unique_identity_index(monkeypatch) -> None:
+    table_ddl = LOCATION_UNCONFIRMED_DDL.replace(
+        "    CONSTRAINT uq_location_unconfirmed_profile_source_external\n"
+        "        UNIQUE (profile_id, source_id, external_id),\n",
+        "",
+    )
+    connection = _database_aa05(table_ddl)
+    connection.execute(
+        "CREATE UNIQUE INDEX weak_unique ON location_unconfirmed "
+        "(profile_id, source_id, external_id) WHERE reason_code='eligible'"
+    )
+    before = connection.total_changes
+    try:
+        assert _invoke(monkeypatch, connection) == (
+            1,
+            "",
+            "DATABASE_HISTORY_GATE: FAIL (schema_invalid)\n",
+        )
+        assert connection.total_changes == before
+        assert connection.execute("PRAGMA query_only").fetchone() == (1,)
+    finally:
+        connection.close()
+
+
+def test_aa05_gate_does_not_accept_check_text_inside_comment(monkeypatch) -> None:
+    table_ddl = LOCATION_UNCONFIRMED_DDL.replace(
+        "CHECK (reason_code = 'region_unknown')",
+        "/* CHECK (reason_code = 'region_unknown') */ "
+        "CHECK (reason_code IN ('region_unknown', 'eligible'))",
+    )
+    connection = _database_aa05(table_ddl)
+    before = connection.total_changes
+    try:
+        assert _invoke(monkeypatch, connection) == (
+            1,
+            "",
+            "DATABASE_HISTORY_GATE: FAIL (schema_invalid)\n",
+        )
+        assert connection.total_changes == before
+        assert connection.execute("PRAGMA query_only").fetchone() == (1,)
+    finally:
+        connection.close()
+
+
+@pytest.mark.parametrize(
+    ("table_ddl", "include_index"),
+    [
+        (
+            LOCATION_UNCONFIRMED_DDL.replace(
+                _REVIEW_REASON_CHECK,
+                "    reason_code VARCHAR(32) NOT NULL,\n",
+            ),
+            True,
+        ),
+        (
+            LOCATION_UNCONFIRMED_DDL.replace(
+                _REVIEW_REASON_CHECK,
+                _REVIEW_REASON_CHECK_ALLOW_ELIGIBLE,
+            ),
+            True,
+        ),
+        (LOCATION_UNCONFIRMED_DDL.replace(_PROFILE_FOREIGN_KEY, ""), True),
+        (
+            LOCATION_UNCONFIRMED_DDL.replace("title VARCHAR(255) NOT NULL", "title VARCHAR(255)"),
+            True,
+        ),
+        (
+            LOCATION_UNCONFIRMED_DDL.replace(
+                "    CONSTRAINT uq_location_unconfirmed_profile_source_external\n"
+                "        UNIQUE (profile_id, source_id, external_id),\n",
+                "",
+            ),
+            True,
+        ),
+        (LOCATION_UNCONFIRMED_DDL, False),
+        (
+            LOCATION_UNCONFIRMED_DDL.replace(
+                "profile_version INTEGER NOT NULL", "profile_version TEXT NOT NULL"
+            ),
+            True,
+        ),
+    ],
+    ids=(
+        "missing-reason-check",
+        "eligible-reason-allowed",
+        "missing-foreign-keys",
+        "nullable-title",
+        "missing-unique",
+        "missing-index",
+        "wrong-column-type",
+    ),
+)
+def test_aa05_malformed_review_schema_fails_closed_without_writes(
+    table_ddl: str, include_index: bool, monkeypatch
+) -> None:
+    connection = _database_aa05(table_ddl, include_index=include_index)
+    before = connection.total_changes
+    result = _invoke(monkeypatch, connection)
+    assert result == (1, "", "DATABASE_HISTORY_GATE: FAIL (schema_invalid)\n")
+    assert connection.total_changes == before
+    assert connection.execute("PRAGMA query_only").fetchone() == (1,)
+    assert connection.execute("SELECT count(*) FROM location_unconfirmed").fetchone() == (0,)
     connection.close()
 
 

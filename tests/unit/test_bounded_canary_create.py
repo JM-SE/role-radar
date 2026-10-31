@@ -44,7 +44,10 @@ def _ready_backup(tmp_path, monkeypatch, *, compose_t1_gates=False):
     db = tmp_path / "live.db"
     from role_radar.db.engine import get_engine
     engine = get_engine(f"sqlite:///{db}")
-    Base.metadata.create_all(engine)
+    aa04_tables = [
+        table for table in Base.metadata.sorted_tables if table.name != "location_unconfirmed"
+    ]
+    Base.metadata.create_all(engine, tables=aa04_tables)
     with engine.begin() as connection:
         connection.execute(text("CREATE TABLE alembic_version (version_num TEXT NOT NULL)"))
         connection.execute(

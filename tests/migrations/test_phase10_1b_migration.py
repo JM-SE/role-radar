@@ -36,7 +36,7 @@ def version(database: Path) -> str:
 
 def test_fresh_upgrade_from_f87_and_clean_downgrade(tmp_path: Path) -> None:
     fresh = tmp_path / "fresh.db"
-    alembic(fresh, "upgrade", "head")
+    alembic(fresh, "upgrade", HEAD)
     assert version(fresh) == HEAD
 
     with sqlite3.connect(fresh) as connection:

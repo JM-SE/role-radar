@@ -26,7 +26,7 @@ def test_aa04_adds_persisted_canary_budget_and_checkpoint_from_aa03(tmp_path: Pa
             "aa03_reconcile_legacy_campaign_schema",
         )
 
-    _alembic(database, "upgrade", "head")
+    _alembic(database, "upgrade", "aa04_bounded_canary_execution")
     with sqlite3.connect(database) as connection:
         column_info = {
             row[1]: (row[2].upper(), row[3])
