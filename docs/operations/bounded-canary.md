@@ -125,17 +125,21 @@ risk, but the file-based SQLite URI cannot eliminate every concurrent
 replacement race. The tool never uses `immutable=1`, which could hide current
 WAL data.
 
-The gate requires exactly one Alembic version row at
-`aa04_bounded_canary_execution`, the revision introduced by
-`alembic/versions/aa04_bounded_canary_execution.py`, and the inspected run and
-notification tables/metadata columns. It runs SQLite integrity and foreign-key
-checks, then reads only run identity/status/ownership/timing/recovery metadata
-and notification outbox identity/status metadata. Active, pending, claimed, or
-leased runs fail; a `deferred` run with ownership cleared is retained as
-historical rather than presumed to be active. Unresolved or unknown notification
-batch/item states fail closed; sent/failed terminal states are accepted based on
-the official enums and repository lifecycle. No UUIDs, profile IDs, message
-bodies, reasons, error text, policy, or payload values are printed.
+The gate requires exactly one Alembic version row at either
+`aa04_bounded_canary_execution` or `aa05_location_unconfirmed`. At aa04 it
+requires the existing run/outbox schema and rejects a `location_unconfirmed`
+table. At aa05 it additionally validates the review table's exact columns,
+types, nullability, foreign keys, full (non-partial) identity uniqueness,
+expected index, and effective CHECK behavior using a separate in-memory SQLite
+probe; that probe does not write the target database. Both revisions run SQLite
+integrity and foreign-key checks, then read only run identity/status/ownership/
+timing/recovery metadata and notification outbox identity/status metadata.
+Active, pending, claimed, or leased runs fail; a `deferred` run with ownership
+cleared is retained as historical rather than presumed to be active. Unresolved
+or unknown notification batch/item states fail closed; sent/failed terminal
+states are accepted based on the official enums and repository lifecycle. No
+UUIDs, profile IDs, message bodies, reasons, error text, policy, or payload
+values are printed.
 
 Public output is a fixed PASS line or a fixed failure code. The internal
 `snapshot_history()` API is metadata-only and exists for a later before/after
