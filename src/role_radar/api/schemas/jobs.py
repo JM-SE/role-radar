@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -87,3 +88,21 @@ class JobDetailResponse(JobResponse):
     """Detalle de oferta con sus referencias de fuente."""
 
     source_references: list[JobSourceReferenceResponse]
+
+
+class LocationUnconfirmedResponse(BaseModel):
+    """Review-only offer with unknown geographic scope; deliberately has no eligibility score."""
+
+    id: str
+    title: str
+    company: str
+    location: str | None
+    source_id: str
+    external_id: str
+    source_url: str | None
+    application_url: str
+    reason_code: Literal["region_unknown"]
+    first_seen_at: datetime
+    last_seen_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)

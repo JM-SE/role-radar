@@ -4,9 +4,12 @@ DB de test: SQLite in-memory con StaticPool + ``create_all`` sobre el metadata
 (patrón §9/§11 de la spec F1 — velocidad; Alembic es el camino de producción).
 """
 
+import json
 import os
 import socket
 from collections.abc import AsyncIterator, Callable, Iterator
+from functools import partial
+from pathlib import Path
 
 import httpx
 import pytest
@@ -19,6 +22,8 @@ from role_radar.api import deps
 from role_radar.config import Settings
 from role_radar.db.base import Base
 from role_radar.main import create_app
+from role_radar.repositories.profiles import ProfileRepository
+from role_radar.repositories.runs import RunRepository
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -92,6 +97,18 @@ def db_session(db_engine: Engine) -> Iterator[Session]:
     """Sesión de test sobre la DB in-memory (una por test)."""
     with Session(db_engine) as session:
         yield session
+
+
+@pytest.fixture
+def profile_bound_runs(db_session: Session) -> tuple[str, RunRepository]:
+    """Bind collection runs to the profile required by intake without changing product code."""
+    data = json.loads((Path(__file__).parents[1] / "fixtures" / "profile_seed.json").read_text())
+    profile = ProfileRepository(db_session).create_v1(
+        name=data["name"], profile_json=data["profile_json"]
+    )
+    runs = RunRepository(db_session)
+    runs.create_run = partial(runs.create_run, profile_id=profile.id)
+    return profile.id, runs
 
 
 @pytest.fixture

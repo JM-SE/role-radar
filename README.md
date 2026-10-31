@@ -143,11 +143,15 @@ documented scheme.
 | `POST` | `/profiles` | Create a candidate profile (manual seed) |
 | `GET` | `/profiles/{id}` | Profile detail |
 | `GET` | `/jobs?status=&company=&limit=&offset=` | List canonical jobs |
+| `GET` | `/jobs/location-unconfirmed?profile_id=&limit=&offset=` | Review-only unknown-region offers; never eligible or notified |
 | `GET` | `/jobs/{id}` | Job detail + source references |
 | `POST` | `/runs` | Create a run intent (`202`); the worker executes it |
 | `GET` | `/runs` | List runs |
 | `GET` | `/runs/{id}` | Run detail + stats |
 | `GET` | `/sources`, `/sources/{id}` | Read-only source catalog |
+
+See the [location-unconfirmed review guide](docs/operations/location-unconfirmed.md)
+for the endpoint's profile-binding and lifecycle rules.
 
 The worker is the pipeline's only writer. Direct `collect` / `extract` /
 `score` commands exist for dev and tests but are blocked unless

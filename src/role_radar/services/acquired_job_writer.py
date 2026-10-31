@@ -22,7 +22,9 @@ from role_radar.matching.transient_clarification import (
     clarify_description,
 )
 from role_radar.normalization.jobs import normalize_raw_job
+from role_radar.notifications.url_policy import canonical_application_url
 from role_radar.repositories.jobs import JobRepository
+from role_radar.repositories.location_unconfirmed import LocationUnconfirmedRepository
 from role_radar.repositories.runs import RunRepository
 
 
@@ -46,6 +48,7 @@ class AcquiredJobWriter:
         self._jobs = JobRepository(session)
         self._runs = RunRepository(session)
         self._dedup = DedupService(self._jobs)
+        self._location_unconfirmed = LocationUnconfirmedRepository(session)
 
     def _intake_context(
         self, run_id: str, source_id: str
@@ -85,6 +88,10 @@ class AcquiredJobWriter:
         max_clarification_attempts: int = MAX_ATTEMPTS_PER_RUN,
     ) -> AcquiredWriteResult:
         profile, binding, source, configuration = self._intake_context(run_id, source_id)
+        run = self._session.get(JobSearchRun, run_id)
+        if run is None:
+            raise RuntimeError("profile_intake_run_invalid")
+        is_canary = run.canary_budget_json is not None
         new_jobs = duplicates = prefiltered = profile_rejected = clarification_attempts = 0
         reason_counts: dict[str, int] = {}
         ids: list[str] = []
@@ -95,6 +102,12 @@ class AcquiredJobWriter:
                 or not normalized.description
                 or not (normalized.application_url or normalized.source_url)
             ):
+                if not is_canary:
+                    self._location_unconfirmed.remove(
+                        profile_id=binding.profile_id,
+                        source_id=source_id,
+                        external_id=normalized.external_id,
+                    )
                 prefiltered += 1
                 continue
             decision = evaluate_profile_intake(
@@ -136,6 +149,30 @@ class AcquiredJobWriter:
                         source_configuration=configuration,
                         profile_binding=binding,
                         clarification=clarification,
+                    )
+            review_application_url = canonical_application_url(
+                normalized.application_url or normalized.source_url
+            )
+            if not is_canary:
+                if (
+                    decision.reason_codes == ("region_unknown",)
+                    and review_application_url is not None
+                    and bool(normalized.external_id.strip())
+                    and bool(normalized.title.strip())
+                    and bool(normalized.company.strip())
+                ):
+                    self._location_unconfirmed.observe(
+                        binding=binding,
+                        source_id=source_id,
+                        normalized=normalized,
+                        source_url=canonical_application_url(normalized.source_url),
+                        application_url=review_application_url,
+                    )
+                else:
+                    self._location_unconfirmed.remove(
+                        profile_id=binding.profile_id,
+                        source_id=source_id,
+                        external_id=normalized.external_id,
                     )
             if not decision.eligible or decision.application_url is None:
                 profile_rejected += 1

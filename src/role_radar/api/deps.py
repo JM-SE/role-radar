@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from role_radar.config import Settings, get_settings
 from role_radar.repositories.jobs import JobRepository
+from role_radar.repositories.location_unconfirmed import LocationUnconfirmedRepository
 from role_radar.repositories.profiles import ProfileRepository
 from role_radar.repositories.runs import RunRepository
 from role_radar.repositories.sources import SourceRepository
@@ -22,6 +23,7 @@ from role_radar.services.source_service import SourceService
 __all__ = [
     "Settings",
     "get_job_repository",
+    "get_location_unconfirmed_repository",
     "get_profile_repository",
     "get_profile_service",
     "get_run_repository",
@@ -59,6 +61,12 @@ def get_profile_service(session: SessionDep) -> ProfileService:
 
 def get_job_repository(session: SessionDep) -> JobRepository:
     return JobRepository(session)
+
+
+def get_location_unconfirmed_repository(
+    session: SessionDep,
+) -> LocationUnconfirmedRepository:
+    return LocationUnconfirmedRepository(session)
 
 
 def get_source_repository(session: SessionDep) -> SourceRepository:

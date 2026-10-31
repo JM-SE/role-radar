@@ -8,16 +8,24 @@ from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from role_radar.api.deps import get_job_repository, get_profile_repository
+from role_radar.api.deps import (
+    get_job_repository,
+    get_location_unconfirmed_repository,
+    get_profile_repository,
+)
 from role_radar.api.schemas.jobs import (
     JobDeepEvaluationSummary,
     JobDetailResponse,
     JobResponse,
     JobScoreSummary,
+    LocationUnconfirmedResponse,
 )
 from role_radar.db.models import CandidateProfile, Job, JobDeepEvaluation, JobScore
 from role_radar.domain.enums import DeepDecision, JobStatus
+from role_radar.domain.profile import CandidateProfileV1, canonical_profile_sha256
+from role_radar.matching.contracts import ProfileBinding
 from role_radar.repositories.jobs import JobRepository
+from role_radar.repositories.location_unconfirmed import LocationUnconfirmedRepository
 from role_radar.repositories.profiles import ProfileRepository
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
@@ -77,6 +85,23 @@ def list_jobs(
     return [_with_score(job, None) for job in jobs]
 
 
+@router.get("/location-unconfirmed", response_model=list[LocationUnconfirmedResponse])
+def list_location_unconfirmed(
+    profile_id: str | None = None,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    *,
+    repo: Annotated[LocationUnconfirmedRepository, Depends(get_location_unconfirmed_repository)],
+    profiles: Annotated[ProfileRepository, Depends(get_profile_repository)],
+) -> list[LocationUnconfirmedResponse]:
+    """List review-only offers for the selected current profile."""
+    profile = _resolve_profile(profiles, profile_id, required=True)
+    assert profile is not None
+    binding = _location_review_binding(profile)
+    records = repo.list_current(binding=binding, limit=limit, offset=offset)
+    return [LocationUnconfirmedResponse.model_validate(record) for record in records]
+
+
 @router.get("/{job_id}", response_model=JobDetailResponse)
 def get_job(
     job_id: str,
@@ -96,6 +121,24 @@ def get_job(
         else (None, None)
     )
     return cast(JobDetailResponse, _with_score(job, score, deep, detail=True))
+
+
+def _location_review_binding(profile: CandidateProfile) -> ProfileBinding:
+    if profile.schema_version != 1:
+        raise HTTPException(status_code=409, detail="Profile is invalid for location review")
+    try:
+        CandidateProfileV1.model_validate(profile.profile_json)
+        profile_hash = canonical_profile_sha256(profile.profile_json)
+    except Exception:
+        raise HTTPException(
+            status_code=409, detail="Profile is invalid for location review"
+        ) from None
+    return ProfileBinding(
+        profile_id=profile.id,
+        row_version=profile.version,
+        schema_version=profile.schema_version,
+        canonical_profile_sha256=profile_hash,
+    )
 
 
 def _resolve_profile(
