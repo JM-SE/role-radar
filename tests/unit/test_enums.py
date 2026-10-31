@@ -9,8 +9,8 @@ from role_radar.domain.enums import (
 )
 
 
-def test_job_search_run_status_exactly_10_values() -> None:
-    """D12: exactamente 10 estados, sin deduplicating ni prefiltering."""
+def test_job_search_run_status_values() -> None:
+    """D12: exactly eleven statuses, including deferred."""
     assert {s.value for s in JobSearchRunStatus} == {
         "pending",
         "collecting",
@@ -22,8 +22,9 @@ def test_job_search_run_status_exactly_10_values() -> None:
         "completed",
         "failed",
         "cancelled",
+        "deferred",
     }
-    assert len(JobSearchRunStatus) == 10
+    assert len(JobSearchRunStatus) == 11
     assert "deduplicating" not in {s.value for s in JobSearchRunStatus}
     assert "prefiltering" not in {s.value for s in JobSearchRunStatus}
 
