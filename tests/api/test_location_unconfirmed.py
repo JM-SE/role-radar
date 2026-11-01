@@ -3,14 +3,19 @@ from datetime import UTC, datetime, timedelta
 import httpx
 from sqlalchemy.orm import Session
 
+from role_radar.collectors.outcomes import CollectionMetrics, CollectionSuccess
+from role_radar.collectors.protocols import CollectorRuntime, SourceSnapshot
+from role_radar.db.models import JobSearchRun
 from role_radar.domain.dto import RawJob
-from role_radar.domain.enums import SourceType
+from role_radar.domain.enums import JobSearchRunStatus, NotificationMode, SourceType
 from role_radar.domain.profile import CandidateProfileV1
 from role_radar.execution_budget import CANARY_BUDGET
 from role_radar.repositories.profiles import ProfileRepository
 from role_radar.repositories.runs import RunRepository
 from role_radar.repositories.sources import SourceRepository
 from role_radar.services.acquired_job_writer import AcquiredJobWriter
+from role_radar.services.notification_service import NotificationService
+from role_radar.services.pipeline_collection import PipelineCollectionService
 
 
 def _profile() -> dict[str, object]:
@@ -264,3 +269,69 @@ async def test_canary_does_not_create_update_or_remove_review_observations(
     after = await _review_list(client, profile.id)
     assert len(after) == 1
     assert after[0] == before
+
+
+async def test_review_only_offer_is_not_selected_for_notifications(
+    client: httpx.AsyncClient,
+    db_engine,
+    db_session: Session,
+    settings,
+) -> None:
+    profile, _, run = _context(db_session)
+    jobs = (
+        _unknown_region_job("valid-unknown-region"),
+        _unknown_region_job("invalid-url").model_copy(
+            update={
+                "application_url": "javascript:alert(1)",
+                "source_url": "javascript:alert(1)",
+            }
+        ),
+        _unknown_region_job("wrong-role").model_copy(update={"title": "Senior Backend Engineer"}),
+        _unknown_region_job("incompatible-region").model_copy(
+            update={"location": "Remote - United States"}
+        ),
+    )
+
+    class SyntheticCollector:
+        async def collect(
+            self, snapshot: SourceSnapshot, runtime: CollectorRuntime
+        ) -> CollectionSuccess:
+            del snapshot, runtime
+            return CollectionSuccess(
+                status="ok",
+                jobs=jobs,
+                metrics=CollectionMetrics(
+                    provider_items=len(jobs),
+                    accepted_items=len(jobs),
+                    canonical_batch_bytes=1,
+                ),
+            )
+
+    service = PipelineCollectionService(
+        lambda: Session(db_engine),
+        collector_factory=lambda _snapshot: SyntheticCollector(),
+    )
+    snapshots = service.prepare(run.id)
+    assert len(snapshots) == 1
+    collection = await service.execute(snapshots[0])
+    service.finalize(run.id, collection)
+    assert collection.outcome.status == "ok"
+
+    with Session(db_engine) as session:
+        notifying_run = session.get(JobSearchRun, run.id)
+        assert notifying_run is not None
+        notifying_run.status = JobSearchRunStatus.NOTIFYING
+        notifying_run.notification_mode = NotificationMode.MATCH_ALERTS
+        session.commit()
+    reviews = await _review_list(client, profile.id)
+    assert len(reviews) == 1
+    assert reviews[0]["external_id"] == "valid-unknown-region"
+    assert reviews[0]["reason_code"] == "region_unknown"
+    ordinary = await client.get("/jobs")
+    eligible = await client.get("/jobs", params={"profile_id": profile.id, "eligible": True})
+    assert ordinary.status_code == eligible.status_code == 200
+    assert ordinary.json() == eligible.json() == []
+
+    service = NotificationService(lambda: Session(db_engine), settings=settings)
+    batches = service.prepare(run.id, recipient_key="t6-no-network-recipient")
+    assert batches == ()
