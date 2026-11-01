@@ -794,7 +794,7 @@ class DiscoveryCycle(Base):
         Enum(DiscoveryCycleStatus, native_enum=False, length=16, values_callable=_enum_values),
         nullable=False,
     )
-    stats_json: Mapped[dict[str, int]] = mapped_column(JSON, nullable=False, default=dict)
+    stats_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
     error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     planned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
