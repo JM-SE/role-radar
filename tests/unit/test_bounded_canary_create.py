@@ -140,7 +140,9 @@ def _ready_backup(tmp_path, monkeypatch, *, compose_t1_gates=False):
     return recovery, db, writer, gate_calls
 
 
-def _simulate_runuser(monkeypatch, profile_id, calls, *, outcome="success"):
+def _simulate_runuser(
+    monkeypatch, profile_id, calls, *, outcome="success", no_notifications=False
+):
     from role_radar.cli.main import main as public_cli
 
     def run(command, **kwargs):
@@ -155,9 +157,11 @@ def _simulate_runuser(monkeypatch, profile_id, calls, *, outcome="success"):
         assert tuple(child_env) == names
         assert child_env["PATH"] == f"{adapter.APP_ROOT}/.venv/bin:/usr/bin"
         assert child_env["LANG"] == "C" and child_env["HOME"] == str(adapter.APP_ROOT)
-        assert command[env_start + 4:] == [
-            "role-radar", "run", "create", "--canary", "--profile-id", profile_id,
-        ]
+        expected_args = ["role-radar", "run", "create", "--canary"]
+        if no_notifications:
+            expected_args.append("--no-notifications")
+        expected_args.extend(["--profile-id", profile_id])
+        assert command[env_start + 4 :] == expected_args
         if outcome != "success":
             if outcome == "timeout":
                 return None
@@ -211,13 +215,18 @@ def test_help_and_invalid_arguments_are_private_and_have_no_effects(monkeypatch)
     assert opened == []
 
 
-def test_public_cli_creates_one_pending_canary_and_preserves_history(tmp_path, monkeypatch, capsys):
+@pytest.mark.parametrize("no_notifications", [False, True])
+def test_public_cli_creates_one_pending_canary_and_preserves_history(
+    tmp_path, monkeypatch, capsys, no_notifications
+):
     recovery, db, writer, gate_calls = _ready_backup(
         tmp_path, monkeypatch, compose_t1_gates=True
     )
     monkeypatch.setattr(adapter.os, "geteuid", lambda: 0)
     calls = []
-    _simulate_runuser(monkeypatch, binding_tests.PROFILE_ID, calls)
+    _simulate_runuser(
+        monkeypatch, binding_tests.PROFILE_ID, calls, no_notifications=no_notifications
+    )
     network_calls = []
     monkeypatch.setattr(socket.socket, "connect", lambda *_: network_calls.append("socket"))
     before_connection = backup.database._connect_database(f"sqlite:///{db}")
@@ -233,7 +242,10 @@ def test_public_cli_creates_one_pending_canary_and_preserves_history(tmp_path, m
         "runs": len(old_runs["runs"]), "batches": len(old_runs["batches"]),
         "items": len(old_runs["items"]),
     }
-    rc = adapter.main(["--backup", str(recovery)])
+    args = ["--backup", str(recovery)]
+    if no_notifications:
+        args.append("--no-notifications")
+    rc = adapter.main(args)
     result = capsys.readouterr()
     assert rc == 0, result
     assert result.out == f"CANARY_CREATION: PASS (recovery={recovery})\n"

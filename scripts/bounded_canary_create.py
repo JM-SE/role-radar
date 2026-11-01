@@ -430,7 +430,9 @@ def _pre_history(connection):
     return database.snapshot_history(connection), _run_metadata(connection)
 
 
-def _post_create(connection, before_history, before_metadata, run_id, profile_id):
+def _post_create(
+    connection, before_history, before_metadata, run_id, profile_id, *, no_notifications=False
+):
     snapshot = database.snapshot_history(connection)
     metadata = _run_metadata(connection)
     old_ids = set(before_metadata)
@@ -462,19 +464,26 @@ def _post_create(connection, before_history, before_metadata, run_id, profile_id
             or checkpoint != {"version": 1, "stage": "discovery", "cursor": 0,
                               "counts": {}, "reservations": [], "logical_reservations": []}
             or validate_canary_checkpoint(checkpoint) != ("discovery", 0)
-            or notification_mode != NotificationMode.MATCH_ALERTS.value
+            or notification_mode != (
+                NotificationMode.NONE.value
+                if no_notifications
+                else NotificationMode.MATCH_ALERTS.value
+            )
             or discovery_mode != DiscoveryMode.SCHEDULED_DUE.value):
         raise CreationError("created_run_invalid")
 
 
-def _dispatch(database_url: str, profile_id: str):
+def _dispatch(database_url: str, profile_id: str, *, no_notifications=False):
     env = {
         "PATH": f"{APP_ROOT}/.venv/bin:/usr/bin", "LANG": "C",
         "HOME": str(APP_ROOT), "ROLE_RADAR_DATABASE_URL": database_url,
     }
     command = [RUNUSER, "-u", "role-radar", "--", "/usr/bin/env", "-i",
                *(f"{key}={value}" for key, value in env.items()), "role-radar",
-               "run", "create", "--canary", "--profile-id", profile_id]
+               "run", "create", "--canary"]
+    if no_notifications:
+        command.append("--no-notifications")
+    command.extend(["--profile-id", profile_id])
     try:
         return subprocess.run(
             command, cwd=APP_ROOT, env={"PATH": "/usr/sbin:/usr/bin:/bin", "LANG": "C"},
@@ -484,7 +493,7 @@ def _dispatch(database_url: str, profile_id: str):
         return None
 
 
-def _execute(path: Path) -> None:
+def _execute(path: Path, *, no_notifications=False) -> None:
     root_fds = root_ids = child_fd = live = None
     try:
         if not hasattr(os, "geteuid") or os.geteuid() != 0:
@@ -533,7 +542,7 @@ def _execute(path: Path) -> None:
                  "code": "pre_dispatch_recheck_failed"},
             )
             raise CreationError("creation_uncertain", recovery=str(path)) from None
-        output = _dispatch(db_url, profile_id)
+        output = _dispatch(db_url, profile_id, no_notifications=no_notifications)
         run_id = None
         try:
             if (output is None or output.returncode != 0 or type(output.stdout) is not str
@@ -541,14 +550,29 @@ def _execute(path: Path) -> None:
                     or len(output.stderr) > MAX_CHILD_OUTPUT or output.stderr != ""):
                 raise ValueError
             payload = _json(output.stdout.encode())
-            if (type(payload) is not dict or set(payload) != {"id", "status"}
-                    or payload["status"] != "pending"):
+            expected_fields = (
+                {"id", "status", "notification_mode"}
+                if no_notifications
+                else {"id", "status"}
+            )
+            if (
+                type(payload) is not dict
+                or set(payload) != expected_fields
+                or payload["status"] != "pending"
+                or (
+                    no_notifications
+                    and payload["notification_mode"] != "none"
+                )
+            ):
                 raise ValueError
             run_id = payload["id"]
             if type(run_id) is not str or str(uuid.UUID(run_id)) != run_id:
                 raise ValueError
             live.execute("BEGIN")
-            _post_create(live, before_history, before_metadata, run_id, profile_id)
+            _post_create(
+                live, before_history, before_metadata, run_id, profile_id,
+                no_notifications=no_notifications,
+            )
             _current_source_after_dispatch(proof)
             _validate_retained_backup(child_fd, identities, digests)
         except Exception:
@@ -614,12 +638,16 @@ def main(argv=None) -> int:
     parser.add_argument(
         "--backup", required=True, help="protected direct child under the fixed backup root"
     )
+    parser.add_argument(
+        "--no-notifications", action="store_true",
+        help="create the bounded canary with notifications disabled",
+    )
     try:
         args = parser.parse_args(argv)
         path = Path(args.backup)
         if not path.is_absolute() or str(path) != args.backup:
             raise CreationError("arguments_invalid")
-        _execute(path)
+        _execute(path, no_notifications=args.no_notifications)
     except SystemExit:
         raise
     except CreationError as exc:

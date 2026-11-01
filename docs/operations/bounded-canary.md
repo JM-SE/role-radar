@@ -56,8 +56,10 @@ This second gate checks **only 20 declared canary-critical source paths**. It is
 not a reconstruction of the older 18-file installation manifest, an exhaustive
 transitive-import inventory, an overall readiness decision, or authorization to
 operate a canary. The expected bytes are pinned from the `a2d4d1ec15cdf620a99848660de07027d82ce821`
-source tree, with only `src/role_radar/discovery/contracts.py` and
-`src/role_radar/services/pipeline_discovery.py` pinned to their exact
+source tree, except `src/role_radar/cli/main.py`, which is pinned to SHA-256
+`9899763647e64e0a0b62e48f87d20c4bce19716d565bc04e469464d47166a3d9` for the
+canary-only no-notification opt-out. `src/role_radar/discovery/contracts.py` and
+`src/role_radar/services/pipeline_discovery.py` remain pinned to their exact
 `ec2fdac275d2a11799871cae65831c29b93a9866` blobs.
 
 The declared paths are:
@@ -279,7 +281,7 @@ T2b accepts one exact, absolute recovery-child path produced by a completed
 T2a backup. From `/opt/role-radar`, invoke the installed interpreter:
 
 ```sh
-.venv/bin/python -B -m scripts.bounded_canary_create --backup /opt/role-radar/data/backups/canary-<32-lowercase-hex-digits>
+.venv/bin/python -B -m scripts.bounded_canary_create --no-notifications --backup /opt/role-radar/data/backups/canary-<32-lowercase-hex-digits>
 ```
 
 This operation requires effective UID 0, validates the fixed protected backup
@@ -299,12 +301,19 @@ inside the protected recovery child, then rechecks the original database/config
 proof and every retained backup artifact immediately before dispatch. A drift
 leaves the attempt and an uncertainty outcome and dispatches no child. It then
 invokes exactly one clean
-`runuser -u role-radar` child for `role-radar run create --canary --profile-id
-<bound-profile-id>`, with only the fixed executable PATH, locale, app-root home
+`runuser -u role-radar` child for `role-radar run create --canary
+--no-notifications --profile-id <bound-profile-id>`, with only the fixed
+executable PATH, locale, app-root home
 and proven database URL in the application environment. The root adapter does
 not start a worker, import provider code, access credentials or authorize
 provider consent. The existing application CLI creates the ordinary persisted
-run, including its fixed canary budget and initial discovery checkpoint.
+run, including its fixed canary budget and initial discovery checkpoint. The
+adapter opts in with `--no-notifications`; that canary has
+`notification_mode=none` and cannot enter notification processing. The default
+`run create --canary` path remains `match_alerts`; ordinary runs retain their
+existing default, and scheduled runs retain `match_alerts`. The bounded
+opt-out is verified through its public run result and isolated worker boundary,
+not by assuming all canary creation disables notifications.
 
 A zero exit plus the exact private JSON creation receipt is not sufficient by
 itself: T2b reopens the held read-only database view and verifies exactly one

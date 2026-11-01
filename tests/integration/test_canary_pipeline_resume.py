@@ -1,8 +1,81 @@
 import asyncio
+import json
+from uuid import uuid4
 
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
+
+from role_radar.cli.main import main
+from role_radar.db.base import Base
+from role_radar.db.models import CandidateProfile
 from role_radar.execution_budget import CANARY_BUDGET
 from role_radar.repositories.runs import RunRepository
 from tests.integration._canary_pipeline_support import _resumable_pipeline
+
+
+def test_cli_opt_out_worker_boundary_never_calls_fake_telegram(tmp_path, monkeypatch, capsys):
+    from role_radar.db.models import JobSearchRun
+    from role_radar.db.session import get_session_factory
+    from role_radar.domain.enums import JobSearchRunStatus
+    from role_radar.worker.pipeline import Pipeline
+
+    engine = create_engine(f"sqlite:///{tmp_path / 'canary-notifications.db'}")
+    Base.metadata.create_all(engine)
+    profile_id = str(uuid4())
+    with Session(engine) as session:
+        session.add(CandidateProfile(
+            id=profile_id, name="offline", version=1, schema_version=1,
+            profile_json={}, is_active=True,
+        ))
+        session.commit()
+    monkeypatch.setenv("ROLE_RADAR_DATABASE_URL", str(engine.url))
+    assert (
+        main(
+            [
+                "run",
+                "create",
+                "--canary",
+                "--no-notifications",
+                "--profile-id",
+                profile_id,
+            ]
+        )
+        == 0
+    )
+    public_run = json.loads(capsys.readouterr().out)
+    assert public_run["notification_mode"] == "none"
+    run_id = public_run["id"]
+    with Session(engine) as session:
+        run = session.get(JobSearchRun, run_id)
+        run.status = JobSearchRunStatus.DEEP_EVALUATING
+        run.canary_checkpoint_json = {**run.canary_checkpoint_json, "stage": "deep_evaluation"}
+        session.commit()
+
+    class FakeGateway:
+        calls = 0
+
+        async def send_message(self, _request):
+            self.calls += 1
+
+    gateway = FakeGateway()
+
+    class Notifications:
+        async def process(self, *_args, **_kwargs):
+            await gateway.send_message(None)
+
+    class Deep:
+        async def process(self, _run_id):
+            return None
+
+    pipeline = Pipeline.__new__(Pipeline)
+    pipeline._session_factory = get_session_factory(engine)
+    pipeline._deep = Deep()
+    pipeline._notifications = Notifications()
+    pipeline._notification_recipient = "isolated-test"
+    result = asyncio.run(pipeline.run(run_id))
+    assert result.status is JobSearchRunStatus.COMPLETED
+    assert gateway.calls == 0
+    engine.dispose()
 
 
 def test_pipeline_deferral_preserves_stage_and_consumed_budget(db_session) -> None:

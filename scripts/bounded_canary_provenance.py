@@ -34,8 +34,8 @@ SOURCE_PATHS = (
     "src/role_radar/config.py",
 )
 EXPECTED_HASHES = dict((
-    ("src/role_radar/cli/main.py", "b038b6cafbb2d0dcf4ebb7525bfcb8dd"
-     "4eb27d0912114ee2c106613cd99389ff"),
+    ("src/role_radar/cli/main.py", "9899763647e64e0a0b62e48f87d20c4b"
+     "ce19716d565bc04e469464d47166a3d9"),
     ("src/role_radar/worker/main.py", "8d4a9d5f542468c2057d27242209c4b9"
      "6aec9dba92b4d82d6e6de11a95ef66b9"),
     ("src/role_radar/worker/runner.py", "44bcd7d59a25ddb6d737dc3e368fc0ff"

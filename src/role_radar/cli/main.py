@@ -355,6 +355,11 @@ def _parser() -> argparse.ArgumentParser:
     run_create.add_argument("--idempotency-key")
     run_create.add_argument("--schedule-id")
     run_create.add_argument("--canary", action="store_true")
+    run_create.add_argument(
+        "--no-notifications",
+        action="store_true",
+        help="create a canary without notification processing",
+    )
     run_list = run_commands.add_parser("list")
     run_list.add_argument("--limit", type=int, default=50)
     run_list.add_argument("--offset", type=int, default=0)
@@ -1300,7 +1305,7 @@ def _run_source(settings: SettingsType, args: argparse.Namespace) -> int:
 
 
 def _run_control(settings: SettingsType, args: argparse.Namespace) -> int:
-    from role_radar.domain.enums import DiscoveryMode, NotificationMode
+    from role_radar.domain.enums import DiscoveryMode
     from role_radar.scheduler import latest_slot
     from role_radar.services.run_service import RunConflict, RunNotFound, RunService
 
@@ -1311,6 +1316,8 @@ def _run_control(settings: SettingsType, args: argparse.Namespace) -> int:
             reason = args.reason
             key = args.idempotency_key
             profile_id = args.profile_id
+            if args.no_notifications and not args.canary:
+                raise ValueError("no_notifications_requires_canary")
             if args.canary:
                 from role_radar.execution_budget import CANARY_BUDGET
 
@@ -1335,7 +1342,13 @@ def _run_control(settings: SettingsType, args: argparse.Namespace) -> int:
                 reason=reason,
                 profile_id=profile_id,
                 idempotency_key=key,
-                notification_mode="match_alerts" if reason == "scheduled" else "none",
+                notification_mode=(
+                    "none"
+                    if args.no_notifications
+                    else "match_alerts"
+                    if reason == "scheduled" or args.canary
+                    else "none"
+                ),
                 schedule_slot=slot if reason == "scheduled" else None,
                 discovery_mode=(
                     DiscoveryMode.SCHEDULED_DUE
@@ -1353,7 +1366,6 @@ def _run_control(settings: SettingsType, args: argparse.Namespace) -> int:
                     "reservations": [],
                     "logical_reservations": [],
                 }
-                run.notification_mode = NotificationMode.MATCH_ALERTS
         elif args.run_command == "list":
             from role_radar.domain.enums import JobSearchRunStatus
 
@@ -1368,7 +1380,12 @@ def _run_control(settings: SettingsType, args: argparse.Namespace) -> int:
         else:
             run = service.retry(args.run_id, idempotency_key=args.idempotency_key)
         session.commit()
-        print(json.dumps({"id": run.id, "status": run.status.value}))
+        result = {"id": run.id, "status": run.status.value}
+        if args.run_command == "create" and args.no_notifications:
+            result["notification_mode"] = getattr(
+                run.notification_mode, "value", run.notification_mode
+            )
+        print(json.dumps(result))
         return 0
     except (RunConflict, RunNotFound, ValueError) as exc:
         session.rollback()
