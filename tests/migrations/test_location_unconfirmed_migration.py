@@ -18,6 +18,7 @@ from role_radar.domain.enums import SourceType
 from role_radar.domain.profile import CandidateProfileV1
 from role_radar.repositories.profiles import ProfileRepository
 from role_radar.repositories.sources import SourceRepository
+from scripts import bounded_canary_database as database_gate
 
 ROOT = Path(__file__).resolve().parents[2]
 AA04 = "aa04_bounded_canary_execution"
@@ -98,14 +99,12 @@ def test_aa05_migration_creates_review_schema_from_aa04(tmp_path: Path) -> None:
                 "pragma index_info(ix_location_unconfirmed_profile_binding_last_seen)"
             )
         )
-        ddl = (
-            connection.execute(
-                "select sql from sqlite_master where type='table' and name='location_unconfirmed'"
-            )
-            .fetchone()[0]
-            .lower()
-        )
+        ddl = connection.execute(
+            "select sql from sqlite_master where type='table' and name='location_unconfirmed'"
+        ).fetchone()[0]
 
+    assert " ".join(ddl.split()) == database_gate.LOCATION_UNCONFIRMED_SCHEMA_SQL
+    normalized_ddl = " ".join(ddl.lower().split())
     assert columns == {
         "id": ("VARCHAR(36)", 1, 1),
         "profile_id": ("VARCHAR(36)", 1, 0),
@@ -146,7 +145,37 @@ def test_aa05_migration_creates_review_schema_from_aa04(tmp_path: Path) -> None:
         "check (length(trim(application_url)) > 0)",
         "check (reason_code = 'region_unknown')",
     ):
-        assert check in " ".join(ddl.split())
+        assert check in normalized_ddl
+
+
+def test_aa05_migrated_database_passes_public_canary_gate(tmp_path: Path) -> None:
+    database = tmp_path / "migrated-review.db"
+    result = _alembic(database, "upgrade", AA04)
+    assert result.returncode == 0, (result.stdout, result.stderr)
+    result = _alembic(database, "upgrade", "head")
+    assert result.returncode == 0, (result.stdout, result.stderr)
+    before = database.read_bytes()
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts/bounded_canary_database.py"),
+            "--database-url",
+            f"sqlite:///{database}",
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert result.stdout == "DATABASE_HISTORY_GATE: PASS (gate only; not overall readiness)\n"
+    assert result.stderr == ""
+    assert database.read_bytes() == before
+    assert not Path(f"{database}-wal").exists()
+    assert not Path(f"{database}-shm").exists()
 
 
 def test_aa05_empty_downgrade_removes_only_review_schema(tmp_path: Path) -> None:

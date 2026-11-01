@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
+import subprocess
 import sys
 from pathlib import Path
 
@@ -31,41 +32,7 @@ def _database() -> sqlite3.Connection:
     return connection
 
 
-LOCATION_UNCONFIRMED_DDL = """
-CREATE TABLE location_unconfirmed (
-    id VARCHAR(36) NOT NULL PRIMARY KEY,
-    profile_id VARCHAR(36) NOT NULL,
-    profile_version INTEGER NOT NULL CONSTRAINT ck_location_unconfirmed_profile_version
-        CHECK (profile_version > 0),
-    profile_schema_version INTEGER NOT NULL
-        CONSTRAINT ck_location_unconfirmed_profile_schema_version
-        CHECK (profile_schema_version > 0),
-    profile_hash VARCHAR(64) NOT NULL CONSTRAINT ck_location_unconfirmed_profile_hash_length
-        CHECK (length(profile_hash) = 64),
-    source_id VARCHAR(36) NOT NULL,
-    external_id VARCHAR(255) NOT NULL CONSTRAINT ck_location_unconfirmed_external_id
-        CHECK (length(trim(external_id)) > 0),
-    title VARCHAR(255) NOT NULL CONSTRAINT ck_location_unconfirmed_title
-        CHECK (length(trim(title)) > 0),
-    company VARCHAR(255) NOT NULL CONSTRAINT ck_location_unconfirmed_company
-        CHECK (length(trim(company)) > 0),
-    location VARCHAR(255),
-    source_url VARCHAR(2048),
-    application_url VARCHAR(2048) NOT NULL
-        CONSTRAINT ck_location_unconfirmed_application_url
-        CHECK (length(trim(application_url)) > 0),
-    reason_code VARCHAR(32) NOT NULL CONSTRAINT ck_location_unconfirmed_reason_code
-        CHECK (reason_code = 'region_unknown'),
-    first_seen_at DATETIME NOT NULL,
-    last_seen_at DATETIME NOT NULL,
-    CONSTRAINT uq_location_unconfirmed_profile_source_external
-        UNIQUE (profile_id, source_id, external_id),
-    CONSTRAINT fk_location_unconfirmed_profile
-        FOREIGN KEY (profile_id) REFERENCES candidate_profiles (id) ON DELETE CASCADE,
-    CONSTRAINT fk_location_unconfirmed_source
-        FOREIGN KEY (source_id) REFERENCES sources (id) ON DELETE RESTRICT
-)
-"""
+LOCATION_UNCONFIRMED_DDL = adapter.LOCATION_UNCONFIRMED_SCHEMA_SQL
 LOCATION_UNCONFIRMED_INDEX = (
     "CREATE INDEX ix_location_unconfirmed_profile_binding_last_seen "
     "ON location_unconfirmed "
@@ -77,9 +44,7 @@ def _database_aa05(
     table_ddl: str = LOCATION_UNCONFIRMED_DDL, *, include_index: bool = True
 ) -> sqlite3.Connection:
     connection = _database()
-    connection.execute(
-        "UPDATE alembic_version SET version_num='aa05_location_unconfirmed'"
-    )
+    connection.execute("UPDATE alembic_version SET version_num='aa05_location_unconfirmed'")
     connection.executescript(
         """
         CREATE TABLE candidate_profiles (id VARCHAR(36) PRIMARY KEY);
@@ -293,26 +258,24 @@ def test_aa05_review_schema_passes_read_only_gate(monkeypatch) -> None:
 
 
 _REVIEW_REASON_CHECK = (
-    "    reason_code VARCHAR(32) NOT NULL "
-    "CONSTRAINT ck_location_unconfirmed_reason_code\n"
-    "        CHECK (reason_code = 'region_unknown'),\n"
+    ", CONSTRAINT ck_location_unconfirmed_reason_code CHECK (reason_code = 'region_unknown')"
 )
 _REVIEW_REASON_CHECK_ALLOW_ELIGIBLE = (
-    "    reason_code VARCHAR(32) NOT NULL "
-    "CONSTRAINT ck_location_unconfirmed_reason_code\n"
-    "        CHECK (reason_code IN ('region_unknown', 'eligible')),\n"
+    ", CONSTRAINT ck_location_unconfirmed_reason_code "
+    "CHECK (reason_code IN ('region_unknown', 'eligible'))"
 )
 _PROFILE_FOREIGN_KEY = (
-    "    CONSTRAINT fk_location_unconfirmed_profile\n"
-    "        FOREIGN KEY (profile_id) REFERENCES candidate_profiles (id) ON DELETE CASCADE,\n"
+    ", CONSTRAINT fk_location_unconfirmed_profile "
+    "FOREIGN KEY(profile_id) REFERENCES candidate_profiles (id) ON DELETE CASCADE"
 )
 
 
 def test_aa05_gate_rejects_partial_unique_identity_index(monkeypatch) -> None:
     table_ddl = LOCATION_UNCONFIRMED_DDL.replace(
-        "    CONSTRAINT uq_location_unconfirmed_profile_source_external\n"
-        "        UNIQUE (profile_id, source_id, external_id),\n",
+        ", CONSTRAINT uq_location_unconfirmed_profile_source_external "
+        "UNIQUE (profile_id, source_id, external_id)",
         "",
+        1,
     )
     connection = _database_aa05(table_ddl)
     connection.execute(
@@ -356,10 +319,7 @@ def test_aa05_gate_does_not_accept_check_text_inside_comment(monkeypatch) -> Non
     ("table_ddl", "include_index"),
     [
         (
-            LOCATION_UNCONFIRMED_DDL.replace(
-                _REVIEW_REASON_CHECK,
-                "    reason_code VARCHAR(32) NOT NULL,\n",
-            ),
+            LOCATION_UNCONFIRMED_DDL.replace(_REVIEW_REASON_CHECK, "", 1),
             True,
         ),
         (
@@ -376,9 +336,10 @@ def test_aa05_gate_does_not_accept_check_text_inside_comment(monkeypatch) -> Non
         ),
         (
             LOCATION_UNCONFIRMED_DDL.replace(
-                "    CONSTRAINT uq_location_unconfirmed_profile_source_external\n"
-                "        UNIQUE (profile_id, source_id, external_id),\n",
+                ", CONSTRAINT uq_location_unconfirmed_profile_source_external "
+                "UNIQUE (profile_id, source_id, external_id)",
                 "",
+                1,
             ),
             True,
         ),
@@ -429,9 +390,7 @@ def test_claimed_deferred_run_and_lease_are_rejected(monkeypatch) -> None:
 
 def test_terminal_outbox_rows_pass_and_unknown_item_fails_closed(monkeypatch) -> None:
     connection = _database()
-    connection.execute(
-        "INSERT INTO notification_batches VALUES ('batch-id', 'run-id', 'sent')"
-    )
+    connection.execute("INSERT INTO notification_batches VALUES ('batch-id', 'run-id', 'sent')")
     connection.execute(
         "INSERT INTO notification_items VALUES ('item-id', 'batch-id', 'run-id', 'failed')"
     )
@@ -497,6 +456,258 @@ def _sidecar_state(path: Path) -> dict[str, tuple[str | None, str | None]]:
     return state
 
 
+def _assert_public_cli_rejects_file_without_writes(database: Path) -> None:
+    before = _sidecar_state(database)
+    journal = Path(f"{database}-journal")
+    assert not journal.exists()
+    snapshot = sqlite3.connect(database)
+    try:
+        row_before = snapshot.execute("SELECT * FROM location_unconfirmed").fetchall()
+    finally:
+        snapshot.close()
+
+    root = Path(__file__).resolve().parents[2]
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(root / "scripts/bounded_canary_database.py"),
+            "--database-url",
+            f"sqlite:///{database}",
+        ],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr == "DATABASE_HISTORY_GATE: FAIL (schema_invalid)\n"
+    assert _sidecar_state(database) == before
+    assert not journal.exists()
+    snapshot = sqlite3.connect(database)
+    try:
+        assert snapshot.execute("SELECT * FROM location_unconfirmed").fetchall() == row_before
+    finally:
+        snapshot.close()
+
+
+@pytest.mark.parametrize(
+    (
+        "case",
+        "original_check",
+        "weakened_check",
+        "profile_version",
+        "profile_schema_version",
+        "profile_hash",
+        "company",
+        "reason_code",
+    ),
+    [
+        (
+            "reason-code-allows-remote-unknown",
+            "CHECK (reason_code = 'region_unknown')",
+            "CHECK (reason_code IN ('region_unknown', 'remote_policy_unknown'))",
+            1,
+            1,
+            "a" * 64,
+            "Acme",
+            "remote_policy_unknown",
+        ),
+        (
+            "profile-version-allows-negative",
+            "CHECK (profile_version > 0)",
+            "CHECK (profile_version != 0)",
+            -1,
+            1,
+            "a" * 64,
+            "Acme",
+            "region_unknown",
+        ),
+        (
+            "company-allows-whitespace",
+            "CHECK (length(trim(company)) > 0)",
+            "CHECK (length(company) > 0)",
+            1,
+            1,
+            "a" * 64,
+            "   ",
+            "region_unknown",
+        ),
+        (
+            "profile-schema-version-allows-negative",
+            "CHECK (profile_schema_version > 0)",
+            "CHECK (profile_schema_version != 0)",
+            1,
+            -1,
+            "a" * 64,
+            "Acme",
+            "region_unknown",
+        ),
+        (
+            "profile-hash-allows-extra-character",
+            "CHECK (length(profile_hash) = 64)",
+            "CHECK (length(profile_hash) >= 64)",
+            1,
+            1,
+            "a" * 65,
+            "Acme",
+            "region_unknown",
+        ),
+        (
+            "reason-code-allows-region-incompatible",
+            "CHECK (reason_code = 'region_unknown')",
+            "CHECK (reason_code IN ('region_unknown', 'region_incompatible'))",
+            1,
+            1,
+            "a" * 64,
+            "Acme",
+            "region_incompatible",
+        ),
+        (
+            "check-comment-spoof",
+            "CHECK (reason_code = 'region_unknown')",
+            "/* CHECK (reason_code = 'region_unknown') */ "
+            "CHECK (reason_code IN ('region_unknown', 'eligible'))",
+            1,
+            1,
+            "a" * 64,
+            "Acme",
+            "eligible",
+        ),
+        (
+            "check-string-spoof",
+            "CHECK (reason_code = 'region_unknown')",
+            "CHECK (reason_code IN ('region_unknown', 'eligible') "
+            "AND length('CHECK (reason_code = ''region_unknown'')') > 0)",
+            1,
+            1,
+            "a" * 64,
+            "Acme",
+            "eligible",
+        ),
+    ],
+    ids=(
+        "reason-code-allows-remote-unknown",
+        "profile-version-allows-negative",
+        "company-allows-whitespace",
+        "profile-schema-version-allows-negative",
+        "profile-hash-allows-extra-character",
+        "reason-code-allows-region-incompatible",
+        "check-comment-spoof",
+        "check-string-spoof",
+    ),
+)
+def test_aa05_public_cli_rejects_populated_weakened_checks_without_writes(
+    tmp_path: Path,
+    case: str,
+    original_check: str,
+    weakened_check: str,
+    profile_version: int,
+    profile_schema_version: int,
+    profile_hash: str,
+    company: str,
+    reason_code: str,
+) -> None:
+    assert LOCATION_UNCONFIRMED_DDL.count(original_check) == 1
+    table_ddl = LOCATION_UNCONFIRMED_DDL.replace(original_check, weakened_check, 1)
+    source = _database_aa05(table_ddl)
+    source.execute("PRAGMA foreign_keys=ON")
+    source.execute("INSERT INTO candidate_profiles VALUES ('profile-1')")
+    source.execute("INSERT INTO sources VALUES ('source-1')")
+    source.execute(
+        """
+        INSERT INTO location_unconfirmed (
+            id, profile_id, profile_version, profile_schema_version, profile_hash,
+            source_id, external_id, title, company, location, source_url,
+            application_url, reason_code, first_seen_at, last_seen_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            "job-1",
+            "profile-1",
+            profile_version,
+            profile_schema_version,
+            profile_hash,
+            "source-1",
+            "external-1",
+            "Engineer",
+            company,
+            "Argentina",
+            "https://jobs.example/job-1",
+            "https://jobs.example/apply/job-1",
+            reason_code,
+            "2026-11-01T00:00:00",
+            "2026-11-01T00:00:00",
+        ),
+    )
+
+    database = tmp_path / f"{case}.db"
+    destination = sqlite3.connect(database)
+    try:
+        source.backup(destination)
+    finally:
+        destination.close()
+        source.close()
+
+    _assert_public_cli_rejects_file_without_writes(database)
+
+
+def test_aa05_public_cli_rejects_partial_unique_identity_index_without_writes(
+    tmp_path: Path,
+) -> None:
+    table_ddl = LOCATION_UNCONFIRMED_DDL.replace(
+        ", CONSTRAINT uq_location_unconfirmed_profile_source_external "
+        "UNIQUE (profile_id, source_id, external_id)",
+        "",
+        1,
+    )
+    source = _database_aa05(table_ddl)
+    source.execute(
+        "CREATE UNIQUE INDEX weak_unique ON location_unconfirmed "
+        "(profile_id, source_id, external_id) WHERE reason_code='region_unknown'"
+    )
+    source.execute("PRAGMA foreign_keys=ON")
+    source.execute("INSERT INTO candidate_profiles VALUES ('profile-1')")
+    source.execute("INSERT INTO sources VALUES ('source-1')")
+    source.execute(
+        """
+        INSERT INTO location_unconfirmed (
+            id, profile_id, profile_version, profile_schema_version, profile_hash,
+            source_id, external_id, title, company, location, source_url,
+            application_url, reason_code, first_seen_at, last_seen_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            "job-1",
+            "profile-1",
+            1,
+            1,
+            "a" * 64,
+            "source-1",
+            "external-1",
+            "Engineer",
+            "Acme",
+            "Argentina",
+            "https://jobs.example/job-1",
+            "https://jobs.example/apply/job-1",
+            "region_unknown",
+            "2026-11-01T00:00:00",
+            "2026-11-01T00:00:00",
+        ),
+    )
+    database = tmp_path / "partial-unique.db"
+    destination = sqlite3.connect(database)
+    try:
+        source.backup(destination)
+    finally:
+        destination.close()
+        source.close()
+
+    _assert_public_cli_rejects_file_without_writes(database)
+
+
 def test_absolute_sqlite_url_passes_public_cli(monkeypatch) -> None:
     connection = _database()
     result = _invoke(monkeypatch, connection, "sqlite:////tmp/canary.db")
@@ -548,12 +759,8 @@ def test_real_readonly_connection_and_public_cli_preserve_database(
         "INSERT INTO job_search_runs VALUES "
         "('run-a', 'completed', NULL, NULL, NULL, NULL, NULL, NULL, 0, NULL, NULL)"
     )
-    writer.execute(
-        "INSERT INTO notification_batches VALUES ('batch-a', 'run-a', 'sent')"
-    )
-    writer.execute(
-        "INSERT INTO notification_items VALUES ('item-a', 'batch-a', 'run-a', 'failed')"
-    )
+    writer.execute("INSERT INTO notification_batches VALUES ('batch-a', 'run-a', 'sent')")
+    writer.execute("INSERT INTO notification_items VALUES ('item-a', 'batch-a', 'run-a', 'failed')")
     writer.execute("CREATE TABLE private_payload_fixture(body TEXT)")
     writer.execute("INSERT INTO private_payload_fixture VALUES ('private-body-marker')")
     writer.close()

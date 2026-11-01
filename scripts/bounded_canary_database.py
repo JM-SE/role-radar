@@ -19,13 +19,57 @@ DEFAULT_DATABASE_URL = "sqlite:///./data/role-radar.db"
 REVISION = "aa04_bounded_canary_execution"
 LOCATION_UNCONFIRMED_REVISION = "aa05_location_unconfirmed"
 SUPPORTED_REVISIONS = {REVISION, LOCATION_UNCONFIRMED_REVISION}
+_LOCATION_UNCONFIRMED_SCHEMA_SQL = """
+CREATE TABLE location_unconfirmed (
+    id VARCHAR(36) NOT NULL,
+    profile_id VARCHAR(36) NOT NULL,
+    profile_version INTEGER NOT NULL,
+    profile_schema_version INTEGER NOT NULL,
+    profile_hash VARCHAR(64) NOT NULL,
+    source_id VARCHAR(36) NOT NULL,
+    external_id VARCHAR(255) NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    company VARCHAR(255) NOT NULL,
+    location VARCHAR(255),
+    source_url VARCHAR(2048),
+    application_url VARCHAR(2048) NOT NULL,
+    reason_code VARCHAR(32) NOT NULL,
+    first_seen_at DATETIME NOT NULL,
+    last_seen_at DATETIME NOT NULL,
+    PRIMARY KEY (id),
+    CONSTRAINT ck_location_unconfirmed_profile_version CHECK (profile_version > 0),
+    CONSTRAINT ck_location_unconfirmed_profile_schema_version CHECK (profile_schema_version > 0),
+    CONSTRAINT ck_location_unconfirmed_profile_hash_length CHECK (length(profile_hash) = 64),
+    CONSTRAINT ck_location_unconfirmed_external_id CHECK (length(trim(external_id)) > 0),
+    CONSTRAINT ck_location_unconfirmed_title CHECK (length(trim(title)) > 0),
+    CONSTRAINT ck_location_unconfirmed_company CHECK (length(trim(company)) > 0),
+    CONSTRAINT ck_location_unconfirmed_application_url CHECK (length(trim(application_url)) > 0),
+    CONSTRAINT ck_location_unconfirmed_reason_code CHECK (reason_code = 'region_unknown'),
+    CONSTRAINT fk_location_unconfirmed_profile
+        FOREIGN KEY(profile_id) REFERENCES candidate_profiles (id) ON DELETE CASCADE,
+    CONSTRAINT fk_location_unconfirmed_source
+        FOREIGN KEY(source_id) REFERENCES sources (id) ON DELETE RESTRICT,
+    CONSTRAINT uq_location_unconfirmed_profile_source_external
+        UNIQUE (profile_id, source_id, external_id)
+)
+"""
+LOCATION_UNCONFIRMED_SCHEMA_SQL = " ".join(_LOCATION_UNCONFIRMED_SCHEMA_SQL.split())
 RUN_COLUMNS = (
     "id, status, profile_id, started_at, completed_at, claimed_by, "
     "lease_expires_at, heartbeat_at, recovery_count"
 )
 RUN_STATUSES = {
-    "pending", "collecting", "normalizing", "extracting", "scoring",
-    "deep_evaluating", "notifying", "deferred", "completed", "failed", "cancelled",
+    "pending",
+    "collecting",
+    "normalizing",
+    "extracting",
+    "scoring",
+    "deep_evaluating",
+    "notifying",
+    "deferred",
+    "completed",
+    "failed",
+    "cancelled",
 }
 ACTIVE_RUN_STATUSES = RUN_STATUSES - {"deferred", "completed", "failed", "cancelled"}
 BATCH_STATUSES = {"pending", "prepared", "sending", "retry_wait", "sent", "failed", "unknown"}
@@ -115,9 +159,10 @@ def _file_identity(path: Path) -> tuple[int, ...]:
             item.st_ctime_ns,
         )
 
-    if any(not stat.S_ISREG(item.st_mode) for item in states) or len(
-        {identity(item) for item in states}
-    ) != 1:
+    if (
+        any(not stat.S_ISREG(item.st_mode) for item in states)
+        or len({identity(item) for item in states}) != 1
+    ):
         raise GateError("database_target_changed")
     sqlite_magic = bytes.fromhex("53514c69746520666f726d6174203300")
     if header[:16] != sqlite_magic or header[18:20] not in {bytes((1, 1)), bytes((2, 2))}:
@@ -179,9 +224,7 @@ def _rows(connection: sqlite3.Connection, query: str) -> tuple[tuple, ...]:
         raise GateError("schema_invalid") from None
 
 
-def _validate_location_unconfirmed_schema(
-    connection: sqlite3.Connection, tables: set[str]
-) -> None:
+def _validate_location_unconfirmed_schema(connection: sqlite3.Connection, tables: set[str]) -> None:
     required_tables = {"candidate_profiles", "sources", "location_unconfirmed"}
     if not required_tables <= tables:
         raise GateError("schema_invalid")
@@ -228,8 +271,7 @@ def _validate_location_unconfirmed_schema(
         if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name) is None:
             raise GateError("schema_invalid")
         index_columns = tuple(
-            str(row[2])
-            for row in _rows(connection, f'PRAGMA index_info("{name}")')
+            str(row[2]) for row in _rows(connection, f'PRAGMA index_info("{name}")')
         )
         if len(index_row) < 5 or int(index_row[4]) != 0:
             raise GateError("schema_invalid")
@@ -256,92 +298,23 @@ def _validate_location_unconfirmed_schema(
     )
     if len(table_sql_rows) != 1 or not isinstance(table_sql_rows[0][0], str):
         raise GateError("schema_invalid")
-    _validate_location_unconfirmed_check_behavior(table_sql_rows[0][0])
+    _validate_location_unconfirmed_table_sql(table_sql_rows[0][0])
 
 
-def _validate_location_unconfirmed_check_behavior(table_sql: str) -> None:
-    """Probe actual CHECK enforcement in memory without writing to the target DB."""
-    probe = sqlite3.connect(":memory:", isolation_level=None)
-    try:
-        probe.execute("PRAGMA foreign_keys=ON")
-        probe.execute("CREATE TABLE candidate_profiles (id VARCHAR(36) PRIMARY KEY)")
-        probe.execute("CREATE TABLE sources (id VARCHAR(36) PRIMARY KEY)")
-        probe.execute("INSERT INTO candidate_profiles VALUES ('profile-id')")
-        probe.execute("INSERT INTO sources VALUES ('source-id')")
-        probe.execute(table_sql)
-
-        columns = (
-            "id",
-            "profile_id",
-            "profile_version",
-            "profile_schema_version",
-            "profile_hash",
-            "source_id",
-            "external_id",
-            "title",
-            "company",
-            "location",
-            "source_url",
-            "application_url",
-            "reason_code",
-            "first_seen_at",
-            "last_seen_at",
-        )
-        insert_sql = (
-            f"INSERT INTO location_unconfirmed ({','.join(columns)}) "
-            f"VALUES ({','.join('?' for _ in columns)})"
-        )
-        valid_values: list[object] = [
-            "baseline-id",
-            "profile-id",
-            1,
-            1,
-            "a" * 64,
-            "source-id",
-            "baseline-external",
-            "Frontend Engineer",
-            "Acme",
-            None,
-            None,
-            "https://example.test/application",
-            "region_unknown",
-            "2026-01-01T00:00:00",
-            "2026-01-01T00:00:00",
-        ]
-        probe.execute(insert_sql, valid_values)
-        invalid_cases: tuple[tuple[int, object], ...] = (
-            (2, 0),
-            (3, 0),
-            (4, "a" * 63),
-            (6, "  "),
-            (7, "  "),
-            (8, ""),
-            (11, "  "),
-            (12, "eligible"),
-        )
-        for index, (column_index, invalid_value) in enumerate(invalid_cases):
-            values = list(valid_values)
-            values[0] = f"invalid-{index}"
-            values[6] = f"invalid-external-{index}"
-            values[column_index] = invalid_value
-            try:
-                probe.execute(insert_sql, values)
-            except sqlite3.IntegrityError:
-                continue
-            raise GateError("schema_invalid")
-    except GateError:
-        raise
-    except sqlite3.Error:
-        raise GateError("schema_invalid") from None
-    finally:
-        probe.close()
+def _validate_location_unconfirmed_table_sql(table_sql: str) -> None:
+    """Require the exact aa05 table contract, not a finite sample of CHECK cases."""
+    if " ".join(table_sql.split()) != LOCATION_UNCONFIRMED_SCHEMA_SQL:
+        raise GateError("schema_invalid")
 
 
 def _validate_schema(connection: sqlite3.Connection) -> None:
-    tables = {row[0] for row in _rows(
-        connection,
-        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
-    )}
+    tables = {
+        row[0]
+        for row in _rows(
+            connection,
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
+        )
+    }
     if not set(REQUIRED_COLUMNS) <= tables:
         raise GateError("schema_invalid")
     for table, required in REQUIRED_COLUMNS.items():
@@ -364,9 +337,7 @@ def snapshot_history(connection: sqlite3.Connection) -> dict[str, tuple[dict, ..
     """Internal metadata snapshot; deliberately excludes all payload-bearing columns."""
     runs = tuple(
         dict(zip(RUN_COLUMNS.replace(" ", "").split(","), row, strict=True))
-        for row in _rows(
-            connection, f"SELECT {RUN_COLUMNS} FROM job_search_runs ORDER BY id"
-        )
+        for row in _rows(connection, f"SELECT {RUN_COLUMNS} FROM job_search_runs ORDER BY id")
     )
     batches = tuple(
         dict(zip(("id", "run_id", "status"), row, strict=True))
