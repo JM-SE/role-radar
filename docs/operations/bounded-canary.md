@@ -16,9 +16,10 @@ From the installed application's virtual environment, the public invocation is:
 
 Use a syntactically valid future UUID. This validates syntax only: historical
 consumption must be checked by a later lifecycle/database gate. The command
-uses fixed `/usr/bin/systemctl show` and `list-units` calls, an allowlisted
-set of unit names and properties, a 15-second timeout for each `show` and a
-10-second timeout for `list-units`, and a clean locale/PATH environment. It never starts, stops, enables, disables, creates, or changes a
+uses fixed `/usr/bin/systemctl show`, `list-units`, and `cat` calls, an
+allowlisted set of unit names and properties, a 15-second timeout for each
+`show`/`cat`, a 10-second timeout for `list-units`, and a clean locale/PATH
+environment. It never starts, stops, enables, disables, creates, or changes a
 unit. It checks the API and the established active runtime baseline
 `llm-broker-api.service`, `llm-broker-worker.service`, `llama-server.service`,
 and `llama-swap.service`; these must be loaded, enabled, active/running, with a
@@ -28,21 +29,34 @@ also lists every instantiated `role-radar-canary-worker@*.service`, then reads
 and validates each instance plus the exact future instance. Any active or
 nonzero-PID instance is rejected; historical failed instances with PID zero
 are acceptable. Timer proofs do not require service-only PID or ExecStart
-properties. Fixed properties and unit identities must all be present and
+properties. Requested state and identity properties must be present and
 well-formed.
 
-The exact canary worker must match the installed template contract: non-root
-`role-radar` user, `/opt/role-radar` working directory, exact role-radar
-`EnvironmentFile` and PATH, no `ExecStartPre`, oneshot type, no restart, and
-exact `/usr/bin/env role-radar worker --run-id <instance-uuid>` argv. The
-structured systemd `ExecStart` path and argv are parsed as data, never executed;
-extra args and command-prefix lookalikes fail closed. Exactly the three expected
-credential references are checked, never secret contents. This contract is
-source-derived from `deploy/systemd/role-radar-canary-worker@.service` and the
-established systemd snapshot guards in
-`odd/operations/discovery-verification-diagnostics-promote.py`. Directory
-ownership is not checked here; accepted operator/runtime trust remains the
-boundary, and hashes are drift detection rather than immutable-code security.
+`systemctl show` omits an empty `ExecStartPre` and redacts `LoadCredential` as
+`[unprintable]`, even for root. The gate does not infer either value from that
+response. For every instance it requires the exact `FragmentPath`, empty
+`DropInPaths`, and `NeedDaemonReload=no`, then reads `systemctl cat` for the
+future instance. It accepts exactly one source header at
+`/etc/systemd/system/role-radar-canary-worker@.service`; drop-ins, alternate
+sources, and pending daemon reload fail closed.
+
+The canary worker contract is checked from both the instance properties and the
+source configuration: non-root `role-radar` user, `/opt/role-radar` working
+directory, exact role-radar `EnvironmentFile` and PATH, no non-empty
+`ExecStartPre`, oneshot type, no restart, and exact
+`/usr/bin/env role-radar worker --run-id <instance-uuid>` argv. The structured
+systemd `ExecStart` path and argv are parsed as data, never executed; extra args
+and command-prefix lookalikes fail closed. `LoadCredential` must contain exactly
+the three expected references; `LoadCredentialEncrypted`, `ImportCredential`,
+`SetCredential`, and `SetCredentialEncrypted` are rejected. Whitespace inside
+a directive name before `=` is malformed and fails closed. Unit content and
+credential references are checked in memory only; the gate prints neither
+configuration nor secret contents. This contract is source-derived from
+`deploy/systemd/role-radar-canary-worker@.service` and the established systemd
+snapshot guards in `odd/operations/discovery-verification-diagnostics-promote.py`.
+Directory ownership is not checked here; accepted operator/runtime trust remains
+the boundary, and hashes are drift detection rather than immutable-code
+security.
 
 Output is limited to fixed public gate codes. Any missing, malformed,
 duplicate, unknown, or timed-out systemd proof fails closed. Do not interpret a

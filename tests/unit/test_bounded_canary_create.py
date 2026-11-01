@@ -87,19 +87,28 @@ def _ready_backup(tmp_path, monkeypatch, *, compose_t1_gates=False):
         lambda parent, _policy: binding_tests._validate_synthetic_parent(parent, policy.parent),
     )
     monkeypatch.setattr(
-        DiscoveryPolicyFilePolicy, "validate",
+        DiscoveryPolicyFilePolicy,
+        "validate",
         lambda self, fd: binding_tests._validate_synthetic_metadata(self, fd),
     )
     monkeypatch.setattr(backup, "_fresh_gates", REAL_FRESH_GATES)
     gate_calls = []
     if compose_t1_gates:
+
         def systemd(command, **_kwargs):
             if command[1] == "list-units":
                 return subprocess.CompletedProcess(command, 0, "", "")
+            if command[1] == "cat":
+                unit = command[-1]
+                run_id = unit.removeprefix(preflight_tests.CANARY_PREFIX).removesuffix(".service")
+                records = preflight_tests._records(run_id)
+                return subprocess.CompletedProcess(
+                    command, 0, preflight_tests._unit_config(records[unit]), ""
+                )
             property_arg = next(item for item in command if item.startswith("--property="))
             properties = property_arg.split("=", 1)[1].split(",")
             blocks = []
-            for name in command[command.index(property_arg) + 1:]:
+            for name in command[command.index(property_arg) + 1 :]:
                 run_id = (
                     name.removeprefix(preflight_tests.CANARY_PREFIX).removesuffix(".service")
                     if name.startswith(preflight_tests.CANARY_PREFIX)

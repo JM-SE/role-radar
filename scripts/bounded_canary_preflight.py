@@ -26,7 +26,7 @@ TIMER_UNITS = (
 )
 SERVICE_PROPERTIES = (
     "Id,LoadState,ActiveState,SubState,MainPID,UnitFileState,Type,User,WorkingDirectory,"
-    "Restart,ExecStart,ExecStartPre,EnvironmentFiles,Environment,LoadCredential"
+    "Restart,ExecStart,EnvironmentFiles,Environment,FragmentPath,DropInPaths,NeedDaemonReload"
 )
 BASELINE_PROPERTIES = "Id,LoadState,ActiveState,SubState,MainPID,UnitFileState"
 TIMER_PROPERTIES = "Id,LoadState,ActiveState,SubState,UnitFileState"
@@ -34,6 +34,7 @@ CANARY_PROPERTIES = SERVICE_PROPERTIES
 RUN_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\Z")
 CANARY_NAME = re.compile(r"role-radar-canary-worker@([0-9a-f-]{36})\.service\Z")
 CANARY_PREFIX = "role-radar-canary-worker@"
+WORKER_FRAGMENT_PATH = "/etc/systemd/system/role-radar-canary-worker@.service"
 RUNTIME_BASELINE = {
     "role-radar-api.service",
     "llm-broker-api.service",
@@ -51,6 +52,12 @@ EXPECTED_CREDENTIALS = {
     "query-hmac:/etc/role-radar/credentials/query-hmac",
     "brave-free:/etc/role-radar/credentials/brave-free",
     "tavily-free:/etc/role-radar/credentials/tavily-free",
+}
+UNEXPECTED_CREDENTIAL_DIRECTIVES = {
+    "LoadCredentialEncrypted",
+    "ImportCredential",
+    "SetCredential",
+    "SetCredentialEncrypted",
 }
 CLEAN_ENV = {"PATH": "/usr/bin:/bin", "LC_ALL": "C", "LANG": "C"}
 
@@ -200,22 +207,71 @@ def _parse_exec_start(value: str) -> tuple[str, tuple[str, ...]] | None:
     return fields[0][5:], tuple(fields[1][7:].split(" "))
 
 
+def _worker_unit_config(unit: str, runner=None) -> str:
+    result = _run(
+        ["/usr/bin/systemctl", "cat", "--no-pager", unit],
+        15,
+        runner,
+    )
+    return result.stdout
+
+
+def _worker_unit_config_matches(output: str) -> bool:
+    sources: list[str] = []
+    directives: dict[str, list[str]] = {}
+    section = ""
+    for line in output.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("# /"):
+            sources.append(stripped[2:])
+            continue
+        if not stripped or stripped.startswith(("#", ";")):
+            continue
+        if stripped.startswith("[") and stripped.endswith("]"):
+            section = stripped[1:-1]
+            continue
+        if section != "Service":
+            continue
+        key, separator, value = stripped.partition("=")
+        if not separator or not key or key != key.strip():
+            return False
+        directives.setdefault(key, []).append(value)
+
+    expected = {
+        "Type": ["oneshot"],
+        "User": ["role-radar"],
+        "WorkingDirectory": ["/opt/role-radar"],
+        "EnvironmentFile": ["/etc/role-radar/role-radar.env"],
+        "Environment": ["PATH=/opt/role-radar/.venv/bin:/usr/bin"],
+        "ExecStart": ["/usr/bin/env role-radar worker --run-id %i"],
+        "Restart": ["no"],
+    }
+    credentials = directives.get("LoadCredential", [])
+    return (
+        sources == [WORKER_FRAGMENT_PATH]
+        and all(directives.get(key) == values for key, values in expected.items())
+        and len(credentials) == len(EXPECTED_CREDENTIALS)
+        and set(credentials) == EXPECTED_CREDENTIALS
+        and not any(directives.get(key) for key in UNEXPECTED_CREDENTIAL_DIRECTIVES)
+        and not any(directives.get("ExecStartPre", []))
+    )
+
+
 def _worker_contract(record: dict[str, str], run_id: str) -> bool:
     try:
         parsed = _parse_exec_start(record["ExecStart"])
-        credential_items = record["LoadCredential"].split()
-        credentials = set(credential_items)
         return (
             record["Type"] == "oneshot"
             and record["Restart"] == "no"
             and record["User"] == "role-radar"
             and record["WorkingDirectory"] == "/opt/role-radar"
-            and record["ExecStartPre"] == ""
             and record["EnvironmentFiles"] == "/etc/role-radar/role-radar.env (ignore_errors=no)"
             and record["Environment"].split() == ["PATH=/opt/role-radar/.venv/bin:/usr/bin"]
-            and len(credential_items) == len(EXPECTED_CREDENTIALS)
-            and credentials == EXPECTED_CREDENTIALS
-            and parsed == (
+            and record["FragmentPath"] == WORKER_FRAGMENT_PATH
+            and record["DropInPaths"] == ""
+            and record["NeedDaemonReload"] == "no"
+            and parsed
+            == (
                 "/usr/bin/env",
                 ("/usr/bin/env", "role-radar", "worker", "--run-id", run_id),
             )
@@ -297,6 +353,11 @@ def run_gate(run_id: str, runner=None) -> None:
         stopped = record.get("SubState") in {"dead", "failed"}
         if not inactive or not stopped or pid != "0":
             raise GateError("producer_or_canary_active")
+
+    worker_config = _worker_unit_config(f"{CANARY_PREFIX}{run_id}.service", runner)
+    if not _worker_unit_config_matches(worker_config):
+        raise GateError("canary_worker_contract_invalid")
+    for unit, record in instances.items():
         if not _worker_contract(record, unit.removeprefix(CANARY_PREFIX).removesuffix(".service")):
             raise GateError("canary_worker_contract_invalid")
 
