@@ -69,12 +69,24 @@ runs remain outside this gate and must not be retried or altered.
 This second gate checks **only 20 declared canary-critical source paths**. It is
 not a reconstruction of the older 18-file installation manifest, an exhaustive
 transitive-import inventory, an overall readiness decision, or authorization to
-operate a canary. The expected bytes are pinned from the `a2d4d1ec15cdf620a99848660de07027d82ce821`
-source tree, except `src/role_radar/cli/main.py`, which is pinned to SHA-256
-`9899763647e64e0a0b62e48f87d20c4bce19716d565bc04e469464d47166a3d9` for the
-canary-only no-notification opt-out. `src/role_radar/discovery/contracts.py` and
-`src/role_radar/services/pipeline_discovery.py` remain pinned to their exact
-`ec2fdac275d2a11799871cae65831c29b93a9866` blobs.
+operate a canary. The majority of expected bytes are pinned from the
+`a2d4d1ec15cdf620a99848660de07027d82ce821` source tree. Four entries are
+explicitly pinned to separately approved deployed bytes:
+
+- `src/role_radar/cli/main.py`: SHA-256
+  `9899763647e64e0a0b62e48f87d20c4bce19716d565bc04e469464d47166a3d9` for the
+  canary-only no-notification opt-out (`9142853`).
+- `src/role_radar/services/acquired_job_writer.py`: SHA-256
+  `dd351d737b921b8e0fd6b7d228e53626fa04dc590bd8d91b9c2a3fa6178ef958`, matching
+  the approved T5 source (`b16874d`); the prior pin was stale.
+- `src/role_radar/services/pipeline_discovery.py`: SHA-256
+  `dd05f31105f935989357640565deb867a63cc950773e346b39c67313e144bd14`.
+- `src/role_radar/discovery/contracts.py`: SHA-256
+  `b051435802d3ef191ed738bf7b0977bc7f926e102dfb994108fd9d13e70af5a4`.
+
+The last two retain previously approved collector-failure diagnostics from the
+`4c3d815` installation. The provenance gate preserves those deployed bytes by
+pinning their hashes; it does not replace them with older workspace versions.
 
 The declared paths are:
 
@@ -170,8 +182,11 @@ This separate read-only gate binds the official discovery policy to its exact
 active profile row. Invoke from the installed application directory:
 
 ```sh
-.venv/bin/python -B scripts/bounded_canary_binding.py
+.venv/bin/python -B -m scripts.bounded_canary_binding
 ```
+
+Use module execution from the application root so the gate can import its
+`scripts.*` helper modules.
 
 `--database-url` accepts the SQLite file URLs described above, and
 `--policy-path` defaults to `/etc/role-radar/discovery-policy.toml`. The policy
@@ -352,6 +367,29 @@ This is an offline-reconstructed creation boundary, not authorization to run it
 on a host. T2b alone does not prove systemd supervision, provider budgets during
 execution, Telegram cleanup/delivery or overall MVP readiness; T3/T4 remain
 separate.
+
+The persisted canary budget currently bounds `accepted_items=2`,
+`broker_calls=4`, `broker_attempts=4`, and a shared `source_http_attempts=2`.
+The shared source count includes retries; by itself it does not establish a
+logical per-provider query limit. The canary code path does: preparation
+truncates the four-query plan to its first identity; ordinal 1 targets
+`boards.greenhouse.io`; `search_canary` performs one Brave Free operation
+without fallback; and the Brave adapter issues one bounded HTTP request without
+an internal retry loop. Discovery allows one Greenhouse board per query, so the
+single canary query permits at most one board verification per run. The
+installed `pipeline_discovery.py` source was read-only checked and its SHA-256
+matches the provenance pin `dd05f31105f935989357640565deb867a63cc950773e346b39c67313e144bd14`.
+The four Broker `broker_attempts` reservations cover each submit retry and
+each result/status poll. The worker unit template has no explicit ten-minute
+timeout, and `scripts/canary_supervisor.py` only classifies observed
+run/systemd state; its callers own deadlines and process control. Therefore
+the source maxima are already enforced, but the ten-minute maximum still
+requires a read-only proof that the effective `TimeoutStartUSec` for the actual
+worker instance is finite and no more than 600 seconds. Recheck that actual run
+ID after T2b creation and before worker start; if unavailable or over the cap,
+do not start or recreate the run. This systemd check cannot substitute for a
+provider-specific source budget. `--no-notifications` remains required; do not
+prepare or enable Telegram for this path.
 
 ### Read-only successful-creation evidence (T3a)
 

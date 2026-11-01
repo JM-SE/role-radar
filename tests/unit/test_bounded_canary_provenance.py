@@ -10,6 +10,28 @@ import pytest
 
 from scripts import bounded_canary_provenance as gate
 
+
+@pytest.mark.parametrize(
+    ("path", "expected"),
+    [
+        (
+            "src/role_radar/services/acquired_job_writer.py",
+            "dd351d737b921b8e0fd6b7d228e53626fa04dc590bd8d91b9c2a3fa6178ef958",
+        ),
+        (
+            "src/role_radar/services/pipeline_discovery.py",
+            "dd05f31105f935989357640565deb867a63cc950773e346b39c67313e144bd14",
+        ),
+        (
+            "src/role_radar/discovery/contracts.py",
+            "b051435802d3ef191ed738bf7b0977bc7f926e102dfb994108fd9d13e70af5a4",
+        ),
+    ],
+)
+def test_deployed_diagnostic_sources_have_exact_provenance_pins(path, expected):
+    assert gate.EXPECTED_HASHES[path] == expected
+
+
 PINS = {path: hashlib.sha256(path.encode()).hexdigest() for path in gate.SOURCE_PATHS}
 MODES = {path: (0o664 if path.endswith("discovery/contracts.py") else 0o644)
          for path in gate.SOURCE_PATHS}

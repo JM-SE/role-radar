@@ -58,12 +58,12 @@ EXPECTED_HASHES = dict((
      "03e07df3c91cc077a53045e8dc990e1f"),
     ("src/role_radar/matching/profile_intake.py", "3cf1704d23993c0fb280430977c59c3"
      "098b7f5d19fd2d991693d7b593f191d59"),
-    ("src/role_radar/services/acquired_job_writer.py", "db98adc5b6f3a49966f44b23f96e1de2"
-     "615d1ee8b867fccafa91ebbd15c7cac0"),
-    ("src/role_radar/services/pipeline_discovery.py", "6bedf540c02f187d94a9b1777897cdb1"
-     "da4c561d42a803d8d16d7e6e26dfba90"),
-    ("src/role_radar/discovery/contracts.py", "6b354b9e87cc65ddd7d62ef13422aa6b"
-     "8cfe43f9cb5aef9add2d60c2c522807c"),
+    ("src/role_radar/services/acquired_job_writer.py", "dd351d737b921b8e0fd6b7d228e53626"
+     "fa04dc590bd8d91b9c2a3fa6178ef958"),
+    ("src/role_radar/services/pipeline_discovery.py", "dd05f31105f935989357640565deb867"
+     "a63cc950773e346b39c67313e144bd14"),
+    ("src/role_radar/discovery/contracts.py", "b051435802d3ef191ed738bf7b0977bc"
+     "7f926e102dfb994108fd9d13e70af5a4"),
     ("src/role_radar/broker/client.py", "0b2f0b4b442ff1a58520b165e6ad1cb9"
      "e76c972ad936ad5dfd3bf3cfa71689da"),
     ("src/role_radar/broker/compat_check.py", "8bdfbb7e61faba31055efed946891e40"
