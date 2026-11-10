@@ -120,7 +120,8 @@ def _open_backup_files(path: Path, *, reject_attempt: bool):
         if (names - required - {"create-attempt.json", "creation-outcome.json",
                                 "provider-intent.json", "provider-outcome.json",
                                 "provider-restore-intent.json", "provider-restore-outcome.json",
-                                "timer-cleanup-intent.json", "timer-cleanup-outcome.json"}
+                                "timer-cleanup-intent.json", "timer-cleanup-outcome.json",
+                                "supervision-intent.json", "supervision-outcome.json"}
                 or not required <= names):
             raise CreationError("backup_incomplete", recovery=str(path))
         if reject_attempt and "create-attempt.json" in names:
@@ -187,7 +188,7 @@ def _open_backup(path: Path):
 
 
 @contextmanager
-def _open_creation_evidence(path: Path):
+def _open_creation_evidence(path: Path, *, allow_consumed_supervision=False):
     """Yield private, descriptor-anchored evidence for one successful create."""
     try:
         opened = _open_backup_files(path, reject_attempt=False)
@@ -231,6 +232,35 @@ def _open_creation_evidence(path: Path):
             root_fds, root_ids, root_fd, child_fd, backup_identity, path.name
         )
         _validate_retained_backup(child_fd, identities, digests)
+        supervision_names = {"supervision-intent.json", "supervision-outcome.json"}
+        present_supervision = set(os.listdir(child_fd)) & supervision_names
+        if present_supervision and not allow_consumed_supervision:
+            from scripts import bounded_canary_supervision as supervision
+            if ("supervision-outcome.json" in present_supervision
+                    and "supervision-intent.json" not in present_supervision):
+                raise CreationError("creation_evidence_invalid")
+            receipts = {}
+            for receipt_name in sorted(present_supervision):
+                receipt_data, _receipt_identity, _receipt_digest = _read_at(child_fd, receipt_name)
+                receipt = _json(receipt_data)
+                receipts[receipt_name] = (receipt, _receipt_identity, _receipt_digest)
+                if not supervision.receipt_valid(
+                    receipt, {"backup_path": path, "backup_identity": backup_identity,
+                               "run_id": outcome["run_id"], "profile_id": attempt["profile_id"],
+                               "artifact_digests": {**digests,
+                                   "create-attempt.json": attempt_digest,
+                                   "creation-outcome.json": outcome_digest}},
+                    outcome=receipt_name == "supervision-outcome.json",
+                ):
+                    raise CreationError("creation_evidence_invalid")
+            if ("supervision-outcome.json" in receipts
+                    and receipts["supervision-outcome.json"][0]["intent_sha256"]
+                    != receipts["supervision-intent.json"][2]):
+                raise CreationError("creation_evidence_invalid")
+            for name, (_receipt, identity, digest) in receipts.items():
+                _data, current_identity, current_digest = _read_at(child_fd, name, hash_only=True)
+                if current_identity != identity or current_digest != digest:
+                    raise CreationError("creation_evidence_invalid")
         for name, identity, digest in (
             ("create-attempt.json", attempt_identity, attempt_digest),
             ("creation-outcome.json", outcome_identity, outcome_digest),

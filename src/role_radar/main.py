@@ -6,7 +6,10 @@ from importlib import metadata
 from pathlib import Path
 
 from fastapi import FastAPI
+from starlette.responses import JSONResponse
+from starlette.types import ASGIApp, Receive, Scope, Send
 
+from role_radar.api.fence_attestation import FenceAttestationServer
 from role_radar.api.health import router as health_router
 from role_radar.api.jobs import router as jobs_router
 from role_radar.api.profiles import router as profiles_router
@@ -15,7 +18,39 @@ from role_radar.api.sources import router as sources_router
 from role_radar.config import Settings
 from role_radar.db.engine import get_engine
 from role_radar.db.session import get_session_factory
+from role_radar.fence_runtime import FenceError, producer_guard
 from role_radar.logging import configure_logging
+
+
+class _ProducerFenceMiddleware:
+    """Hold the producer fence for the complete ASGI request lifecycle."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http" or scope.get("method") in {"GET", "HEAD", "OPTIONS"}:
+            await self.app(scope, receive, send)
+            return
+
+        entered_request = False
+        try:
+            with producer_guard():
+                entered_request = True
+                await self.app(scope, receive, send)
+        except FenceError:
+            if entered_request:
+                raise
+            await JSONResponse(
+                status_code=503,
+                content={"detail": "service unavailable"},
+            )(scope, receive, send)
+
+
+def install_producer_fence_middleware(app: FastAPI) -> None:
+    """Install the fail-closed fence around every potentially writing request."""
+
+    app.add_middleware(_ProducerFenceMiddleware)
 
 
 def create_app() -> FastAPI:
@@ -33,15 +68,24 @@ def create_app() -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-        """Asegura el directorio padre de la DB SQLite y libera el engine."""
-        if settings.database_url.startswith("sqlite:///"):
-            db_path = Path(settings.database_url.removeprefix("sqlite:///"))
-            db_path.parent.mkdir(parents=True, exist_ok=True)
-        yield
-        engine.dispose()
+        """Prepare the DB and readiness attestation before serving requests."""
+        attestation: FenceAttestationServer | None = None
+        try:
+            if settings.database_url.startswith("sqlite:///"):
+                db_path = Path(settings.database_url.removeprefix("sqlite:///"))
+                db_path.parent.mkdir(parents=True, exist_ok=True)
+            # Installation is deliberately before the lifespan yield.  Any
+            # setup error propagates and aborts application startup.
+            attestation = await FenceAttestationServer.start()
+            yield
+        finally:
+            if attestation is not None:
+                await attestation.close()
+            engine.dispose()
 
     version = metadata.version("role-radar")
     app = FastAPI(title=settings.app_name, version=version, lifespan=lifespan)
+    install_producer_fence_middleware(app)
     app.state.settings = settings
     app.state.version = version
     app.state.engine = engine

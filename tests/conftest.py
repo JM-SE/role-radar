@@ -7,6 +7,7 @@ DB de test: SQLite in-memory con StaticPool + ``create_all`` sobre el metadata
 import json
 import os
 import socket
+import tempfile
 from collections.abc import AsyncIterator, Callable, Iterator
 from functools import partial
 from pathlib import Path
@@ -24,6 +25,8 @@ from role_radar.db.base import Base
 from role_radar.main import create_app
 from role_radar.repositories.profiles import ProfileRepository
 from role_radar.repositories.runs import RunRepository
+
+_synthetic_socket_roots: set[str] = set()
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -53,7 +56,23 @@ def deny_external_network() -> Iterator[None]:
 
         return _deny
 
-    monkeypatch.setattr(socket.socket, "connect", denied("socket_connect"))
+    original_connect = socket.socket.connect
+    original_connect_ex = socket.socket.connect_ex
+
+    def guarded_connect(sock: socket.socket, address: object) -> object:
+        if (sock.family == socket.AF_UNIX and isinstance(address, str)
+                and str(Path(address).parent) in _synthetic_socket_roots):
+            return original_connect(sock, address)
+        return denied("socket_connect")(address)
+
+    def guarded_connect_ex(sock: socket.socket, address: object) -> object:
+        if (sock.family == socket.AF_UNIX and isinstance(address, str)
+                and str(Path(address).parent) in _synthetic_socket_roots):
+            return original_connect_ex(sock, address)
+        return denied("socket_connect")(address)
+
+    monkeypatch.setattr(socket.socket, "connect", guarded_connect)
+    monkeypatch.setattr(socket.socket, "connect_ex", guarded_connect_ex)
     monkeypatch.setattr(socket, "create_connection", denied("socket_create_connection"))
     monkeypatch.setattr(socket, "getaddrinfo", denied("socket_getaddrinfo"))
     monkeypatch.setattr(
@@ -71,6 +90,56 @@ def deny_external_network() -> Iterator[None]:
     finally:
         assert all(value == 0 for value in counters.values()), counters
         monkeypatch.undo()
+
+
+@pytest.fixture(scope="session")
+def synthetic_fence_root() -> Iterator[Path]:
+    """One private synthetic fence per pytest worker, cleaned after all patches."""
+    with tempfile.TemporaryDirectory(prefix="rrf-") as name:
+        root = Path(name)
+        root.chmod(0o750)
+        lock = root / "execution.lock"
+        lock.touch(mode=0o640)
+        lock.chmod(0o640)
+        api_dir = root / "api"
+        api_dir.mkdir(mode=0o700)
+        _synthetic_socket_roots.add(str(api_dir))
+        _synthetic_socket_roots.add(str(root))
+        try:
+            yield root
+        finally:
+            _synthetic_socket_roots.discard(str(api_dir))
+            _synthetic_socket_roots.discard(str(root))
+
+
+@pytest.fixture(autouse=True)
+def synthetic_fence(
+    monkeypatch: pytest.MonkeyPatch, synthetic_fence_root: Path, request: pytest.FixtureRequest,
+) -> Path:
+    import role_radar.api.fence_attestation as api_attestation
+    import role_radar.fence_runtime as runtime
+
+    monkeypatch.setattr(runtime, "RUNTIME_DIR", str(synthetic_fence_root))
+    monkeypatch.setattr(runtime, "LOCK_PATH", str(synthetic_fence_root / "execution.lock"))
+    monkeypatch.setattr(runtime, "ROOT_UID", os.getuid())
+    monkeypatch.setattr(runtime, "_role_gid", lambda: os.getgid())
+    monkeypatch.setattr(api_attestation, "SOCKET_DIR", synthetic_fence_root / "api")
+    monkeypatch.setattr(api_attestation, "SERVICE_UID", os.getuid())
+    monkeypatch.setattr(api_attestation, "SERVICE_GID", os.getgid())
+    if request.path.name != "test_api_fence_attestation.py":
+        original_start = api_attestation.FenceAttestationServer.start.__func__
+
+        async def synthetic_start(cls):
+            old_umask = os.umask(0o177)
+            try:
+                return await original_start(cls)
+            finally:
+                os.umask(old_umask)
+
+        monkeypatch.setattr(
+            api_attestation.FenceAttestationServer, "start", classmethod(synthetic_start)
+        )
+    return synthetic_fence_root
 
 
 @pytest.fixture

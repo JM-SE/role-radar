@@ -1,5 +1,90 @@
 # Bounded canary adapter
 
+## Protected parser installation (preflight and writer)
+
+`scripts/bounded_canary_install_preflight.py` is a read-only preflight for the
+pinned one-file parser installation below. It is not an installer and is not a
+canary readiness gate. The user has separately authorized one protected parser
+installation and exactly one fresh-UUID retry of the first systemd isolation
+gate (recorded in `odd/tasks/functional-mvp-closure.md`, S2/L47). This does not
+make the preflight a mutation tool or permit skipping the independently reviewed
+writer; no host mutation may occur until that exact writer is ready and passes
+review. The read-only preflight may inspect only its pinned target and backup
+path under this authorization.
+
+The pinned target is
+`/opt/role-radar/scripts/bounded_canary_preflight.py`, with expected installed
+preimage SHA-256
+`56378fab18a5aee17b62bdd6a12de695c916ab09c9ed85e45d658710bf1ffe1a`. The
+workspace candidate is pinned to SHA-256
+`3c3ec2a23026d05868e7951f34fbeb09d90b2bdaae1c1236e4a3c2da39f634ea`. The
+proposed protected backup directory is
+`/root/role-radar-preflight-status-3c3ec2a23026d05868e7951f34fbeb09`.
+The path-specific trust map permits only `/opt/role-radar` as operator-owned
+(uid 1000, gid 1000, mode 0755); `/`, `/opt`, `/opt/role-radar/scripts`, and
+`/root` must match their pinned root-owned metadata, with `/root` mode 0700.
+The service-owned `/opt/role-radar/data` tree is deliberately excluded.
+
+The helper traverses directories by descriptor with `O_NOFOLLOW`, verifies
+metadata and identity at each step, checks the candidate with a no-follow stat
+before opening it, uses nonblocking/no-follow file reads and compares file
+identity before and after hashing, verifies the installed target's root:root
+0644 single-link preimage hash, and requires the backup leaf to be absent. It
+prints only a fixed PASS/FAIL result. It creates no files, backup, or directory;
+it does not install, change permissions, reload systemd, or execute the
+isolation gate. A PASS is a read-only snapshot, not a durable reservation or
+installation authorization; revalidate all identities immediately before any
+separately authorized mutation and stop on any mismatch or uncertainty.
+
+For the one-time verification authorized in L47, invoke from the workspace root
+as root with the locked project interpreter:
+
+```sh
+sudo -n .venv/bin/python -B scripts/bounded_canary_install_preflight.py
+```
+
+Expected success is exactly
+`INSTALL_PREFLIGHT: PASS (read-only; target preimage and backup path verified)`.
+Any FAIL, extra output, nonzero exit, or uncertain result means stop. A PASS is
+only read-only evidence. L47 separately authorizes exactly one protected backup
+and install of the pinned parser, plus exactly one retry of the first systemd
+isolation gate with a fresh prospective UUID. Do not perform either mutation
+until the exact writer passes independent review. The install decision does not
+skip or satisfy any remaining fresh gates required by the existing conditional
+one-attempt acquisition authorization; run creation/start remains gated on all
+of them.
+
+After the offline writer passes independent review, rerun the read-only
+preflight above from the workspace root, then invoke the exact pinned writer
+once as root with the locked interpreter. Use module execution deliberately so
+the workspace root supplies the `scripts` package import context; direct file
+execution is unsupported:
+
+```sh
+sudo -n .venv/bin/python -B -m scripts.bounded_canary_install
+```
+
+The writer accepts no CLI path/hash overrides. It rechecks the candidate and
+installed preimage hashes, traverses only the pinned parent directories with
+no-follow descriptor-relative checks, creates the absent backup directory
+`/root/role-radar-preflight-status-3c3ec2a23026d05868e7951f34fbeb09` as
+root:root 0700, and saves the exact old parser as root:root 0600. It stages the
+pinned candidate as root:root 0644 in the target directory, verifies the stage,
+atomically replaces only `/opt/role-radar/scripts/bounded_canary_preflight.py`,
+then verifies the installed bytes and retained backup. The writer changes no
+permissions outside these newly created artifacts and does not reload systemd
+or run a gate. Success is exactly `PARSER_INSTALL: PASS` on stdout, empty stderr,
+and exit status 0.
+
+Any nonzero status, FAIL or extra output, mismatch, exception, or uncertain
+result is a stop condition. Do not rerun the writer, remove/replace a partial
+backup or stage, restore files, or run the isolation gate after a failed or
+uncertain result; preserve the artifacts and request a new decision. After an
+exact PASS, independently verify the target hash/owner/mode/single-link and the
+protected backup hash/owner/mode before using the already-authorized single
+fresh-UUID retry of only the first systemd isolation gate. A successful install
+does not authorize later gates, run creation/start, providers, or Telegram.
+
 ## SYSTEMD isolation gate (T1a)
 
 This first adapter is **only a read-only SYSTEMD isolation gate**, not overall
@@ -7,6 +92,13 @@ readiness and not authorization to operate a canary. It does not inspect the
 application database, profiles, policy, installed-source provenance, or whether
 a run ID was previously consumed. T1b and T1c supply separate gates; only a
 later composition of all gates may report overall readiness.
+
+This runbook documents the workspace candidate's result-status parser. The
+installed `/opt/role-radar/scripts/bounded_canary_preflight.py` remains at
+SHA-256 `56378fab18a5aee17b62bdd6a12de695c916ab09c9ed85e45d658710bf1ffe1a`;
+the follow-up bare-numeric-status correction is workspace-only. Do not rely on
+that behavior in production unless it is separately authorized, installed, and
+byte-verified.
 
 From the installed application's virtual environment, the public invocation is:
 
@@ -46,8 +138,11 @@ directory, exact role-radar `EnvironmentFile` and PATH, no non-empty
 `ExecStartPre`, oneshot type, no restart, and exact
 `/usr/bin/env role-radar worker --run-id <instance-uuid>` argv. The structured
 systemd `ExecStart` path and argv are parsed as data, never executed; extra args
-and command-prefix lookalikes fail closed. `LoadCredential` must contain exactly
-the three expected references; `LoadCredentialEncrypted`, `ImportCredential`,
+and command-prefix lookalikes fail closed. Historical `status` metadata accepts
+`0/0`, `(null)`, a canonical non-negative decimal integer (for example, `1`),
+or a numeric systemd result such as `0/SUCCESS` or `203/EXEC`; its outcome is
+not part of the unit contract because current quiescence is checked separately.
+`LoadCredential` must contain exactly the three expected references; `LoadCredentialEncrypted`, `ImportCredential`,
 `SetCredential`, and `SetCredentialEncrypted` are rejected. Whitespace inside
 a directive name before `=` is malformed and fails closed. Unit content and
 credential references are checked in memory only; the gate prints neither
@@ -515,3 +610,87 @@ make a separate recovery decision rather than retrying. Command stderr is
 captured and never exposed. A successful receipt proves only the observed
 fixed timer state and preserved runtime baseline at that point; it is not a
 worker-stop, ownership-release, overall-readiness or live-canary claim.
+
+### Durable supervision admission (T2a)
+**Operational supervision is not approved for host use.** An offline
+cooperative-fence candidate now addresses the deadline and isolation gaps
+described in `odd/tasks/canary-supervision-offline.md` L17–L20, but is not an
+installed-readiness result or authorization to install or run it.
+The exact instance's effective `TimeoutStartUSec` must be finite and at most
+600 seconds. This check alone is not an isolation lock.
+
+
+`scripts.bounded_canary_supervision.admit(backup_path)` is the offline protected
+admission boundary for a future single worker start. It consumes only strict
+successful-creation evidence for the exact run, then checks the live metadata-
+only run/history snapshot: the run must still be pending, unclaimed and
+unleased, retain its accepted profile/budget/checkpoint, and have
+`notification_mode=none`. It creates `supervision-intent.json` exclusively as a
+root-owned mode-0600 artifact and syncs both that file and its backup directory
+before returning an `Admission` context. The returned context retains the
+anchored backup descriptors; call `revalidate()` immediately before a later
+effect and keep the context open across that boundary. Any existing supervision
+intent or outcome consumes the admission, whatever its contents or state.
+Admission rechecks the original database identity and environment/policy
+identity and bytes. It also compares source and profile rows with the protected
+pre-creation SQLite snapshot, without logging their contents. A mismatch prevents
+admission or dispatch revalidation. An outcome receipt is valid only when its
+intent digest matches the protected intent receipt.
+
+The intent schema is version 1 with exactly `schema_version`, `state` (`attempted`),
+`backup`, `backup_identity`, `creation_evidence_sha256` (SHA-256 over the
+canonical accepted-artifact digest map), `run_id`, `profile_id`, and
+`notification_mode` (`none`). It contains no readiness assertion or provider receipt. The creation
+evidence reader recognizes only the two fixed names
+`supervision-intent.json` and `supervision-outcome.json`; when present, each must
+match its exact versioned metadata schema and bind to the same backup, run and
+profile. Arbitrary added files remain rejected. Ordinary creation replay
+rejection is unchanged. This T2a API does not start/stop a service, call a
+provider, modify the database, or establish that dispatch is safe now; T2b must
+compose operational behavior and truthful postflight separately. A persisted
+intent is terminal admission consumption, not a retry ticket.
+
+### Offline cooperative-fence candidate
+
+The candidate requires all cooperating CLI producers, normal workers and
+mutating API requests to hold a shared fence. The exact canary worker holds the
+exclusive fence before connecting to the supervisor; the supervisor checks the
+worker's credentials and exact unit cgroup, revalidates evidence and runtime
+limits, and sends a one-use authorization only while that fence is held. Normal
+worker claiming excludes runs with a canary budget. A durable intent prevents
+another start even if the result is uncertain.
+
+The API must run the matching cooperative-fence release, not merely have its
+files present on disk. The candidate checks the systemd MainPID, peer
+credentials, cgroup and a private readiness socket before dispatch and again
+before authorizing the fenced worker. The public release identifier is **not**
+cryptographic attestation of process memory: this is a cooperative design and
+does not protect against compromised service code, an uncooperative root
+operator, or producers outside the fence.
+
+An eventual separately authorized deployment must provision
+`deploy/tmpfiles.d/role-radar-fence.conf`, deploy the matching source and unit
+files, and restart the API into that release before checking installed
+readiness. No installation, restart or acquisition follows from these notes.
+The provenance inventory pins the fence and supervision sources as well as the
+existing critical sources. The release identifier is SHA-256 over the sorted
+paths listed below, with each UTF-8 path, a NUL, the exact file bytes and a
+second NUL concatenated in sequence; `fence_release.py` is excluded to avoid
+self-reference and is itself pinned by the provenance gate. Regenerate both
+the identifier and affected provenance pins whenever these sources change:
+
+- `src/role_radar/api/fence_attestation.py`
+- `src/role_radar/cli/main.py`
+- `src/role_radar/execution_fence.py`
+- `src/role_radar/fence_runtime.py`
+- `src/role_radar/main.py`
+- `src/role_radar/repositories/runs.py`
+- `src/role_radar/worker/main.py`
+- `src/role_radar/worker/runner.py`
+
+Bounded helper processes isolate potentially blocking evidence and database
+I/O. The 600-second observation and 90-second stop bounds depend on normal
+Linux scheduling and functioning process-group control; uninterruptible
+kernel I/O cannot be guaranteed to terminate by a wall-clock deadline. A
+timeout or unprovable stop/receipt remains uncertain, never a successful
+delivery or permission to retry. Notifications remain disabled.

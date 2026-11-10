@@ -1,5 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
+from sqlalchemy import text
+
 from role_radar.domain.enums import JobSearchRunStatus
 from role_radar.execution_budget import CANARY_BUDGET
 from role_radar.repositories.runs import RunRepository
@@ -84,6 +86,48 @@ def test_exact_claim_refuses_a_normal_run(db_session) -> None:
 
     assert RunRepository(db_session).claim_run(run.id, worker_id="canary-worker") is None
     assert run.status is JobSearchRunStatus.PENDING
+
+
+def test_normal_claim_skips_pending_canary_and_claims_ordinary(db_session) -> None:
+    repository = RunRepository(db_session)
+    canary = repository.create_run("canary")
+    canary.canary_budget_json = dict(CANARY_BUDGET)
+    ordinary = repository.create_run("ordinary")
+    db_session.commit()
+
+    claimed = repository.claim_next(worker_id="normal-worker")
+    assert claimed is not None and claimed.id == ordinary.id
+    assert canary.claimed_by is None
+    assert canary.status is JobSearchRunStatus.PENDING
+
+
+def test_normal_claim_never_terminalizes_exhausted_canary(db_session) -> None:
+    repository = RunRepository(db_session)
+    canary = repository.create_run("canary")
+    canary.canary_budget_json = dict(CANARY_BUDGET)
+    canary.status = JobSearchRunStatus.COLLECTING
+    canary.recovery_count = 5
+    canary.lease_expires_at = datetime.now(UTC) - timedelta(seconds=1)
+    db_session.commit()
+
+    assert repository.claim_next(worker_id="normal-worker") is None
+    assert canary.status is JobSearchRunStatus.COLLECTING
+    assert canary.error_code is None
+
+
+def test_normal_claim_accepts_json_null_as_no_canary_budget(db_session) -> None:
+    repository = RunRepository(db_session)
+    run = repository.create_run("ordinary-json-null")
+    db_session.flush()
+    db_session.execute(
+        text("UPDATE job_search_runs SET canary_budget_json='null' WHERE id=:run_id"),
+        {"run_id": run.id},
+    )
+    db_session.commit()
+    assert repository.claim_run(run.id, worker_id="canary-worker") is None
+
+    claimed = repository.claim_next(worker_id="normal-worker")
+    assert claimed is not None and claimed.id == run.id
 
 
 def test_one_shot_runner_processes_only_exact_run(db_session, settings) -> None:

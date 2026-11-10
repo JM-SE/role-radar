@@ -5,10 +5,13 @@ After=network-online.target
 [Service]
 Type=simple
 User=ROLE_RADAR_USER
+Group=role-radar
+SupplementaryGroups=role-radar
+UMask=0177
 WorkingDirectory=/ROLE_RADAR_APP_DIR
 EnvironmentFile=/etc/role-radar/role-radar.env
 Environment=PATH=/ROLE_RADAR_APP_DIR/.venv/bin:/usr/bin
-ExecStart=/usr/bin/env uvicorn role_radar.main:app --host 127.0.0.1 --port ${ROLE_RADAR_API_PORT}
+ExecStart=/usr/bin/env uvicorn role_radar.main:app --host 127.0.0.1 --port ${ROLE_RADAR_API_PORT} --workers 1
 Restart=on-failure
 RestartSec=5
 

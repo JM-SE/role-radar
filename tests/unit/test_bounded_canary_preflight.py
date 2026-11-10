@@ -372,6 +372,49 @@ def test_resolved_worker_execstart_accepts_systemd_result_metadata(monkeypatch, 
     assert calls and all(command[1] in {"show", "list-units", "cat"} for command, _ in calls)
 
 
+@pytest.mark.parametrize(
+    ("status", "accepted"),
+    [
+        ("1", True),
+        ("0", True),
+        ("01", False),
+        ("0/SUCCESS", True),
+        ("203/EXEC", True),
+        ("SUCCESS", False),
+    ],
+)
+def test_quiescent_listed_canary_validates_systemd_execution_status(
+    monkeypatch, capsys, status, accepted
+):
+    records = _records()
+    historical_id = "00000000-0000-4000-8000-000000000002"
+    unit = f"{CANARY_PREFIX}{historical_id}.service"
+    metadata = (
+        "ignore_errors=no ; start_time=[Tue 2026-10-06 00:00:00 UTC] ; "
+        "stop_time=[Tue 2026-10-06 00:00:01 UTC] ; pid=123 ; code=exited ; "
+        f"status={status}"
+    )
+    records[unit] = _block(
+        unit,
+        props={
+            "ExecStart": _execstart(
+                ["role-radar", "worker", "--run-id", historical_id],
+                metadata=metadata,
+            )
+        },
+    )
+    code, output, calls = _invoke(monkeypatch, capsys, records, listed=(unit,))
+    if accepted:
+        assert code == 0
+        assert output.out == "SYSTEMD_ISOLATION_GATE: PASS (gate only; not overall readiness)\n"
+        assert output.err == ""
+    else:
+        assert code == 1
+        assert output.out == ""
+        assert output.err == "SYSTEMD_ISOLATION_GATE: FAIL (canary_worker_contract_invalid)\n"
+    assert calls and all(command[1] in {"show", "list-units", "cat"} for command, _ in calls)
+
+
 @pytest.mark.parametrize("unit", [
     "role-radar-worker.service",
     "role-radar-scheduler.service",

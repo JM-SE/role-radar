@@ -1,0 +1,58 @@
+# Proposed controlled snapshot and database-gate procedure
+
+**Status: independently reviewed GO (T8); no readiness result is claimed.** The user separately authorized one controlled intervention: briefly stop and restore only `role-radar-api.service`, create a protected consistent database snapshot, and validate an isolated clone without weakening the gate. Execution still depends on every fresh preflight and abort condition below.
+
+## Decision and evidence
+
+Do not relax `database_wal_resources_unavailable`, manually create/rename/delete live sidecars, run a gate against the live database, or restore an older database. The one bounded inventory found a WAL-mode main database with no `-wal`, `-shm`, or `-journal`; it did not establish a trusted current snapshot. That state must be freshly rechecked after API quiescence. The planned SQLite online-backup operation may itself create source coordinator sidecars as a normal SQLite effect; the plan bounds that effect, records it, and retains those files rather than cleaning them up.
+
+A disposable Python SQLite 3.46.1 probe showed that `Connection.backup()` from a `mode=ro` source can capture a committed WAL row and leave the source main-file SHA-256 unchanged. However, the first source read/backup lazily created persistent `-wal` (zero bytes) and `-shm` (32,768 bytes) files at both source and validation clone; closing connections did not remove them. The backup remained WAL mode and its own sidecars disappeared after close. Therefore this plan explicitly expects and preserves the SQLite-created source coordination sidecars; it never deletes them. The probe does not prove that any transaction lost before this new capture can be recovered.
+
+The workspace history-gate source at `scripts/bounded_canary_database.py` (the installed source must be revalidated read-only before execution) is fail-closed before opening SQLite: it reads the main-file header, detects WAL mode, and requires regular `-wal` and `-shm` files while rejecting any `-journal`. It then opens `mode=ro`, sets `query_only`, and validates schema revision, `integrity_check`, foreign keys, run history/leases, and notification outbox state. Its only success output is exactly `DATABASE_HISTORY_GATE: PASS (gate only; not overall readiness)` with exit 0. It supports both aa04 and aa05, so the gate's PASS alone does not prove the location-review migration; on the isolated clone, first check that `alembic_version` has exactly one value, `aa05_location_unconfirmed`, and emit only a fixed pass/fail token without printing row data. The existing `scripts/bounded_canary_backup.py` cannot be used for this intervention as-is: it runs the database gate against the source before creating a backup, so it fails on the current sidecarless source.
+
+## Procedure (for T8 review; not an execution authorization)
+
+### 1. Preflight before downtime
+
+- Use only `/opt/role-radar/data/role-radar.db`, the existing `/opt/role-radar/data/backups` root, and `role-radar-api.service`. Do not touch other services, profiles, configuration, or runs.
+- Use `sudo -n` only. If authorization is unavailable, stop before making changes.
+- Record whether the API is active before the operation. If it is not active, do not start it as part of this procedure; stop and report the unexpected baseline.
+- Verify the exact DB path is a regular nonsymlink file with one link, expected owner/mode, WAL journal mode in its SQLite header, and sufficient backup space. Read only file metadata/header, not database rows.
+- Read the exact API unit's effective `User`/`Group`; they must resolve to the database file's owner/group so the read-only backup creates source sidecars usable by the API. Do not change unit settings or permissions. If the account cannot be established or does not match, stop.
+- Confirm the backup root is the expected protected directory and select one unique no-clobber child path. Prepare a private staging directory mode `0700`, owned during SQLite work by the verified API/database account. The directory must be inaccessible to other unprivileged users. After all SQLite work and API restoration, harden the completed artifacts to `root:root`, directory `0700`, files `0600`; fsync files and directories. A collision or uncertain creation state is an abort, not a retry.
+- Do not reuse T4's pre-aa05 database copy or T3's CLI-only preimage as the snapshot.
+
+### 2. Quiesce and preserve the source preimage
+
+- Stop only `role-radar-api.service`; do not stop or restart any other unit. Bound the wait to 60 seconds. Require `ActiveState=inactive`, `SubState=dead`, and `MainPID=0`.
+- Recheck open descriptors for the exact main DB and all three sidecar paths. Require no holders. If a writer/descriptor remains, quiescence cannot be proved, or the service does not stop in time, make no SQLite call; preserve any already-created artifact and restore the API once because it was active initially.
+- While still quiescent, revalidate the path and record the main-file identity, owner/mode, link count, size, timestamps, and SHA-256. For this version of the procedure, require `-wal`, `-shm`, and `-journal` all absent, as in the last authorized inventory. If any exists, do not improvise a raw-copy or sidecar-preservation variant; preserve evidence, restore the API, and return for review.
+- Make a no-follow, exclusive, fsynced copy of the main file into the private staging directory as `source-main-preimage.db`, with a manifest marking it **forensic main-only preimage, not a complete recovery snapshot**. Do not open this copy with SQLite.
+
+### 3. Create one consistent online snapshot
+
+- As the verified API/database account (not root), open the live DB by its exact absolute `file:` URI with `mode=ro`; do not use the default relative URL. Create a new, exclusive destination file `snapshot.db` inside the private staging directory and use SQLite's online backup API. Do not issue writes, `PRAGMA wal_checkpoint`, migrations, restores, or row queries on the live source. A read-only source open/backup is expected to create SQLite coordination files; this is the explicitly bounded live side effect.
+- Close both SQLite connections, fsync the destination and staging directory, and record the snapshot hash/identity. Do not reopen `snapshot.db` with SQLite; verify WAL journal mode from its header bytes using a no-follow file descriptor (`header[18:20] == 02 02`, matching the gate). Require its `-journal`, `-wal`, and `-shm` sidecars to be absent after both connections close; if not, retain all files and abort rather than guessing whether the snapshot is a complete set.
+- Before any further SQLite action, re-stat the live source. Its main-file identity and SHA-256 must match the pre-backup values; `-journal` must remain absent; the newly created `-wal` and `-shm` must be regular, single-link files owned by the verified API/database account. The new `-wal` must be empty. Record their identities, sizes, hashes, and metadata, and leave them in place. Any main-file drift, nonempty WAL, wrong owner, unexpected sidecar, or uncertain result aborts; preserve all artifacts and restore the API once.
+- The online snapshot is the consistent point-in-time capture of the SQLite-visible committed state after all holders were quiesced. It does not certify or reconstruct data missing before that point.
+
+### 4. Prepare and gate only a disposable clone
+
+- Keep `snapshot.db` as the protected recovery artifact; do not open it again. Create a separate exclusive byte-for-byte `validation/role-radar.db` clone and verify its hash against `snapshot.db` before opening it.
+- On the clone only, use a read-only SQLite connection and metadata queries to materialize SQLite's WAL coordination resources, then close it. Check `SELECT version_num FROM alembic_version`; require exactly one value equal to `aa05_location_unconfirmed`, but emit/store only a fixed success/failure token, not row data. A separate schema-metadata query (`SELECT name FROM sqlite_master LIMIT 1`) may be used to ensure the read-only connection actually touches the database. This is necessary because the installed gate checks for sidecars before opening SQLite and accepts aa04 as well as aa05. Require no `-journal`, regular clone `-wal`/`-shm`, unchanged clone main-file hash, and record all clone sidecar metadata. Sidecar creation/drift is permitted only under this disposable validation directory; never manually create, remove, or rename live-source sidecars.
+- Run the installed gate from `/opt/role-radar` against the clone with exactly one explicit target: `sudo -n .venv/bin/python -B scripts/bounded_canary_database.py --database-url 'sqlite:////opt/role-radar/data/backups/UNIQUE_ID/validation/role-radar.db'`. Replace `UNIQUE_ID` with the actual exclusive directory name; never run without `--database-url` and never target the default/live database.
+- Require exit 0, empty stderr, and exactly `DATABASE_HISTORY_GATE: PASS (gate only; not overall readiness)` on stdout. Any other exit/output is failure; retain the exact fixed public result without dumping rows or identifiers. A PASS establishes only that this snapshot satisfies the database history gate (including schema/integrity/FK/history/outbox checks); it does not prove other MVP readiness gates or authorize a run/search.
+
+### 5. Restore API and close evidence
+
+- Whether the clone gate passes or fails, close all connections and restore only `role-radar-api.service` once, because it was active initially. Do not issue automatic retries, restart other units, delete sidecars, or restore/replace the live database. Verify the API returns to `active` with a nonzero `MainPID`; use only an already-established local health check if one exists, not a newly invented endpoint. After restart, do not compare live sidecar hashes because normal API activity may legitimately change them.
+- Confirm the protected artifacts and manifest are root-owned, private, single-link, durable, and complete. Record the pre-start live main-file stability result, source sidecar creation, clone gate's exact output/exit, API restoration, and any failure. Keep partial/uncertain artifacts; no automatic cleanup.
+- If the API cannot be restored in that single attempt, stop and report the exact service state; do not retry or alter the database.
+
+## Abort conditions
+
+Abort before any SQLite open if the API baseline is not active, the verified service account/DB ownership does not match, the unit cannot stop within 60 seconds, any DB holder remains, the main path/identity is uncertain, any live sidecar or journal exists at the post-stop check, disk space/durability is insufficient, or the private destination cannot be created exclusively. After backup starts, abort on any live main-file identity/hash change, nonempty newly-created WAL, unexpected/misowned sidecar, destination/clone mismatch, journal appearance, clone gate failure or unexpected output, or uncertain operation result. Preserve every artifact, never delete or replace live DB files, and restore the API once if it was active initially.
+
+## Next step
+
+T7's offline probe and source inspection are complete; this revision is the candidate procedure. T8 must independently assess the exact scope, DB/source-sidecar effects, owner/permission handling, clone preparation, gate target/output, abort behavior, and API restoration using workspace files only. No host access, API interruption, backup, clone, gate, run, search, provider call, or Telegram action is authorized until T8 returns GO.

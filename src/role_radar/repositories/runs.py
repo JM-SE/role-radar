@@ -3,7 +3,7 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import and_, or_, select, update
+from sqlalchemy import JSON, and_, or_, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from role_radar.db.models import JobSearchRun, RunJob
@@ -182,6 +182,7 @@ class RunRepository:
             select(JobSearchRun).where(
                 JobSearchRun.id == run_id,
                 JobSearchRun.canary_budget_json.is_not(None),
+                JobSearchRun.canary_budget_json != JSON.NULL,
             )
         )
         if candidate is None:
@@ -192,6 +193,7 @@ class RunRepository:
         condition = and_(
             JobSearchRun.id == run_id,
             JobSearchRun.canary_budget_json.is_not(None),
+            JobSearchRun.canary_budget_json != JSON.NULL,
             stale,
         )
         if was_recovery:
@@ -246,9 +248,13 @@ class RunRepository:
             JobSearchRun.recovery_count < max_recoveries,
         )
         pending = and_(JobSearchRun.status == JobSearchRunStatus.PENDING, stale)
+        non_canary = or_(
+            JobSearchRun.canary_budget_json.is_(None),
+            JobSearchRun.canary_budget_json == JSON.NULL,
+        )
         candidate = self._session.scalar(
             select(JobSearchRun)
-            .where(or_(active, pending))
+            .where(non_canary, or_(active, pending))
             .order_by(JobSearchRun.created_at.asc(), JobSearchRun.id.asc())
             .limit(1)
         )
@@ -256,6 +262,7 @@ class RunRepository:
             exhausted = self._session.scalar(
                 select(JobSearchRun)
                 .where(
+                    non_canary,
                     JobSearchRun.status.in_(tuple(_RECOVERABLE)),
                     stale,
                     JobSearchRun.recovery_count >= max_recoveries,
@@ -272,7 +279,7 @@ class RunRepository:
                 self._session.flush()
             return None
         was_recovery = candidate.status in _RECOVERABLE
-        condition = and_(JobSearchRun.id == candidate.id, stale)
+        condition = and_(JobSearchRun.id == candidate.id, non_canary, stale)
         if was_recovery:
             condition = and_(
                 condition,

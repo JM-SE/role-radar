@@ -202,7 +202,11 @@ def _parse_exec_start(value: str) -> tuple[str, tuple[str, ...]] | None:
             return None
         if metadata["code"] not in {"exited", "killed", "dumped", "(null)"}:
             return None
-        if metadata["status"] not in {"0/0", "1/FAILURE", "(null)"}:
+        status = metadata["status"]
+        # Result status is historical; quiescence is checked separately.
+        if status not in {"0/0", "(null)"} and not re.fullmatch(
+            r"(?:0|[1-9][0-9]*)(?:/[A-Z][A-Z0-9_]*)?", status
+        ):
             return None
     return fields[0][5:], tuple(fields[1][7:].split(" "))
 

@@ -16,6 +16,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from role_radar.fence_runtime import FenceError, producer_guard, worker_guard
+
 if TYPE_CHECKING:
     from sqlalchemy import Engine
     from sqlalchemy.orm import Session
@@ -1837,98 +1839,111 @@ def _resolution_failure(code: str) -> dict[str, object]:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    if args.command == "evaluation":
-        return _run_evaluation(args)
-    if args.command == "continuous-discovery-v2":
-        return _run_continuous_discovery_v2(args)
-    if args.command == "feedback":
-        return _run_feedback(args)
-    if args.command == "continuous-discovery":
-        return _run_legacy_discovery_deprecated()
-    if args.command == "continuous-acquisition":
-        return _run_continuous_gate_a(args)
-    if (
-        args.command == "mailbox"
-        and args.mailbox_command in {"linkedin-host-audit", "linkedin-head-resolution"}
-        and not args.ack_live
-    ):
-        if args.mailbox_command == "linkedin-head-resolution":
-            payload = _resolution_failure("live_ack_required")
-        else:
-            payload = _audit_failure_report("live_ack_required").as_dict()
-        print(json.dumps(payload, sort_keys=True))
-        return 4
     try:
-        settings = Settings()
-    except Exception:
-        if args.command == "mailbox" and args.mailbox_command in {
-            "linkedin-host-audit",
-            "linkedin-head-resolution",
-        }:
-            if args.mailbox_command == "linkedin-head-resolution":
-                payload = _resolution_failure("config")
-            else:
-                payload = _audit_failure_report("config").as_dict()
-            print(json.dumps(payload, sort_keys=True))
-            return 3
-        raise
-    try:
-        if args.command == "run":
-            return _run_control(settings, args)
-        if args.command == "source-campaign":
-            return _run_source_campaign(settings, args)
-        if args.command == "worker":
-            from role_radar.worker.main import run_worker
+        guard = worker_guard(args.run_id) if args.command == "worker" else producer_guard()
+        with guard:
+            if args.command == "evaluation":
+                return _run_evaluation(args)
+            if args.command == "continuous-discovery-v2":
+                return _run_continuous_discovery_v2(args)
+            if args.command == "feedback":
+                return _run_feedback(args)
+            if args.command == "continuous-discovery":
+                return _run_legacy_discovery_deprecated()
+            if args.command == "continuous-acquisition":
+                return _run_continuous_gate_a(args)
+            if (
+                args.command == "mailbox"
+                and args.mailbox_command in {"linkedin-host-audit", "linkedin-head-resolution"}
+                and not args.ack_live
+            ):
+                if args.mailbox_command == "linkedin-head-resolution":
+                    payload = _resolution_failure("live_ack_required")
+                else:
+                    payload = _audit_failure_report("live_ack_required").as_dict()
+                print(json.dumps(payload, sort_keys=True))
+                return 4
+            try:
+                settings = Settings()
+            except FenceError:
+                raise
+            except Exception:
+                if args.command == "mailbox" and args.mailbox_command in {
+                    "linkedin-host-audit",
+                    "linkedin-head-resolution",
+                }:
+                    if args.mailbox_command == "linkedin-head-resolution":
+                        payload = _resolution_failure("config")
+                    else:
+                        payload = _audit_failure_report("config").as_dict()
+                    print(json.dumps(payload, sort_keys=True))
+                    return 3
+                raise
+            try:
+                if args.command == "run":
+                    return _run_control(settings, args)
+                if args.command == "source-campaign":
+                    return _run_source_campaign(settings, args)
+                if args.command == "worker":
+                    from role_radar.worker.main import run_worker
 
-            run_worker(settings, run_id=args.run_id)
-            return 0
-        if args.command == "discovery":
-            return _run_discovery_readonly(settings, args.discovery_command)
-        if args.command == "mailbox":
-            return _run_mailbox(settings, args)
-        if args.command == "source":
-            return _run_source(settings, args)
-        if args.command == "acquisition":
-            if args.acquisition_command == "smoke":
-                return _run_smoke(args)
-            if args.acquisition_command == "gate-b":
-                return _run_gate_b(args)
-            return _run_acquisition(settings, args)
-        direct_commands = {"collect", "extract", "extract-pending", "score", "score-pending"}
-        if args.command in direct_commands and not settings.allow_direct_pipeline_writes:
-            print(
-                "direct pipeline writes are disabled; use `run create` followed by `worker`",
-                file=sys.stderr,
-            )
-            return 1
-        if args.command == "seed-boards":
-            return _seed_boards(settings, _fixtures_dir())
-        if args.command == "discover-boards":
-            from role_radar.discovery.null_provider import NullSearchProvider
+                    run_worker(settings, run_id=args.run_id)
+                    return 0
+                if args.command == "discovery":
+                    return _run_discovery_readonly(settings, args.discovery_command)
+                if args.command == "mailbox":
+                    return _run_mailbox(settings, args)
+                if args.command == "source":
+                    return _run_source(settings, args)
+                if args.command == "acquisition":
+                    if args.acquisition_command == "smoke":
+                        return _run_smoke(args)
+                    if args.acquisition_command == "gate-b":
+                        return _run_gate_b(args)
+                    return _run_acquisition(settings, args)
+                direct_commands = {
+                    "collect", "extract", "extract-pending", "score", "score-pending"
+                }
+                if args.command in direct_commands and not settings.allow_direct_pipeline_writes:
+                    print(
+                        "direct pipeline writes are disabled; "
+                        "use `run create` followed by `worker`",
+                        file=sys.stderr,
+                    )
+                    return 1
+                if args.command == "seed-boards":
+                    return _seed_boards(settings, _fixtures_dir())
+                if args.command == "discover-boards":
+                    from role_radar.discovery.null_provider import NullSearchProvider
 
-            return asyncio.run(
-                _run_discover(settings, NullSearchProvider(), args.query, args.max_results)
-            )
-        if args.command == "collect":
-            run_id, status, stats = asyncio.run(_run_collect(settings, args.reason))
-            print(json.dumps({"run_id": run_id, "status": status, "stats": stats}))
-            return 0 if status == "completed" else 1
-        if args.command == "extract":
-            print(json.dumps(asyncio.run(_run_extract(settings, args.job_id))))
-            return 0
-        if args.command == "extract-pending":
-            print(json.dumps(asyncio.run(_run_extract_pending(settings, args.limit))))
-            return 0
-        if args.command == "score":
-            print(json.dumps(_run_score(settings, args.job_id, args.profile_id)))
-            return 0
-        if args.command == "score-pending":
-            print(json.dumps(_run_score_pending(settings, args.limit, args.profile_id)))
-            return 0
-    except Exception as exc:
-        print(f"role-radar: {exc}", file=sys.stderr)
+                    return asyncio.run(
+                        _run_discover(settings, NullSearchProvider(), args.query, args.max_results)
+                    )
+                if args.command == "collect":
+                    run_id, status, stats = asyncio.run(_run_collect(settings, args.reason))
+                    print(json.dumps({"run_id": run_id, "status": status, "stats": stats}))
+                    return 0 if status == "completed" else 1
+                if args.command == "extract":
+                    print(json.dumps(asyncio.run(_run_extract(settings, args.job_id))))
+                    return 0
+                if args.command == "extract-pending":
+                    print(json.dumps(asyncio.run(_run_extract_pending(settings, args.limit))))
+                    return 0
+                if args.command == "score":
+                    print(json.dumps(_run_score(settings, args.job_id, args.profile_id)))
+                    return 0
+                if args.command == "score-pending":
+                    print(json.dumps(_run_score_pending(settings, args.limit, args.profile_id)))
+                    return 0
+            except FenceError:
+                raise
+            except Exception as exc:
+                print(f"role-radar: {exc}", file=sys.stderr)
+                return 1
+            return 2
+    except FenceError:
+        print("execution_fence_unavailable", file=sys.stderr)
         return 1
-    return 2
 
 
 def _run_legacy_discovery_deprecated() -> int:

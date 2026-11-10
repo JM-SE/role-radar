@@ -1,0 +1,7332 @@
+{
+  "candidates": [
+    {
+      "identity": [
+        34,
+        634692,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        ".mypy_cache"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        625132,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        ".ruff_cache"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        625116,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "work",
+        ".pytest_cache"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        625054,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        ".codegraph"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        625032,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "tests",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        624423,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "tests",
+        "migrations",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        624452,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "tests",
+        "api",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        624581,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "tests",
+        "unit",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        624975,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "tests",
+        "integration",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        625268,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "alembic",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        625238,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "alembic",
+        "versions",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        625776,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        625314,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "worker",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        625334,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "continuous_acquisition",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        625367,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "extraction",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        625382,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "acquisition",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        625395,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "dedup",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        625407,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "sources",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        625424,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "collectors",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        625455,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "repositories",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        625490,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "db",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        625502,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "free_sources",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        625512,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "normalization",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        625525,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "api",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        625540,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "api",
+        "schemas",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        625554,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "deep_evaluation",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        625624,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "mailbox",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        625575,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "mailbox",
+        "parsers",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        625591,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "mailbox",
+        "linkedin_resolution",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        625611,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "mailbox",
+        "detectors",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        625646,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "broker",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        625672,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "discovery",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        625665,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "discovery",
+        "providers",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        625706,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "notifications",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        625723,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "cli",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        625747,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "matching",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        625767,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "domain",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        625808,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "services",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        626120,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "evaluation",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        625860,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "evaluation",
+        "controlled_acquisition",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        625900,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "evaluation",
+        "blind_labeling",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        625928,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "evaluation",
+        "profile_relevance",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        625959,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "evaluation",
+        "cohort_freeze",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        626022,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "evaluation",
+        "profile_relevant_acquisition",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        635000,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "work",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        634737,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "work",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "continuous_acquisition",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        634775,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "work",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "sources",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        634808,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "work",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "repositories",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        634825,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "work",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "db",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        634898,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "work",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "mailbox",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        634930,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "work",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "discovery",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        634959,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "work",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "cli",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        634981,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "work",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "matching",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        634992,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "work",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "domain",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        635030,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "work",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "services",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        635191,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "work",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "evaluation",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        635156,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "work",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "evaluation",
+        "profile_relevant_acquisition",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        635989,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "work",
+        "scripts",
+        "__pycache__"
+      ],
+      "root": "rr-installer-independent.SWkwhs"
+    },
+    {
+      "identity": [
+        34,
+        651603,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        ".mypy_cache"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        642043,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        ".ruff_cache"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        642027,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "work",
+        ".pytest_cache"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        641965,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        ".codegraph"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        641943,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "tests",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        641334,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "tests",
+        "migrations",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        641363,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "tests",
+        "api",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        641492,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "tests",
+        "unit",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        641886,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "tests",
+        "integration",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        642179,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "alembic",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        642149,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "alembic",
+        "versions",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        642687,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        642225,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "worker",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        642245,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "continuous_acquisition",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        642278,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "extraction",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        642293,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "acquisition",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        642306,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "dedup",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        642318,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "sources",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        642335,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "collectors",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        642366,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "repositories",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        642401,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "db",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        642413,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "free_sources",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        642423,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "normalization",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        642436,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "api",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        642451,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "api",
+        "schemas",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        642465,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "deep_evaluation",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        642535,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "mailbox",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        642486,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "mailbox",
+        "parsers",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        642502,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "mailbox",
+        "linkedin_resolution",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        642522,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "mailbox",
+        "detectors",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        642557,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "broker",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        642583,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "discovery",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        642576,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "discovery",
+        "providers",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        642617,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "notifications",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        642634,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "cli",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        642658,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "matching",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        642678,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "domain",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        642719,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "services",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        643031,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "evaluation",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        642771,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "evaluation",
+        "controlled_acquisition",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        642811,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "evaluation",
+        "blind_labeling",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        642839,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "evaluation",
+        "profile_relevance",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        642870,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "evaluation",
+        "cohort_freeze",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        642933,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "evaluation",
+        "profile_relevant_acquisition",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        651912,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "work",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        651649,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "work",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "continuous_acquisition",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        651687,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "work",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "sources",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        651720,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "work",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "repositories",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        651737,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "work",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "db",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        651810,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "work",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "mailbox",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        651842,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "work",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "discovery",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        651871,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "work",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "cli",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        651893,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "work",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "matching",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        651904,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "work",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "domain",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        651942,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "work",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "services",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        652103,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "work",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "evaluation",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        652068,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "work",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "evaluation",
+        "profile_relevant_acquisition",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        652901,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "work",
+        "scripts",
+        "__pycache__"
+      ],
+      "root": "rr-installer-recheck.6s0xCu"
+    },
+    {
+      "identity": [
+        34,
+        612061,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        ".mypy_cache"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        602501,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        ".ruff_cache"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        602485,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        ".pytest_cache"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        602422,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        ".codegraph"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        602272,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "tests",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        601816,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "tests",
+        "unit",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        602280,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "tests",
+        "api",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        602306,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "tests",
+        "integration",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        602375,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "tests",
+        "migrations",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        602591,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "alembic",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        602602,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "alembic",
+        "versions",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        602711,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        602686,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "api",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        602698,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "api",
+        "schemas",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        602721,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "domain",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        602734,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "db",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        602747,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "repositories",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        602790,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "broker",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        602815,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "matching",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        602835,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "normalization",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        602846,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "collectors",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        602867,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "dedup",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        602877,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "discovery",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        602910,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "discovery",
+        "providers",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        602928,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "services",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        602986,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "cli",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        603014,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "deep_evaluation",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        603032,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "notifications",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        603046,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "extraction",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        603057,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "worker",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        603065,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "sources",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        603084,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "free_sources",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        603098,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "acquisition",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        603150,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "mailbox",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        603117,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "mailbox",
+        "detectors",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        603141,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "mailbox",
+        "parsers",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        603166,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "mailbox",
+        "linkedin_resolution",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        603279,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "evaluation",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        603190,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "evaluation",
+        "cohort_freeze",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        603222,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "evaluation",
+        "blind_labeling",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        603260,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "evaluation",
+        "controlled_acquisition",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        603319,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "evaluation",
+        "profile_relevance",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        603390,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "evaluation",
+        "profile_relevant_acquisition",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        603501,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "continuous_acquisition",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        612565,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        612133,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "cli",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        612177,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "continuous_acquisition",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        612188,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "db",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        612230,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "discovery",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        612239,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "domain",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        612401,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "evaluation",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        612374,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "evaluation",
+        "profile_relevant_acquisition",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        612452,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "mailbox",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        612469,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "matching",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        612508,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "repositories",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        612545,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "services",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        612555,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "sources",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        613360,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        "scripts",
+        "__pycache__"
+      ],
+      "root": "rr-install-verify.RetShI"
+    },
+    {
+      "identity": [
+        34,
+        593089,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        ".mypy_cache"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        583530,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        ".ruff_cache"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        583514,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        ".pytest_cache"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        583452,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        ".codegraph"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        583430,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "tests",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        582825,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "tests",
+        "migrations",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        582854,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "tests",
+        "api",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        582983,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "tests",
+        "unit",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        583373,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "tests",
+        "integration",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        583665,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "alembic",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        583635,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "alembic",
+        "versions",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        584173,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        583711,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "worker",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        583731,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "continuous_acquisition",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        583764,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "extraction",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        583779,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "acquisition",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        583792,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "dedup",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        583804,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "sources",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        583821,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "collectors",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        583852,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "repositories",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        583887,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "db",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        583899,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "free_sources",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        583909,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "normalization",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        583922,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "api",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        583937,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "api",
+        "schemas",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        583951,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "deep_evaluation",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        584021,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "mailbox",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        583972,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "mailbox",
+        "parsers",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        583988,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "mailbox",
+        "linkedin_resolution",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        584008,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "mailbox",
+        "detectors",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        584043,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "broker",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        584069,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "discovery",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        584062,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "discovery",
+        "providers",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        584103,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "notifications",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        584120,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "cli",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        584144,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "matching",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        584164,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "domain",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        584205,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "services",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        584517,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "evaluation",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        584257,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "evaluation",
+        "controlled_acquisition",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        584297,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "evaluation",
+        "blind_labeling",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        584325,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "evaluation",
+        "profile_relevance",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        584356,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "evaluation",
+        "cohort_freeze",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        584419,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "evaluation",
+        "profile_relevant_acquisition",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        593397,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        593134,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "continuous_acquisition",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        593172,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "sources",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        593205,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "repositories",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        593222,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "db",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        593295,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "mailbox",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        593327,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "discovery",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        593356,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "cli",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        593378,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "matching",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        593389,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "domain",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        593427,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "services",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        593588,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "evaluation",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        593553,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "evaluation",
+        "profile_relevant_acquisition",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        594385,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        "scripts",
+        "__pycache__"
+      ],
+      "root": "rr-l25-verify.7hROej"
+    },
+    {
+      "identity": [
+        34,
+        544043,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        ".mypy_cache"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        534415,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        ".ruff_cache"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        534399,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        ".pytest_cache"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        534310,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        ".codegraph"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        534288,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "tests",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        533683,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "tests",
+        "migrations",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        533712,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "tests",
+        "api",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        533841,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "tests",
+        "unit",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        534231,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "tests",
+        "integration",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        534550,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "alembic",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        534520,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "alembic",
+        "versions",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        535058,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        534596,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "worker",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        534616,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "continuous_acquisition",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        534649,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "extraction",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        534664,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "acquisition",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        534677,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "dedup",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        534689,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "sources",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        534706,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "collectors",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        534737,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "repositories",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        534772,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "db",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        534784,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "free_sources",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        534794,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "normalization",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        534807,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "api",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        534822,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "api",
+        "schemas",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        534836,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "deep_evaluation",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        534906,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "mailbox",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        534857,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "mailbox",
+        "parsers",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        534873,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "mailbox",
+        "linkedin_resolution",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        534893,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "mailbox",
+        "detectors",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        534928,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "broker",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        534954,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "discovery",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        534947,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "discovery",
+        "providers",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        534988,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "notifications",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        535005,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "cli",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        535029,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "matching",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        535049,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "domain",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        535090,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "services",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        535402,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "evaluation",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        535142,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "evaluation",
+        "controlled_acquisition",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        535182,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "evaluation",
+        "blind_labeling",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        535210,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "evaluation",
+        "profile_relevance",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        535241,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "evaluation",
+        "cohort_freeze",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        535304,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "evaluation",
+        "profile_relevant_acquisition",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        544351,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        544088,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "continuous_acquisition",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        544126,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "sources",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        544159,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "repositories",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        544176,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "db",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        544249,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "mailbox",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        544281,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "discovery",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        544310,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "cli",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        544332,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "matching",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        544343,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "domain",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        544381,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "services",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        544542,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "evaluation",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        544507,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        ".rr-no-notifications-diff-le0zn0zx",
+        "base",
+        "src",
+        "role_radar",
+        "evaluation",
+        "profile_relevant_acquisition",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        545339,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        "scripts",
+        "__pycache__"
+      ],
+      "root": "rr-parser-verify.lrmOjh"
+    },
+    {
+      "identity": [
+        34,
+        247803,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        ".mypy_cache"
+      ],
+      "root": "role-radar-aa05-verify.9kYMa2S6"
+    },
+    {
+      "identity": [
+        34,
+        241873,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        ".ruff_cache"
+      ],
+      "root": "role-radar-aa05-verify.9kYMa2S6"
+    },
+    {
+      "identity": [
+        34,
+        241861,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        ".pytest_cache"
+      ],
+      "root": "role-radar-aa05-verify.9kYMa2S6"
+    },
+    {
+      "identity": [
+        34,
+        241843,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        ".codegraph"
+      ],
+      "root": "role-radar-aa05-verify.9kYMa2S6"
+    },
+    {
+      "identity": [
+        34,
+        241821,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "tests",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-verify.9kYMa2S6"
+    },
+    {
+      "identity": [
+        34,
+        241216,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "tests",
+        "migrations",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-verify.9kYMa2S6"
+    },
+    {
+      "identity": [
+        34,
+        241245,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "tests",
+        "api",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-verify.9kYMa2S6"
+    },
+    {
+      "identity": [
+        34,
+        241374,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "tests",
+        "unit",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-verify.9kYMa2S6"
+    },
+    {
+      "identity": [
+        34,
+        241764,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "tests",
+        "integration",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-verify.9kYMa2S6"
+    },
+    {
+      "identity": [
+        34,
+        242003,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "alembic",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-verify.9kYMa2S6"
+    },
+    {
+      "identity": [
+        34,
+        241973,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "alembic",
+        "versions",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-verify.9kYMa2S6"
+    },
+    {
+      "identity": [
+        34,
+        242511,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-verify.9kYMa2S6"
+    },
+    {
+      "identity": [
+        34,
+        242049,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "worker",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-verify.9kYMa2S6"
+    },
+    {
+      "identity": [
+        34,
+        242069,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "continuous_acquisition",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-verify.9kYMa2S6"
+    },
+    {
+      "identity": [
+        34,
+        242102,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "extraction",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-verify.9kYMa2S6"
+    },
+    {
+      "identity": [
+        34,
+        242117,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "acquisition",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-verify.9kYMa2S6"
+    },
+    {
+      "identity": [
+        34,
+        242130,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "dedup",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-verify.9kYMa2S6"
+    },
+    {
+      "identity": [
+        34,
+        242142,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "sources",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-verify.9kYMa2S6"
+    },
+    {
+      "identity": [
+        34,
+        242159,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "collectors",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-verify.9kYMa2S6"
+    },
+    {
+      "identity": [
+        34,
+        242190,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "repositories",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-verify.9kYMa2S6"
+    },
+    {
+      "identity": [
+        34,
+        242225,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "db",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-verify.9kYMa2S6"
+    },
+    {
+      "identity": [
+        34,
+        242237,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "free_sources",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-verify.9kYMa2S6"
+    },
+    {
+      "identity": [
+        34,
+        242247,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "normalization",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-verify.9kYMa2S6"
+    },
+    {
+      "identity": [
+        34,
+        242260,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "api",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-verify.9kYMa2S6"
+    },
+    {
+      "identity": [
+        34,
+        242275,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "api",
+        "schemas",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-verify.9kYMa2S6"
+    },
+    {
+      "identity": [
+        34,
+        242289,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "deep_evaluation",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-verify.9kYMa2S6"
+    },
+    {
+      "identity": [
+        34,
+        242359,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "mailbox",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-verify.9kYMa2S6"
+    },
+    {
+      "identity": [
+        34,
+        242310,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "mailbox",
+        "parsers",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-verify.9kYMa2S6"
+    },
+    {
+      "identity": [
+        34,
+        242326,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "mailbox",
+        "linkedin_resolution",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-verify.9kYMa2S6"
+    },
+    {
+      "identity": [
+        34,
+        242346,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "mailbox",
+        "detectors",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-verify.9kYMa2S6"
+    },
+    {
+      "identity": [
+        34,
+        242381,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "broker",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-verify.9kYMa2S6"
+    },
+    {
+      "identity": [
+        34,
+        242407,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "discovery",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-verify.9kYMa2S6"
+    },
+    {
+      "identity": [
+        34,
+        242400,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "discovery",
+        "providers",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-verify.9kYMa2S6"
+    },
+    {
+      "identity": [
+        34,
+        242441,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "notifications",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-verify.9kYMa2S6"
+    },
+    {
+      "identity": [
+        34,
+        242458,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "cli",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-verify.9kYMa2S6"
+    },
+    {
+      "identity": [
+        34,
+        242482,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "matching",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-verify.9kYMa2S6"
+    },
+    {
+      "identity": [
+        34,
+        242502,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "domain",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-verify.9kYMa2S6"
+    },
+    {
+      "identity": [
+        34,
+        242543,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "services",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-verify.9kYMa2S6"
+    },
+    {
+      "identity": [
+        34,
+        242855,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "evaluation",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-verify.9kYMa2S6"
+    },
+    {
+      "identity": [
+        34,
+        242595,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "evaluation",
+        "controlled_acquisition",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-verify.9kYMa2S6"
+    },
+    {
+      "identity": [
+        34,
+        242635,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "evaluation",
+        "blind_labeling",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-verify.9kYMa2S6"
+    },
+    {
+      "identity": [
+        34,
+        242663,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "evaluation",
+        "profile_relevance",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-verify.9kYMa2S6"
+    },
+    {
+      "identity": [
+        34,
+        242694,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "evaluation",
+        "cohort_freeze",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-verify.9kYMa2S6"
+    },
+    {
+      "identity": [
+        34,
+        242757,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        "src",
+        "role_radar",
+        "evaluation",
+        "profile_relevant_acquisition",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-verify.9kYMa2S6"
+    },
+    {
+      "identity": [
+        34,
+        247836,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "workspace",
+        "scripts",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-verify.9kYMa2S6"
+    },
+    {
+      "identity": [
+        34,
+        140584,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        ".mypy_cache"
+      ],
+      "root": "role-radar-recheck.cZvZkF4Z"
+    },
+    {
+      "identity": [
+        34,
+        134655,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        ".ruff_cache"
+      ],
+      "root": "role-radar-recheck.cZvZkF4Z"
+    },
+    {
+      "identity": [
+        34,
+        134643,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "work",
+        ".pytest_cache"
+      ],
+      "root": "role-radar-recheck.cZvZkF4Z"
+    },
+    {
+      "identity": [
+        34,
+        134610,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "tests",
+        "__pycache__"
+      ],
+      "root": "role-radar-recheck.cZvZkF4Z"
+    },
+    {
+      "identity": [
+        34,
+        134005,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "tests",
+        "migrations",
+        "__pycache__"
+      ],
+      "root": "role-radar-recheck.cZvZkF4Z"
+    },
+    {
+      "identity": [
+        34,
+        134034,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "tests",
+        "api",
+        "__pycache__"
+      ],
+      "root": "role-radar-recheck.cZvZkF4Z"
+    },
+    {
+      "identity": [
+        34,
+        134163,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "tests",
+        "unit",
+        "__pycache__"
+      ],
+      "root": "role-radar-recheck.cZvZkF4Z"
+    },
+    {
+      "identity": [
+        34,
+        134553,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "tests",
+        "integration",
+        "__pycache__"
+      ],
+      "root": "role-radar-recheck.cZvZkF4Z"
+    },
+    {
+      "identity": [
+        34,
+        134785,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "alembic",
+        "__pycache__"
+      ],
+      "root": "role-radar-recheck.cZvZkF4Z"
+    },
+    {
+      "identity": [
+        34,
+        134755,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "alembic",
+        "versions",
+        "__pycache__"
+      ],
+      "root": "role-radar-recheck.cZvZkF4Z"
+    },
+    {
+      "identity": [
+        34,
+        135293,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "__pycache__"
+      ],
+      "root": "role-radar-recheck.cZvZkF4Z"
+    },
+    {
+      "identity": [
+        34,
+        134831,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "worker",
+        "__pycache__"
+      ],
+      "root": "role-radar-recheck.cZvZkF4Z"
+    },
+    {
+      "identity": [
+        34,
+        134851,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "continuous_acquisition",
+        "__pycache__"
+      ],
+      "root": "role-radar-recheck.cZvZkF4Z"
+    },
+    {
+      "identity": [
+        34,
+        134884,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "extraction",
+        "__pycache__"
+      ],
+      "root": "role-radar-recheck.cZvZkF4Z"
+    },
+    {
+      "identity": [
+        34,
+        134899,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "acquisition",
+        "__pycache__"
+      ],
+      "root": "role-radar-recheck.cZvZkF4Z"
+    },
+    {
+      "identity": [
+        34,
+        134912,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "dedup",
+        "__pycache__"
+      ],
+      "root": "role-radar-recheck.cZvZkF4Z"
+    },
+    {
+      "identity": [
+        34,
+        134924,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "sources",
+        "__pycache__"
+      ],
+      "root": "role-radar-recheck.cZvZkF4Z"
+    },
+    {
+      "identity": [
+        34,
+        134941,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "collectors",
+        "__pycache__"
+      ],
+      "root": "role-radar-recheck.cZvZkF4Z"
+    },
+    {
+      "identity": [
+        34,
+        134972,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "repositories",
+        "__pycache__"
+      ],
+      "root": "role-radar-recheck.cZvZkF4Z"
+    },
+    {
+      "identity": [
+        34,
+        135007,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "db",
+        "__pycache__"
+      ],
+      "root": "role-radar-recheck.cZvZkF4Z"
+    },
+    {
+      "identity": [
+        34,
+        135019,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "free_sources",
+        "__pycache__"
+      ],
+      "root": "role-radar-recheck.cZvZkF4Z"
+    },
+    {
+      "identity": [
+        34,
+        135029,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "normalization",
+        "__pycache__"
+      ],
+      "root": "role-radar-recheck.cZvZkF4Z"
+    },
+    {
+      "identity": [
+        34,
+        135042,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "api",
+        "__pycache__"
+      ],
+      "root": "role-radar-recheck.cZvZkF4Z"
+    },
+    {
+      "identity": [
+        34,
+        135057,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "api",
+        "schemas",
+        "__pycache__"
+      ],
+      "root": "role-radar-recheck.cZvZkF4Z"
+    },
+    {
+      "identity": [
+        34,
+        135071,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "deep_evaluation",
+        "__pycache__"
+      ],
+      "root": "role-radar-recheck.cZvZkF4Z"
+    },
+    {
+      "identity": [
+        34,
+        135141,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "mailbox",
+        "__pycache__"
+      ],
+      "root": "role-radar-recheck.cZvZkF4Z"
+    },
+    {
+      "identity": [
+        34,
+        135092,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "mailbox",
+        "parsers",
+        "__pycache__"
+      ],
+      "root": "role-radar-recheck.cZvZkF4Z"
+    },
+    {
+      "identity": [
+        34,
+        135108,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "mailbox",
+        "linkedin_resolution",
+        "__pycache__"
+      ],
+      "root": "role-radar-recheck.cZvZkF4Z"
+    },
+    {
+      "identity": [
+        34,
+        135128,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "mailbox",
+        "detectors",
+        "__pycache__"
+      ],
+      "root": "role-radar-recheck.cZvZkF4Z"
+    },
+    {
+      "identity": [
+        34,
+        135163,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "broker",
+        "__pycache__"
+      ],
+      "root": "role-radar-recheck.cZvZkF4Z"
+    },
+    {
+      "identity": [
+        34,
+        135189,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "discovery",
+        "__pycache__"
+      ],
+      "root": "role-radar-recheck.cZvZkF4Z"
+    },
+    {
+      "identity": [
+        34,
+        135182,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "discovery",
+        "providers",
+        "__pycache__"
+      ],
+      "root": "role-radar-recheck.cZvZkF4Z"
+    },
+    {
+      "identity": [
+        34,
+        135223,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "notifications",
+        "__pycache__"
+      ],
+      "root": "role-radar-recheck.cZvZkF4Z"
+    },
+    {
+      "identity": [
+        34,
+        135240,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "cli",
+        "__pycache__"
+      ],
+      "root": "role-radar-recheck.cZvZkF4Z"
+    },
+    {
+      "identity": [
+        34,
+        135264,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "matching",
+        "__pycache__"
+      ],
+      "root": "role-radar-recheck.cZvZkF4Z"
+    },
+    {
+      "identity": [
+        34,
+        135284,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "domain",
+        "__pycache__"
+      ],
+      "root": "role-radar-recheck.cZvZkF4Z"
+    },
+    {
+      "identity": [
+        34,
+        135325,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "services",
+        "__pycache__"
+      ],
+      "root": "role-radar-recheck.cZvZkF4Z"
+    },
+    {
+      "identity": [
+        34,
+        135637,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "evaluation",
+        "__pycache__"
+      ],
+      "root": "role-radar-recheck.cZvZkF4Z"
+    },
+    {
+      "identity": [
+        34,
+        135377,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "evaluation",
+        "controlled_acquisition",
+        "__pycache__"
+      ],
+      "root": "role-radar-recheck.cZvZkF4Z"
+    },
+    {
+      "identity": [
+        34,
+        135417,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "evaluation",
+        "blind_labeling",
+        "__pycache__"
+      ],
+      "root": "role-radar-recheck.cZvZkF4Z"
+    },
+    {
+      "identity": [
+        34,
+        135445,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "evaluation",
+        "profile_relevance",
+        "__pycache__"
+      ],
+      "root": "role-radar-recheck.cZvZkF4Z"
+    },
+    {
+      "identity": [
+        34,
+        135476,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "evaluation",
+        "cohort_freeze",
+        "__pycache__"
+      ],
+      "root": "role-radar-recheck.cZvZkF4Z"
+    },
+    {
+      "identity": [
+        34,
+        135539,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "work",
+        "src",
+        "role_radar",
+        "evaluation",
+        "profile_relevant_acquisition",
+        "__pycache__"
+      ],
+      "root": "role-radar-recheck.cZvZkF4Z"
+    },
+    {
+      "identity": [
+        34,
+        140616,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "work",
+        "scripts",
+        "__pycache__"
+      ],
+      "root": "role-radar-recheck.cZvZkF4Z"
+    },
+    {
+      "identity": [
+        34,
+        269569,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "probes.QvDX6ym7",
+        "workspace",
+        ".mypy_cache"
+      ],
+      "root": "role-radar-aa05-review-mvx3jcao"
+    },
+    {
+      "identity": [
+        34,
+        263561,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "probes.QvDX6ym7",
+        "workspace",
+        ".ruff_cache"
+      ],
+      "root": "role-radar-aa05-review-mvx3jcao"
+    },
+    {
+      "identity": [
+        34,
+        263549,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "probes.QvDX6ym7",
+        "workspace",
+        ".pytest_cache"
+      ],
+      "root": "role-radar-aa05-review-mvx3jcao"
+    },
+    {
+      "identity": [
+        34,
+        263516,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "probes.QvDX6ym7",
+        "workspace",
+        "tests",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-review-mvx3jcao"
+    },
+    {
+      "identity": [
+        34,
+        262911,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "probes.QvDX6ym7",
+        "workspace",
+        "tests",
+        "migrations",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-review-mvx3jcao"
+    },
+    {
+      "identity": [
+        34,
+        262940,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "probes.QvDX6ym7",
+        "workspace",
+        "tests",
+        "api",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-review-mvx3jcao"
+    },
+    {
+      "identity": [
+        34,
+        263069,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "probes.QvDX6ym7",
+        "workspace",
+        "tests",
+        "unit",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-review-mvx3jcao"
+    },
+    {
+      "identity": [
+        34,
+        263459,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "probes.QvDX6ym7",
+        "workspace",
+        "tests",
+        "integration",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-review-mvx3jcao"
+    },
+    {
+      "identity": [
+        34,
+        263691,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "probes.QvDX6ym7",
+        "workspace",
+        "alembic",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-review-mvx3jcao"
+    },
+    {
+      "identity": [
+        34,
+        263661,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "probes.QvDX6ym7",
+        "workspace",
+        "alembic",
+        "versions",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-review-mvx3jcao"
+    },
+    {
+      "identity": [
+        34,
+        264199,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "probes.QvDX6ym7",
+        "workspace",
+        "src",
+        "role_radar",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-review-mvx3jcao"
+    },
+    {
+      "identity": [
+        34,
+        263737,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "probes.QvDX6ym7",
+        "workspace",
+        "src",
+        "role_radar",
+        "worker",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-review-mvx3jcao"
+    },
+    {
+      "identity": [
+        34,
+        263757,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "probes.QvDX6ym7",
+        "workspace",
+        "src",
+        "role_radar",
+        "continuous_acquisition",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-review-mvx3jcao"
+    },
+    {
+      "identity": [
+        34,
+        263790,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "probes.QvDX6ym7",
+        "workspace",
+        "src",
+        "role_radar",
+        "extraction",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-review-mvx3jcao"
+    },
+    {
+      "identity": [
+        34,
+        263805,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "probes.QvDX6ym7",
+        "workspace",
+        "src",
+        "role_radar",
+        "acquisition",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-review-mvx3jcao"
+    },
+    {
+      "identity": [
+        34,
+        263818,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "probes.QvDX6ym7",
+        "workspace",
+        "src",
+        "role_radar",
+        "dedup",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-review-mvx3jcao"
+    },
+    {
+      "identity": [
+        34,
+        263830,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "probes.QvDX6ym7",
+        "workspace",
+        "src",
+        "role_radar",
+        "sources",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-review-mvx3jcao"
+    },
+    {
+      "identity": [
+        34,
+        263847,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "probes.QvDX6ym7",
+        "workspace",
+        "src",
+        "role_radar",
+        "collectors",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-review-mvx3jcao"
+    },
+    {
+      "identity": [
+        34,
+        263878,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "probes.QvDX6ym7",
+        "workspace",
+        "src",
+        "role_radar",
+        "repositories",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-review-mvx3jcao"
+    },
+    {
+      "identity": [
+        34,
+        263913,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "probes.QvDX6ym7",
+        "workspace",
+        "src",
+        "role_radar",
+        "db",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-review-mvx3jcao"
+    },
+    {
+      "identity": [
+        34,
+        263925,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "probes.QvDX6ym7",
+        "workspace",
+        "src",
+        "role_radar",
+        "free_sources",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-review-mvx3jcao"
+    },
+    {
+      "identity": [
+        34,
+        263935,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "probes.QvDX6ym7",
+        "workspace",
+        "src",
+        "role_radar",
+        "normalization",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-review-mvx3jcao"
+    },
+    {
+      "identity": [
+        34,
+        263948,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "probes.QvDX6ym7",
+        "workspace",
+        "src",
+        "role_radar",
+        "api",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-review-mvx3jcao"
+    },
+    {
+      "identity": [
+        34,
+        263963,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "probes.QvDX6ym7",
+        "workspace",
+        "src",
+        "role_radar",
+        "api",
+        "schemas",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-review-mvx3jcao"
+    },
+    {
+      "identity": [
+        34,
+        263977,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "probes.QvDX6ym7",
+        "workspace",
+        "src",
+        "role_radar",
+        "deep_evaluation",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-review-mvx3jcao"
+    },
+    {
+      "identity": [
+        34,
+        264047,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "probes.QvDX6ym7",
+        "workspace",
+        "src",
+        "role_radar",
+        "mailbox",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-review-mvx3jcao"
+    },
+    {
+      "identity": [
+        34,
+        263998,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "probes.QvDX6ym7",
+        "workspace",
+        "src",
+        "role_radar",
+        "mailbox",
+        "parsers",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-review-mvx3jcao"
+    },
+    {
+      "identity": [
+        34,
+        264014,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "probes.QvDX6ym7",
+        "workspace",
+        "src",
+        "role_radar",
+        "mailbox",
+        "linkedin_resolution",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-review-mvx3jcao"
+    },
+    {
+      "identity": [
+        34,
+        264034,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "probes.QvDX6ym7",
+        "workspace",
+        "src",
+        "role_radar",
+        "mailbox",
+        "detectors",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-review-mvx3jcao"
+    },
+    {
+      "identity": [
+        34,
+        264069,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "probes.QvDX6ym7",
+        "workspace",
+        "src",
+        "role_radar",
+        "broker",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-review-mvx3jcao"
+    },
+    {
+      "identity": [
+        34,
+        264095,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "probes.QvDX6ym7",
+        "workspace",
+        "src",
+        "role_radar",
+        "discovery",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-review-mvx3jcao"
+    },
+    {
+      "identity": [
+        34,
+        264088,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "probes.QvDX6ym7",
+        "workspace",
+        "src",
+        "role_radar",
+        "discovery",
+        "providers",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-review-mvx3jcao"
+    },
+    {
+      "identity": [
+        34,
+        264129,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "probes.QvDX6ym7",
+        "workspace",
+        "src",
+        "role_radar",
+        "notifications",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-review-mvx3jcao"
+    },
+    {
+      "identity": [
+        34,
+        264146,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "probes.QvDX6ym7",
+        "workspace",
+        "src",
+        "role_radar",
+        "cli",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-review-mvx3jcao"
+    },
+    {
+      "identity": [
+        34,
+        264170,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "probes.QvDX6ym7",
+        "workspace",
+        "src",
+        "role_radar",
+        "matching",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-review-mvx3jcao"
+    },
+    {
+      "identity": [
+        34,
+        264190,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "probes.QvDX6ym7",
+        "workspace",
+        "src",
+        "role_radar",
+        "domain",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-review-mvx3jcao"
+    },
+    {
+      "identity": [
+        34,
+        264231,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "probes.QvDX6ym7",
+        "workspace",
+        "src",
+        "role_radar",
+        "services",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-review-mvx3jcao"
+    },
+    {
+      "identity": [
+        34,
+        264543,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "probes.QvDX6ym7",
+        "workspace",
+        "src",
+        "role_radar",
+        "evaluation",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-review-mvx3jcao"
+    },
+    {
+      "identity": [
+        34,
+        264283,
+        1000,
+        1000,
+        448
+      ],
+      "parts": [
+        "probes.QvDX6ym7",
+        "workspace",
+        "src",
+        "role_radar",
+        "evaluation",
+        "controlled_acquisition",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-review-mvx3jcao"
+    },
+    {
+      "identity": [
+        34,
+        264323,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "probes.QvDX6ym7",
+        "workspace",
+        "src",
+        "role_radar",
+        "evaluation",
+        "blind_labeling",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-review-mvx3jcao"
+    },
+    {
+      "identity": [
+        34,
+        264351,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "probes.QvDX6ym7",
+        "workspace",
+        "src",
+        "role_radar",
+        "evaluation",
+        "profile_relevance",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-review-mvx3jcao"
+    },
+    {
+      "identity": [
+        34,
+        264382,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "probes.QvDX6ym7",
+        "workspace",
+        "src",
+        "role_radar",
+        "evaluation",
+        "cohort_freeze",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-review-mvx3jcao"
+    },
+    {
+      "identity": [
+        34,
+        264445,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "probes.QvDX6ym7",
+        "workspace",
+        "src",
+        "role_radar",
+        "evaluation",
+        "profile_relevant_acquisition",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-review-mvx3jcao"
+    },
+    {
+      "identity": [
+        34,
+        269601,
+        1000,
+        1000,
+        509
+      ],
+      "parts": [
+        "probes.QvDX6ym7",
+        "workspace",
+        "scripts",
+        "__pycache__"
+      ],
+      "root": "role-radar-aa05-review-mvx3jcao"
+    }
+  ],
+  "process_denials": 0,
+  "process_references": 0,
+  "roots": {
+    "role-radar-aa05-full-suite": [
+      34,
+      258519,
+      1000,
+      1000,
+      448
+    ],
+    "role-radar-aa05-review-mvx3jcao": [
+      34,
+      261902,
+      1000,
+      1000,
+      509
+    ],
+    "role-radar-aa05-verify.9kYMa2S6": [
+      34,
+      240206,
+      1000,
+      1000,
+      448
+    ],
+    "role-radar-recheck.cZvZkF4Z": [
+      34,
+      132999,
+      1000,
+      1000,
+      448
+    ],
+    "rr-install-verify.RetShI": [
+      34,
+      600727,
+      1000,
+      1000,
+      448
+    ],
+    "rr-installer-independent.SWkwhs": [
+      34,
+      623356,
+      1000,
+      1000,
+      448
+    ],
+    "rr-installer-recheck.6s0xCu": [
+      34,
+      640268,
+      1000,
+      1000,
+      448
+    ],
+    "rr-l25-verify.7hROej": [
+      34,
+      581759,
+      1000,
+      1000,
+      448
+    ],
+    "rr-parser-verify.lrmOjh": [
+      34,
+      532618,
+      1000,
+      1000,
+      448
+    ]
+  },
+  "schema_version": 1,
+  "scope": "generated cache leaves only; user conditional cleanup L10"
+}

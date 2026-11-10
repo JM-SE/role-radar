@@ -4,6 +4,7 @@ Description=Enqueue latest role-radar scheduled slot
 [Service]
 Type=oneshot
 User=ROLE_RADAR_USER
+SupplementaryGroups=role-radar
 WorkingDirectory=/ROLE_RADAR_APP_DIR
 EnvironmentFile=/etc/role-radar/role-radar.env
 Environment=PATH=/ROLE_RADAR_APP_DIR/.venv/bin:/usr/bin

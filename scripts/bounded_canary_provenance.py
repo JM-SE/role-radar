@@ -32,10 +32,18 @@ SOURCE_PATHS = (
     "src/role_radar/broker/consumer-compat/v1/structured-extraction.json",
     "scripts/canary_supervisor.py",
     "src/role_radar/config.py",
+    "src/role_radar/main.py",
+    "src/role_radar/execution_fence.py",
+    "src/role_radar/fence_runtime.py",
+    "src/role_radar/fence_release.py",
+    "src/role_radar/api/fence_attestation.py",
+    "scripts/bounded_canary_supervision.py",
+    "scripts/bounded_canary_bounded_io.py",
+    "scripts/bounded_canary_api_attestation.py",
 )
 EXPECTED_HASHES = dict((
-    ("src/role_radar/cli/main.py", "9899763647e64e0a0b62e48f87d20c4b"
-     "ce19716d565bc04e469464d47166a3d9"),
+    ("src/role_radar/cli/main.py", "3ee61f8455936b38aef14d3fa0dbdff2"
+     "640aedb96c2edae3b17bf799491b205e"),
     ("src/role_radar/worker/main.py", "8d4a9d5f542468c2057d27242209c4b9"
      "6aec9dba92b4d82d6e6de11a95ef66b9"),
     ("src/role_radar/worker/runner.py", "44bcd7d59a25ddb6d737dc3e368fc0ff"
@@ -46,8 +54,8 @@ EXPECTED_HASHES = dict((
      "68794d3b4831bc26a208b06a1cc4c9da"),
     ("src/role_radar/execution_budget.py", "6ee12af78b8313f2640ff4ec98e8d4fd"
      "9274813a88319ed27ff0f1da434bdc4f"),
-    ("src/role_radar/repositories/runs.py", "627ef6a1163ddf465f3ac719ddad0982"
-     "10b0d41a6a24fea21864017b643cf1bb"),
+    ("src/role_radar/repositories/runs.py", "aeea186c52d0408d83d6e11d89997143"
+     "9276b6ce6b7d569403dce73d2609ec63"),
     ("src/role_radar/services/eligibility_reprocessing.py", "0b0bdf1b0f3700082da24d5e30d85874"
      "3cabbfdb4dd139d1a7bae493a0076d7b"),
     ("src/role_radar/acquisition/discovery_policy.py", "e7bd9c2072e9d9c7ca4f26db51538382"
@@ -74,6 +82,14 @@ EXPECTED_HASHES = dict((
      "214e9925b241f059c85b1f0d205e89de"),
     ("src/role_radar/config.py", "b500b7f624fb5915d6d90139c3b3d69f"
      "f3fa3ec08b2450bfbefda914022c4bf2"),
+    ("src/role_radar/main.py", "05f771121a9290ed26c8f5eb3a1f2ee4ef44df1772a4d58259dcec69434c858a"),
+    ("src/role_radar/execution_fence.py", "ad49bf1b9c105f617637c32fdc250967b7d0e089bbe84f805610da6edfbe139d"),
+    ("src/role_radar/fence_runtime.py", "0a40d092b181f58916b7ef64cf7b73d29d8ee8ebd1c3b7ffce35277d61c07a02"),
+    ("src/role_radar/fence_release.py", "5498bebc52d1549326abccf6ba385539f6c16c524b3f2fa0c5def5e9184c68a7"),
+    ("src/role_radar/api/fence_attestation.py", "cceb4bf02776792067ceccc4ad0ccf0efaaac3fc5d6e21278feeac03923a53fa"),
+    ("scripts/bounded_canary_supervision.py", "f3e7cbb828a41f268489fb372a643f1dfccd8a9490ebb54b6366513b7792d423"),
+    ("scripts/bounded_canary_bounded_io.py", "92f7cc54936f2d40481d4bbd69473dea5b9316e13dd92ef5a2515dbf06f02c40"),
+    ("scripts/bounded_canary_api_attestation.py", "7d712746b0a6711b7b4e3f34eedfbdb9e1729c18ab58b9f2d04f6ca70149ff9a"),
 ))
 EXACT_MODES = {
     "src/role_radar/discovery/contracts.py": 0o664,
@@ -192,7 +208,7 @@ def verify_sources(fs=None, pins=None):
 
 def main(argv=None, *, fs=None, pins=None):
     parser = argparse.ArgumentParser(
-        description="Read-only gate for 20 declared critical paths; not overall readiness."
+        description="Read-only gate for declared critical paths; not overall readiness."
     )
     argv = sys.argv[1:] if argv is None else argv
     if argv and argv not in (["--help"], ["-h"]):
